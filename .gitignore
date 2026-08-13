@@ -26,3 +26,10 @@ build/
 
 # Logs
 *.log
+
+# Python virtual environment
+.venv/
+
+# Raw data files (large ZIPs and CSVs)
+Sprint-0-Tasks/Electricity Demand Data Investigation/raw/
+Sprint-0-Tasks/Electricity Demand Data Investigation/*.csv
