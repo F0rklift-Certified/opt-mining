@@ -169,11 +169,27 @@ Key reference: https://aemo.com.au/energy-systems/electricity/national-electrici
 | Operational vs. Total demand | "Operational demand" excludes rooftop PV generation; actual total consumption is higher | Low | Document the definition clearly. For site suitability purposes, operational demand is the relevant metric (represents grid-served load that new generation can supply). | Documented |
 | Region naming consistency | Region IDs (NSW1, QLD1, etc.) are standard AEMO identifiers | Low | Should be consistent with infrastructure data (Task 3). Verify during integration (Task 5). | Pending verification |
 
+**Methodological distinction — regional demand vs. cell-level demand indicator:**
+
+This dataset provides **regional AEMO operational demand** — a single aggregate demand value for each of 5 NEM regions, reported at half-hourly resolution. This is fundamentally different from what the platform will ultimately need: a **per-cell demand indicator** at ~5 km resolution.
+
+The two must not be conflated:
+
+| Concept | What it is | What it is NOT |
+|---------|-----------|---------------|
+| **Regional operational demand** (this dataset) | Aggregate electricity demand across an entire NEM region (e.g. all of NSW), measured at the transmission level | A measure of local electricity consumption at any specific location |
+| **Cell-level demand indicator** (future — Task 5) | An estimated/proxy value representing relative demand intensity at a ~5 km grid cell, derived via spatial allocation | Actual local electricity consumption; it is an estimate based on a spatial proxy |
+
+The cell-level demand indicator will be derived by applying a spatial allocation proxy (e.g. population weighting) to distribute the regional demand total across grid cells. **The resulting cell-level values are estimated local demand indicators, not actual local consumption.** This distinction must be preserved in all downstream labelling, documentation, and user-facing outputs.
+
+The regional demand data from this task serves as the input to that spatial allocation process. It does not, by itself, provide spatially resolved demand information.
+
 **Additional considerations:**
-- **Demand allocation problem:** The key challenge is converting 5 regional demand values into demand estimates for ~5 km grid cells. Options include population-weighted allocation, proportional to substation capacity, or distance-based decay from load centres. This is addressed in Task 5.
+- **Demand allocation problem:** The key challenge is converting 5 regional demand values into demand estimates for ~5 km grid cells. Options include population-weighted allocation, proportional to substation capacity, or distance-based decay from load centres. This is addressed in Task 5. Whichever proxy is chosen, the resulting values must be clearly labelled as estimated/proxy demand indicators.
 - **COVID anomalies:** The sample period (Jul 2025 – Jun 2026) is post-COVID and reflects current demand patterns. If extending to 3–5 years, the 2020–2021 period had reduced demand; consider excluding or noting.
 - **Extreme events:** Summer peaks (Jan 2026: NSW max 13,182 MW, VIC max 10,736 MW) reflect heatwave conditions. These are valid data points, not outliers.
 - **Temporal alignment with wind data:** Wind resource data (Global Wind Atlas) is a long-term climatological mean. Demand data is historical actuals. Both will be aggregated to annual/seasonal summaries for the scoring model, which makes them compatible for screening purposes.
+- **Data provenance:** See `DATA_PROVENANCE.md` for a concise standalone record of source, licence, units, period, assumptions and limitations.
 
 ---
 
@@ -194,14 +210,22 @@ Key reference: https://aemo.com.au/energy-systems/electricity/national-electrici
 - **Secondary indicators:** Peak demand (annual max), seasonal mean (summer/winter), demand variability (std dev)
 - **For MVP screening:** Annual mean is sufficient. It provides a stable, easily interpreted ranking of regional demand magnitude.
 
-### Spatial allocation options (deferred to Task 5)
+### Spatial Allocation Methodology (Future — Task 5)
 
-Regional demand must be allocated to grid cells. The main options are:
-1. **Population weighting** — allocate proportionally to population density per cell (requires ABS population grid data)
-2. **Load-centre proximity** — weight by inverse distance to major substations/load centres
-3. **Flat allocation** — assign uniform demand across all cells in a region (simplest but least realistic)
+Regional demand must be allocated to grid cells to produce a per-cell demand indicator. **The resulting cell-level values are estimated/proxy local demand indicators — they do not represent actual local electricity consumption.**
 
-Population weighting is the most defensible proxy and is recommended. ABS provides gridded population data (Census, Estimated Resident Population).
+The main proxy options are:
+1. **Population weighting** (recommended) — allocate proportionally to population density per cell (requires ABS population grid data). Rationale: population density correlates with electricity consumption patterns at the regional level.
+2. **Load-centre proximity** — weight by inverse distance to major substations/load centres. More infrastructure-aware but requires accurate substation location data.
+3. **Flat allocation** — assign uniform demand across all cells in a region (simplest but least realistic; not recommended).
+
+Population weighting is the most defensible spatial proxy for an initial implementation. ABS provides gridded population data (Census, Estimated Resident Population).
+
+**Defensibility requirements for the chosen proxy:**
+- The proxy method and its rationale must be documented
+- Cell-level values must be labelled as "estimated demand indicator" (not "demand" or "consumption")
+- The correlation between the proxy (e.g. population) and actual demand patterns should be assessed and documented
+- Limitations of the proxy (e.g. industrial load not captured by population) must be stated
 
 ### Recommended years
 
@@ -217,15 +241,18 @@ Population weighting is the most defensible proxy and is recommended. ABS provid
 
 ### Interpretation of the demand indicator
 
-The "demand indicator" for a grid cell tells a planner: *"How much electricity demand exists in this area that new wind generation could serve?"* Higher demand regions are generally more attractive because:
-- New generation can serve local load, reducing transmission needs
-- Connection to high-demand areas suggests infrastructure capacity
+The "demand indicator" for a grid cell tells a planner: *"How much electricity demand is estimated to exist in this area, relative to other areas, that new wind generation could serve?"* Higher demand areas are generally more attractive because:
+- New generation can serve proximate load, reducing transmission needs
+- Proximity to high-demand areas suggests existing infrastructure capacity
 - Revenue potential correlates with demand proximity
 
-It does NOT indicate:
-- Actual consumption at the specific cell
+**The demand indicator is an estimated relative value, not an absolute measure.** It does NOT indicate:
+- Actual electricity consumption at the specific cell location
 - Whether local grid capacity exists to connect new generation
 - Future demand growth or decline
+- The exact MW demand at that point
+
+This distinction is critical: the regional AEMO operational demand data (this task) provides the aggregate input, and the spatial allocation proxy (Task 5) distributes it to cells as an estimate. Both steps must be documented wherever results are presented.
 
 ---
 
@@ -252,6 +279,8 @@ It does NOT indicate:
 - OpenNEM (community visualisation of AEMO data): https://opennem.org.au/
 - NEM Regions Explained: https://aemo.com.au/learn/electricity-markets/national-electricity-market
 - Product Knowledge Base: see `Opt-Mining - Product Knowledge Base.md`
-- Inspection summary: see `DATA/electricity-demand/inspection_summary.txt`
-- Download script: see `scripts/download_aemo_demand.py`
-- Inspection script: see `scripts/inspect_demand_data.py`
+- Data Provenance: see `DATA_PROVENANCE.md`
+- Inspection summary: see `inspection_summary.txt`
+- Download script: see `download_aemo_demand.py`
+- Validation script: see `validate_demand_data.py`
+- Inspection script: see `inspect_demand_data.py`
