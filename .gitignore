@@ -10,6 +10,9 @@
 *.swp
 *.swo
 
+# Kiro
+.kiro/
+
 # Environment
 .env
 .env.*
