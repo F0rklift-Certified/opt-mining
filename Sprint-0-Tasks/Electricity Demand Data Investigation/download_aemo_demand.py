@@ -6,47 +6,90 @@ archive and current directories, extracts the CSVs, and concatenates them into
 a single consolidated file for analysis.
 
 Target: Operational_Demand/ACTUAL_DAILY/ — one file per day, all NEM regions.
-Covers: Calendar year 2025 (Jan–Dec) as the primary sample.
+
+Usage:
+  python download_aemo_demand.py --start-date 2025-07-01 --end-date 2026-06-30
+  python download_aemo_demand.py  # defaults to 2025-07-01 to 2026-06-30
 
 Output:
-  - Raw ZIPs:  DATA/electricity-demand/raw/
-  - Consolidated CSV: DATA/electricity-demand/aemo_operational_demand_daily_2025.csv
+  - Raw ZIPs:  raw/
+  - Consolidated CSV: aemo_operational_demand_YYYYMMDD_YYYYMMDD.csv
 
 Source: https://nemweb.com.au/Reports/
 Licence: AEMO public data — free to use with attribution.
 """
 
+import argparse
 import io
 import os
 import re
 import sys
 import time
 import zipfile
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 import requests
 
 # --- Configuration ---
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "DATA" / "electricity-demand"
-RAW_DIR = DATA_DIR / "raw"
-OUTPUT_CSV = DATA_DIR / "aemo_operational_demand_daily_2025.csv"
+BASE_DIR = Path(__file__).resolve().parent
+RAW_DIR = BASE_DIR / "raw"
 
 # NEMWeb URLs
 ARCHIVE_URL = "https://nemweb.com.au/Reports/Archive/Operational_Demand/ACTUAL_DAILY/"
 CURRENT_URL = "https://nemweb.com.au/Reports/Current/Operational_Demand/ACTUAL_DAILY/"
-
-# Date range for sample (calendar year 2025)
-YEAR = 2025
-START_DATE = f"{YEAR}0101"
-END_DATE = f"{YEAR}1231"
 
 # Request settings
 TIMEOUT = 30
 RETRY_ATTEMPTS = 3
 RETRY_DELAY = 5  # seconds
 REQUEST_DELAY = 0.5  # polite delay between downloads
+
+# Default date range
+DEFAULT_START_DATE = "2025-07-01"
+DEFAULT_END_DATE = "2026-06-30"
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Download AEMO NEM Operational Demand data.",
+        epilog=(
+            "Example:\n"
+            "  python download_aemo_demand.py --start-date 2023-07-01 --end-date 2026-06-30\n"
+            "  python download_aemo_demand.py  # uses defaults (2025-07-01 to 2026-06-30)"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--start-date",
+        type=str,
+        default=DEFAULT_START_DATE,
+        help=f"Start date in YYYY-MM-DD format (default: {DEFAULT_START_DATE})",
+    )
+    parser.add_argument(
+        "--end-date",
+        type=str,
+        default=DEFAULT_END_DATE,
+        help=f"End date in YYYY-MM-DD format (default: {DEFAULT_END_DATE})",
+    )
+    return parser.parse_args()
+
+
+def validate_date(date_str: str, label: str) -> str:
+    """Validate a date string and return it in YYYYMMDD format for filename filtering."""
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        print(f"ERROR: Invalid {label} format: '{date_str}'. Expected YYYY-MM-DD.")
+        sys.exit(1)
+    return dt.strftime("%Y%m%d")
+
+
+def get_output_csv_path(start_yyyymmdd: str, end_yyyymmdd: str) -> Path:
+    """Generate the output CSV path based on the date range."""
+    return BASE_DIR / f"aemo_operational_demand_{start_yyyymmdd}_{end_yyyymmdd}.csv"
 
 
 def get_file_list(index_url: str) -> list[str]:
@@ -56,8 +99,8 @@ def get_file_list(index_url: str) -> list[str]:
     response.raise_for_status()
 
     # NEMWeb uses simple HTML directory listings with filenames in the text
-    # Pattern: PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_YYYYMMDD_*.zip
-    pattern = r'(PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_\d{8}_\d+\.zip)'
+    # Pattern: PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_YYYYMMDD*.zip
+    pattern = r'(PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_\d{8}[^"]*\.zip)'
     files = re.findall(pattern, response.text, re.IGNORECASE)
     return sorted(set(files))
 
@@ -66,8 +109,8 @@ def filter_files_by_date(files: list[str], start: str, end: str) -> list[str]:
     """Filter file list to those within the target date range."""
     filtered = []
     for f in files:
-        # Extract date from filename: PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_YYYYMMDD_...
-        match = re.search(r'DAILY_(\d{8})_', f, re.IGNORECASE)
+        # Extract date from filename: PUBLIC_ACTUAL_OPERATIONAL_DEMAND_DAILY_YYYYMMDD...
+        match = re.search(r'DAILY_(\d{8})', f, re.IGNORECASE)
         if match:
             file_date = match.group(1)
             if start <= file_date <= end:
@@ -185,10 +228,22 @@ def parse_aemo_csv(file_obj) -> pd.DataFrame | None:
 
 def main():
     """Main download and consolidation workflow."""
+    args = parse_args()
+
+    # Validate dates
+    start_yyyymmdd = validate_date(args.start_date, "start-date")
+    end_yyyymmdd = validate_date(args.end_date, "end-date")
+
+    if start_yyyymmdd >= end_yyyymmdd:
+        print(f"ERROR: --start-date ({args.start_date}) must be before --end-date ({args.end_date}).")
+        sys.exit(1)
+
+    output_csv = get_output_csv_path(start_yyyymmdd, end_yyyymmdd)
+
     print("=" * 70)
     print("AEMO NEM Operational Demand Data Download")
-    print(f"Target: Calendar Year {YEAR}")
-    print(f"Output: {OUTPUT_CSV}")
+    print(f"Date range: {args.start_date} to {args.end_date}")
+    print(f"Output: {output_csv}")
     print("=" * 70)
 
     # Ensure directories exist
@@ -202,7 +257,7 @@ def main():
     # Try Archive first (has older data)
     try:
         archive_files = get_file_list(ARCHIVE_URL)
-        archive_filtered = filter_files_by_date(archive_files, START_DATE, END_DATE)
+        archive_filtered = filter_files_by_date(archive_files, start_yyyymmdd, end_yyyymmdd)
         print(f"  Archive: {len(archive_filtered)} files in date range (of {len(archive_files)} total)")
         for f in archive_filtered:
             all_files[f] = ARCHIVE_URL
@@ -212,7 +267,7 @@ def main():
     # Also check Current (has recent data)
     try:
         current_files = get_file_list(CURRENT_URL)
-        current_filtered = filter_files_by_date(current_files, START_DATE, END_DATE)
+        current_filtered = filter_files_by_date(current_files, start_yyyymmdd, end_yyyymmdd)
         print(f"  Current: {len(current_filtered)} files in date range (of {len(current_files)} total)")
         for f in current_filtered:
             if f not in all_files:  # Don't override archive with current
@@ -275,17 +330,18 @@ def main():
     print(f"  Columns: {list(combined.columns)}")
 
     # Step 4: Save
-    print(f"\n[4/4] Saving to {OUTPUT_CSV}...")
-    combined.to_csv(OUTPUT_CSV, index=False)
-    file_size_mb = OUTPUT_CSV.stat().st_size / (1024 * 1024)
+    print(f"\n[4/4] Saving to {output_csv}...")
+    combined.to_csv(output_csv, index=False)
+    file_size_mb = output_csv.stat().st_size / (1024 * 1024)
     print(f"  Saved: {file_size_mb:.2f} MB")
 
     # Summary
     print("\n" + "=" * 70)
     print("DOWNLOAD COMPLETE")
+    print(f"  Date range: {args.start_date} to {args.end_date}")
     print(f"  Rows: {len(combined):,}")
     print(f"  Columns: {combined.shape[1]}")
-    print(f"  File: {OUTPUT_CSV}")
+    print(f"  File: {output_csv}")
     print(f"  Size: {file_size_mb:.2f} MB")
     print("=" * 70)
 
