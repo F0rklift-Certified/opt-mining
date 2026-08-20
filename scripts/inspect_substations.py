@@ -22,6 +22,8 @@ def main() -> None:
     ]
     nsw = {**collection, "name": "Geoscience Australia Substations 2026 — NSW"}
     nsw["features"] = nsw_features
+    NSW.parent.mkdir(parents=True, exist_ok=True)
+    REPORT.parent.mkdir(parents=True, exist_ok=True)
     NSW.write_text(json.dumps(nsw, separators=(",", ":")), encoding="utf-8")
 
     fields = sorted({key for feature in features for key in feature["properties"]})
