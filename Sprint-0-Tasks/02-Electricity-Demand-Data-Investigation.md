@@ -101,7 +101,7 @@ Key reference: https://aemo.com.au/energy-systems/electricity/national-electrici
 
 **Naming convention used:** `aemo_operational_demand_daily_YYYY.csv` where YYYY indicates the primary year of coverage.
 
-**Note:** The Archive at nemweb.com.au contains monthly files going back further. To obtain 3–5 full years, download additional months from the Archive. The same script (`scripts/download_aemo_demand.py`) can be adapted to fetch earlier periods.
+**Note:** The Archive at nemweb.com.au contains monthly files going back further. To obtain 3–5 full years, download additional months from the Archive. The same module (`pipeline/demand/download.py`) can be adapted to fetch earlier periods.
 
 ---
 
@@ -189,7 +189,7 @@ The regional demand data from this task serves as the input to that spatial allo
 - **COVID anomalies:** The sample period (Jul 2025 – Jun 2026) is post-COVID and reflects current demand patterns. If extending to 3–5 years, the 2020–2021 period had reduced demand; consider excluding or noting.
 - **Extreme events:** Summer peaks (Jan 2026: NSW max 13,182 MW, VIC max 10,736 MW) reflect heatwave conditions. These are valid data points, not outliers.
 - **Temporal alignment with wind data:** Wind resource data (Global Wind Atlas) is a long-term climatological mean. Demand data is historical actuals. Both will be aggregated to annual/seasonal summaries for the scoring model, which makes them compatible for screening purposes.
-- **Data provenance:** See `DATA_PROVENANCE.md` for a concise standalone record of source, licence, units, period, assumptions and limitations.
+- **Data provenance:** See `demand_annual_summary.meta.json` for a concise standalone record of source, licence, units, period, assumptions and limitations.
 
 ---
 
@@ -279,8 +279,19 @@ This distinction is critical: the regional AEMO operational demand data (this ta
 - OpenNEM (community visualisation of AEMO data): https://opennem.org.au/
 - NEM Regions Explained: https://aemo.com.au/learn/electricity-markets/national-electricity-market
 - Product Knowledge Base: see `Opt-Mining - Product Knowledge Base.md`
-- Data Provenance: see `DATA_PROVENANCE.md`
+- Data Provenance: see `demand_annual_summary.meta.json`
 - Inspection summary: see `inspection_summary.txt`
-- Download script: see `download_aemo_demand.py`
-- Validation script: see `validate_demand_data.py`
-- Inspection script: see `inspect_demand_data.py`
+- Download module: see `pipeline/demand/download.py`
+- Validation module: see `pipeline/demand/validate.py`
+- Inspection module: see `pipeline/demand/inspect.py`
+- Aggregation module: see `pipeline/demand/aggregate.py`
+
+**Reproduce:**
+
+```bash
+# Full demand pipeline
+python -m pipeline --only demand
+
+# Or run as a standalone sub-pipeline
+python -m pipeline.demand --start-date 2025-07-01 --end-date 2026-06-30
+```
