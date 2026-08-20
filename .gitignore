@@ -44,6 +44,10 @@ Sprint-0-Tasks/Electricity Demand Data Investigation/*.csv
 DATA/wind-resource/raw/
 DATA/wind-resource/**/*_australia.tif
 
+# Electricity demand: raw monthly AEMO ZIP archives (~nested zips of CSVs).
+# Derived summaries are small and committed; raw downloads are reproducible.
+DATA/electricity-demand/raw/
+
 # Geographic: raw national archives (ABARES NLUM zip ~64 MB; any DEM tile
 # downloads). Committed samples are small window clips and extracts; national
 # rasters are read over /vsicurl/ or /vsizip/ from raw/ and never committed.
