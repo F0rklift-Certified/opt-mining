@@ -37,3 +37,16 @@ build/
 # Raw data files (large ZIPs and CSVs)
 Sprint-0-Tasks/Electricity Demand Data Investigation/raw/
 Sprint-0-Tasks/Electricity Demand Data Investigation/*.csv
+
+# Wind resource: full-country Global Wind Atlas rasters (~600 MB each, exceed
+# GitHub's file limit). Committed samples are small clips; the full rasters are
+# read over /vsicurl/ and never stored. See DATA/wind-resource/DATA_PROVENANCE.md
+DATA/wind-resource/raw/
+DATA/wind-resource/**/*_australia.tif
+
+# Geographic: raw national archives (ABARES NLUM zip ~64 MB; any DEM tile
+# downloads). Committed samples are small window clips and extracts; national
+# rasters are read over /vsicurl/ or /vsizip/ from raw/ and never committed.
+# See DATA/geographic/DATA_PROVENANCE.md
+DATA/geographic/raw/
+DATA/geographic/**/*_national.tif
