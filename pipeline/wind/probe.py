@@ -1,70 +1,50 @@
 """
-Probe which Global Wind Atlas layers are available through the per-country API.
+Wind probe stage — discover which Global Wind Atlas layers are available.
 
-The Product Knowledge Base assumed the Atlas would supply roughness and
-orography. It does not, and finding out which layers are actually reachable
-required probing every variable/height combination rather than reading the
-documentation. This script records that result so the availability table in the
-Task 1 document is reproducible instead of hand-typed.
+Probes the GWA per-country API via HTTP HEAD (no raster data transferred)
+and writes a layer availability report.
 
-The probe uses HTTP HEAD only — it reads response headers and transfers no
-raster data.
+Importable entry point:
+    from pipeline.wind.probe import run
+    result = run(verbose=False)
 
-Usage:
-  python scripts/probe_gwa_layers.py
-
-Output: DATA/wind-resource/metadata/layer_availability.md
+Output:
+    DATA/wind-resource/metadata/layer_availability.md
 """
 
 from __future__ import annotations
 
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from gwa_common import api_url  # noqa: E402
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-META_DIR = REPO_ROOT / "DATA" / "wind-resource" / "metadata"
-TIMEOUT = 60
-
-HEIGHTS = [10, 50, 100, 150, 200]
-HEIGHT_VARIABLES = [
-    ("wind-speed", "m/s", "10-year mean wind speed"),
-    ("power-density", "W/m^2", "10-year mean wind power density"),
-    ("air-density", "kg/m^3", "Modelled air density"),
-    ("combined-Weibull-A", "m/s", "All-sector Weibull scale parameter"),
-    ("combined-Weibull-k", "-", "All-sector Weibull shape parameter"),
-]
-FLAT_VARIABLES = [
-    ("capacity-factor_IEC1", "ratio", "IEC class 1 turbine, 100 m hub, 117 m rotor"),
-    ("capacity-factor_IEC2", "ratio", "IEC class 2 turbine, 100 m hub, 136 m rotor"),
-    ("capacity-factor_IEC3", "ratio", "IEC class 3 turbine, 100 m hub, 150 m rotor"),
-    ("capacity-factor_offshore", "ratio", "Offshore turbine, 150 m hub, 150 m rotor"),
-    ("RIX", "%", "Ruggedness index — area within 3.5 km with slopes over 30 degrees"),
-    ("elevation", "m", "Site elevation used by the Atlas"),
-]
+from . import config
+from .gwa import api_url, human_bytes
+from ..common.geo import atomic_write_text
 
 
-def size_range(sizes: list[int]) -> str:
-    """Render a size range, collapsing it when the ends round to the same figure."""
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _size_range(sizes: list[int]) -> str:
+    """Render a size range, collapsing when ends round to the same figure."""
     if not sizes:
         return "—"
     lo, hi = min(sizes) / 1e6, max(sizes) / 1e6
     return f"{lo:.0f} MB" if round(lo) == round(hi) else f"{lo:.0f}–{hi:.0f} MB"
 
 
-def probe(variable: str, height: int | None) -> dict:
-    """HEAD the API endpoint and the CDN object it redirects to."""
+def _probe_gwa_layer(variable: str, height: int | None) -> dict:
+    """HEAD the GWA API endpoint and the CDN object it redirects to."""
     endpoint = api_url(variable, height)
-    redirect = requests.head(endpoint, allow_redirects=False, timeout=TIMEOUT)
+    redirect = requests.head(endpoint, allow_redirects=False, timeout=config.GWA_TIMEOUT)
     location = redirect.headers.get("Location")
     if not location:
         return {"available": False, "status": redirect.status_code, "bytes": 0}
-    cdn = requests.head(location, timeout=TIMEOUT)
+    cdn = requests.head(location, timeout=config.GWA_TIMEOUT)
     return {
         "available": cdn.status_code == 200,
         "status": cdn.status_code,
@@ -74,42 +54,55 @@ def probe(variable: str, height: int | None) -> dict:
     }
 
 
-def main() -> int:
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+
+
+def run(verbose: bool = False) -> dict:
+    """
+    Probe GWA layers and write layer_availability.md.
+
+    Returns a summary dict with the output path.
+    """
     rows, flat_rows = [], []
 
-    for variable, unit, description in HEIGHT_VARIABLES:
-        results = {h: probe(variable, h) for h in HEIGHTS}
-        for h, r in results.items():
-            print(f"  {variable:<22} {h:<5} {r['status']} {r['bytes'] / 1e6:8.0f} MB")
+    for variable, unit, description in config.GWA_HEIGHT_VARIABLES:
+        results = {h: _probe_gwa_layer(variable, h) for h in config.GWA_HEIGHTS}
+        if verbose:
+            for h, r in results.items():
+                print(f"    {variable:<22} {h:<5} {r['status']} {r['bytes'] / 1e6:8.0f} MB")
         sizes = [r["bytes"] for r in results.values() if r["available"]]
         heights_ok = [str(h) for h, r in results.items() if r["available"]]
         rows.append({
             "variable": variable, "unit": unit, "description": description,
             "heights": ", ".join(heights_ok) or "none",
-            "size": size_range(sizes),
+            "size": _size_range(sizes),
             "available": bool(sizes),
             "statuses": sorted({r["status"] for r in results.values()}),
         })
 
-    for variable, unit, description in FLAT_VARIABLES:
-        r = probe(variable, None)
-        print(f"  {variable:<22} {'-':<5} {r['status']} {r['bytes'] / 1e6:8.0f} MB")
+    for variable, unit, description in config.GWA_FLAT_VARIABLES:
+        r = _probe_gwa_layer(variable, None)
+        if verbose:
+            print(f"    {variable:<22} {'-':<5} {r['status']} {r['bytes'] / 1e6:8.0f} MB")
         flat_rows.append({
             "variable": variable, "unit": unit, "description": description,
             "size": f"{r['bytes'] / 1e6:.0f} MB" if r["available"] else "—",
             "available": r["available"], "status": r["status"],
         })
 
+    # Compute total size of the five default samples
     total = sum(
-        probe(v, h)["bytes"] for v, h in
+        _probe_gwa_layer(v, h)["bytes"] for v, h in
         [("wind-speed", 50), ("wind-speed", 100), ("wind-speed", 150),
          ("power-density", 100)]
-    ) + probe("capacity-factor_IEC2", None)["bytes"]
+    ) + _probe_gwa_layer("capacity-factor_IEC2", None)["bytes"]
 
     lines = [
         "# Global Wind Atlas v4 — Layer Availability via the Per-Country API",
         "",
-        f"*Generated by `scripts/probe_gwa_layers.py` on "
+        f"*Generated by `pipeline.wind.probe` on "
         f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}. Do not edit by hand.*",
         "",
         "Endpoint probed: `https://globalwindatlas.info/api/gis/country/AUS/<variable>[/<height>]`",
@@ -121,8 +114,10 @@ def main() -> int:
         "|---|---|---|---|---|",
     ]
     for r in rows:
-        lines.append(f"| `{r['variable']}` | {r['unit']} | {r['heights']} | {r['size']} | "
-                     f"{r['description']} |")
+        lines.append(
+            f"| `{r['variable']}` | {r['unit']} | {r['heights']} | {r['size']} | "
+            f"{r['description']} |"
+        )
 
     lines += [
         "",
@@ -133,8 +128,10 @@ def main() -> int:
     ]
     for r in flat_rows:
         status = "Yes" if r["available"] else f"**No — HTTP {r['status']}**"
-        lines.append(f"| `{r['variable']}` | {r['unit']} | {status} | {r['size']} | "
-                     f"{r['description']} |")
+        lines.append(
+            f"| `{r['variable']}` | {r['unit']} | {status} | {r['size']} | "
+            f"{r['description']} |"
+        )
 
     unavailable = [r["variable"] for r in flat_rows if not r["available"]]
     lines += [
@@ -151,12 +148,9 @@ def main() -> int:
         "Australian coverage. Windowed `/vsicurl/` reads retrieved about 11 MB of that.",
     ]
 
-    META_DIR.mkdir(parents=True, exist_ok=True)
-    out = META_DIR / "layer_availability.md"
-    out.write_text("\n".join(lines) + "\n")
-    print(f"\nwrote {out.relative_to(REPO_ROOT)}")
-    return 0
+    config.WIND_META_DIR.mkdir(parents=True, exist_ok=True)
+    out = config.WIND_META_DIR / "layer_availability.md"
+    atomic_write_text(out, "\n".join(lines) + "\n")
 
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+    print(f"    → {out.relative_to(config.PROJECT_ROOT)}")
+    return {"layer_availability": out}

@@ -1,64 +1,69 @@
 """
-Probe every candidate geographic/environmental data source and build the
-Task 4 source register.
+Geographic probe stage — discover available geographic/environmental sources.
 
-Probes are metadata-only: ArcGIS layer JSON, HTTP HEAD, or a count query.
-No feature or pixel data is transferred. A source that refuses scripted
-access (HTTP 403) is recorded as a register row with its status — a missing
-layer is a finding, not a crash.
+Probes every candidate geographic/environmental data source and builds the
+Task 4 source register. Probes are metadata-only: ArcGIS layer JSON,
+HTTP HEAD, or count queries — no feature or pixel data transferred.
 
-Usage:
-  python scripts/geo_probe_sources.py
+Importable entry point:
+    from pipeline.geographic.probe import run
+    result = run(verbose=False)
 
-Output: DATA/geographic/metadata/source_register.md
-        DATA/geographic/metadata/source_register.csv
-
-Source: endpoints listed in the PROBES table below
-Licence: per source; see DATA/geographic/DATA_PROVENANCE.md
+Output:
+    DATA/geographic/metadata/source_register.md
+    DATA/geographic/metadata/source_register.csv
 """
 
 from __future__ import annotations
 
-import csv
+import csv as csv_mod
 import io
-import sys
 from pathlib import Path
 
 import requests
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from geo_common import (  # noqa: E402
-    ABS_ASGS_BASE,
-    CAPAD_BASE,
-    META_DIR,
-    REPO_ROOT,
-    TIMEOUT,
+from . import config
+from ..common.geo import (
     atomic_write_text,
     banner,
-    human_bytes,
     layer_count,
     layer_metadata,
     utc_now,
 )
+from ..common.geo import human_bytes
 
-CSV_COLUMNS = [
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+_CSV_COLUMNS = [
     "dataset_id", "category", "custodian", "endpoint", "access_method",
     "http_status", "format", "native_crs", "licence", "vintage",
     "size_or_count", "intended_use", "notes",
 ]
 
-UA = {"User-Agent": "opt-mining-sprint0-task4 (data investigation; contact: repo owner)"}
+_UA = {"User-Agent": "opt-mining-sprint0-task4 (data investigation; contact: repo owner)"}
 
 
-def head_status(url: str, allow_redirects: bool = True) -> tuple[int, int]:
-    """Return (status, content_length) from a HEAD request; 0 length if absent."""
-    resp = requests.head(url, timeout=TIMEOUT, allow_redirects=allow_redirects, headers=UA)
+# ---------------------------------------------------------------------------
+# Probe helpers
+# ---------------------------------------------------------------------------
+
+
+def _head_status(url: str, allow_redirects: bool = True) -> tuple[int, int]:
+    """Return (status, content_length) from a HEAD request."""
+    resp = requests.head(
+        url, timeout=config.TIMEOUT, allow_redirects=allow_redirects, headers=_UA
+    )
     return resp.status_code, int(resp.headers.get("Content-Length") or 0)
 
 
-def probe_arcgis_layer(dataset_id, category, custodian, layer_url, licence, vintage,
-                       intended_use, notes="", count_where="1=1"):
-    """Register row for an ArcGIS FeatureServer layer from its served metadata."""
+def _probe_arcgis_layer(
+    dataset_id, category, custodian, layer_url, licence, vintage,
+    intended_use, notes="", count_where="1=1",
+):
+    """Register row for an ArcGIS FeatureServer layer."""
     try:
         meta = layer_metadata(layer_url)
         count = layer_count(layer_url, where=count_where)
@@ -67,19 +72,13 @@ def probe_arcgis_layer(dataset_id, category, custodian, layer_url, licence, vint
         geom = meta.get("geometryType", "?").replace("esriGeometry", "")
         fields = len(meta.get("fields", []))
         return {
-            "dataset_id": dataset_id,
-            "category": category,
-            "custodian": custodian,
-            "endpoint": layer_url,
-            "access_method": "ArcGIS REST FeatureServer (f=geojson)",
-            "http_status": 200,
-            "format": f"GeoJSON/EsriJSON, {geom}",
+            "dataset_id": dataset_id, "category": category, "custodian": custodian,
+            "endpoint": layer_url, "access_method": "ArcGIS REST FeatureServer (f=geojson)",
+            "http_status": 200, "format": f"GeoJSON/EsriJSON, {geom}",
             "native_crs": f"EPSG:{wkid}" if wkid else "unreported",
-            "licence": licence,
-            "vintage": vintage,
+            "licence": licence, "vintage": vintage,
             "size_or_count": f"{count} features, {fields} fields",
-            "intended_use": intended_use,
-            "notes": notes or meta.get("name", ""),
+            "intended_use": intended_use, "notes": notes or meta.get("name", ""),
         }
     except Exception as exc:
         return {
@@ -91,11 +90,13 @@ def probe_arcgis_layer(dataset_id, category, custodian, layer_url, licence, vint
         }
 
 
-def probe_http(dataset_id, category, custodian, url, access_method, fmt, crs, licence,
-               vintage, intended_use, notes="", expect_bytes=True):
+def _probe_http(
+    dataset_id, category, custodian, url, access_method, fmt, crs, licence,
+    vintage, intended_use, notes="", expect_bytes=True,
+):
     """Register row for a plain HTTP(S) resource via HEAD."""
     try:
-        status, length = head_status(url)
+        status, length = _head_status(url)
         size = human_bytes(length) if (expect_bytes and length) else ""
         return {
             "dataset_id": dataset_id, "category": category, "custodian": custodian,
@@ -113,54 +114,62 @@ def probe_http(dataset_id, category, custodian, url, access_method, fmt, crs, li
         }
 
 
-def build_register() -> list[dict]:
+# ---------------------------------------------------------------------------
+# Source register
+# ---------------------------------------------------------------------------
+
+
+def _build_geo_register() -> list[dict]:
+    """Probe all geographic/environmental sources and return register rows."""
     rows: list[dict] = []
 
-    # --- A. Administrative boundaries (ABS ASGS 2021) --------------------
+    # --- Administrative boundaries (ABS ASGS 2021) ---
     for layer, dsid, use, note in [
-        ("STE", "abs_asgs2021_ste", "Reference layer: state/territory polygons; basis for derived NEM regions",
+        ("STE", "abs_asgs2021_ste",
+         "Reference layer: state/territory polygons; basis for derived NEM regions",
          "10 features incl. Other Territories and 'Outside Australia' (null geometry rows to filter)"),
-        ("AUS", "abs_asgs2021_aus", "National land outline; land-mask candidate", ""),
-        ("LGA", "abs_asgs2021_lga", "Local Government Area boundaries (checklist item A)", ""),
-        ("SA2", "abs_asgs2021_sa2", "Population/demand allocation join geometry (Task 2 cross-reference)", ""),
+        ("AUS", "abs_asgs2021_aus",
+         "National land outline; land-mask candidate", ""),
+        ("LGA", "abs_asgs2021_lga",
+         "Local Government Area boundaries (checklist item A)", ""),
+        ("SA2", "abs_asgs2021_sa2",
+         "Population/demand allocation join geometry (Task 2 cross-reference)", ""),
     ]:
-        rows.append(probe_arcgis_layer(
+        rows.append(_probe_arcgis_layer(
             dsid, "admin-boundaries", "ABS",
-            f"{ABS_ASGS_BASE}/{layer}/FeatureServer/0",
+            f"{config.ABS_ASGS_BASE}/{layer}/FeatureServer/0",
             "CC BY 4.0", "ASGS Ed. 3 (2021)", use, note))
 
-    # UCL sits in a separate ASGS folder tree on some deployments; probe both spellings.
-    ucl_row = probe_arcgis_layer(
+    rows.append(_probe_arcgis_layer(
         "abs_asgs2021_ucl", "urban", "ABS",
-        f"{ABS_ASGS_BASE}/UCL/FeatureServer/0",
+        f"{config.ABS_ASGS_BASE}/UCL/FeatureServer/0",
         "CC BY 4.0", "ASGS Ed. 3 (2021)",
-        "Urban Centres and Localities: urban-extent exclusion evidence + demand proxy")
-    rows.append(ucl_row)
+        "Urban Centres and Localities: urban-extent exclusion evidence + demand proxy"))
 
-    # --- C. Protected areas (CAPAD) ---------------------------------------
-    rows.append(probe_arcgis_layer(
+    # --- Protected areas (CAPAD) ---
+    rows.append(_probe_arcgis_layer(
         "capad2024_terrestrial", "protected-areas", "DCCEEW",
-        f"{CAPAD_BASE}/0", "CC BY 4.0", "CAPAD 2024",
+        f"{config.CAPAD_BASE}/0", "CC BY 4.0", "CAPAD 2024",
         "Hard exclusion: terrestrial protected areas with IUCN categories"))
-    rows.append(probe_arcgis_layer(
+    rows.append(_probe_arcgis_layer(
         "capad2024_marine", "protected-areas", "DCCEEW",
-        f"{CAPAD_BASE}/1", "CC BY 4.0", "CAPAD 2024 (marine)",
+        f"{config.CAPAD_BASE}/1", "CC BY 4.0", "CAPAD 2024 (marine)",
         "Marine/terrestrial distinction (checklist C); not sampled — analysis grid is terrestrial"))
 
-    # --- D. Land use (ABARES) ---------------------------------------------
+    # --- Land use (ABARES) ---
     nlum = "https://www.agriculture.gov.au/sites/default/files/documents"
-    rows.append(probe_http(
+    rows.append(_probe_http(
         "abares_nlum_2020_21", "land-use", "ABARES",
         f"{nlum}/NLUM_v7_1_250m_ALUMV8_2020_21_alb_20260814.zip",
         "HTTP zip download", "GeoTIFF (zipped), 250 m", "EPSG:3577 (expected)",
         "CC BY 4.0", "2020–21 (NLUM v7.1, ALUM v8)",
         "National land use at screening resolution; window clip sampled"))
-    rows.append(probe_http(
+    rows.append(_probe_http(
         "abares_nlum_2015_16", "land-use", "ABARES",
         f"{nlum}/NLUM_v7_1_250m_ALUMV8_2015_16_alb_20260814.zip",
         "HTTP zip download", "GeoTIFF (zipped), 250 m", "EPSG:3577 (expected)",
         "CC BY 4.0", "2015–16 (NLUM v7.1)", "Earlier vintage; register only"))
-    rows.append(probe_http(
+    rows.append(_probe_http(
         "abares_clum_50m", "land-use", "ABARES",
         "https://www.agriculture.gov.au/abares/aclump/land-use/data-download",
         "Portal page (manual download)", "GeoTIFF/Esri Grid, 50 m", "EPSG:3577",
@@ -168,77 +177,76 @@ def build_register() -> list[dict]:
         "Catchment-scale 50 m product; register only — 250 m NLUM matches the ~5 km "
         "screening grid and is 1/25th the data volume", expect_bytes=False))
 
-    # --- B. Elevation / DEM ------------------------------------------------
+    # --- Elevation / DEM ---
     ot = "https://opentopography.s3.sdsc.edu/raster"
-    rows.append(probe_http(
+    rows.append(_probe_http(
         "srtm_gl1_30m", "elevation", "NASA/OpenTopography",
         f"{ot}/SRTM_GL1/SRTM_GL1_srtm.vrt",
         "GDAL /vsicurl/ windowed read", "VRT mosaic of GeoTIFF tiles, 1 arc-second (~30 m)",
         "EPSG:4326", "NASA public domain (attribution requested)", "SRTM (2000 mission)",
         "Working scripted route to 1-second elevation; windowed clip sampled"))
-    rows.append(probe_http(
+    rows.append(_probe_http(
         "srtm_gl3_90m", "elevation", "NASA/OpenTopography",
         f"{ot}/SRTM_GL3/SRTM_GL3_srtm.vrt",
         "GDAL /vsicurl/ windowed read", "VRT mosaic of GeoTIFF tiles, 3 arc-second (~90 m)",
         "EPSG:4326", "NASA public domain (attribution requested)", "SRTM (2000 mission)",
         "Coarser screening-friendly product; windowed clip sampled"))
-    rows.append(probe_http(
+    rows.append(_probe_http(
         "ga_dem_services", "elevation", "Geoscience Australia",
         "https://services.ga.gov.au/gis/rest/services/DEM_SRTM_1Second_Hydro_Enforced/MapServer",
         "ArcGIS REST (scripted)", "MapServer/ImageServer", "EPSG:4283 (documented)",
         "CC BY 4.0", "GA SRTM-derived 1s DEM suite (2011)",
-        "Authoritative national DEM (DEM/DEM-S/DEM-H); expect 403 to scripted clients — "
-        "interactive ELVIS portal remains available to humans"))
-    rows.append(probe_http(
+        "Authoritative national DEM; expect 403 to scripted clients"))
+    rows.append(_probe_http(
         "ga_elvis_portal", "elevation", "Geoscience Australia",
         "https://elevation.fsdf.org.au/",
         "Interactive portal only", "Various (tile downloads)", "EPSG:4283",
-        "CC BY 4.0", "current", "Browser download route for GA DEM tiles", expect_bytes=False))
-    rows.append(probe_http(
+        "CC BY 4.0", "current", "Browser download route for GA DEM tiles",
+        expect_bytes=False))
+    rows.append(_probe_http(
         "csiro_slope_1s", "elevation", "CSIRO",
         "https://data.csiro.au/collection/csiro:5588",
         "Portal page (registration)", "Esri Grid, 1 arc-second", "EPSG:4283",
         "CC BY", "2011 (derived from GA DEM-S)",
-        "Pre-computed national slope exists (checklist B); register only — national grid "
-        "too large for this task, slope derived from sampled DEM clips instead",
-        expect_bytes=False))
+        "Pre-computed national slope; register only", expect_bytes=False))
 
-    # --- G. Coastline & water ----------------------------------------------
-    rows.append(probe_http(
+    # --- Coastline & water ---
+    rows.append(_probe_http(
         "ne_land_50m", "coastline", "Natural Earth",
-        "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_land.geojson",
+        "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/"
+        "geojson/ne_50m_land.geojson",
         "HTTP GeoJSON download", "GeoJSON, 1:50m generalisation", "EPSG:4326",
         "Public domain", "NE master",
         "The prototype's land-mask source; sampled for the mask-adequacy assessment"))
-    rows.append(probe_http(
+    rows.append(_probe_http(
         "dea_coastlines", "coastline", "Geoscience Australia (DEA)",
         "https://data.dea.ga.gov.au/?prefix=derivative/dea_coastlines/",
         "S3 public bucket", "GeoPackage/Shapefile", "EPSG:3577",
-        "CC BY 4.0", "annual shorelines 1988–", "Higher-fidelity coastline option; register only",
-        expect_bytes=False))
-    rows.append(probe_http(
+        "CC BY 4.0", "annual shorelines 1988–",
+        "Higher-fidelity coastline option; register only", expect_bytes=False))
+    rows.append(_probe_http(
         "dea_waterbodies", "water", "Geoscience Australia (DEA)",
         "https://data.dea.ga.gov.au/?prefix=derivative/dea_waterbodies/",
         "S3 public bucket", "GeoPackage/Shapefile polygons", "EPSG:3577",
-        "CC BY 4.0", "Landsat-derived, current", "Inland waterbody polygons; register only",
-        expect_bytes=False))
+        "CC BY 4.0", "Landsat-derived, current",
+        "Inland waterbody polygons; register only", expect_bytes=False))
 
-    # --- F. Roads (secondary) ----------------------------------------------
-    rows.append(probe_http(
+    # --- Roads (secondary) ---
+    rows.append(_probe_http(
         "osm_australia_pbf", "roads", "OpenStreetMap/Geofabrik",
         "https://download.geofabrik.de/australia-oceania/australia-latest.osm.pbf",
         "HTTP pbf download", "OSM PBF (roads via highway=* tags)", "EPSG:4326",
         "ODbL", "continuous",
         "Secondary priority per checklist F: size recorded, not sampled"))
 
-    # --- Portals (discovery only) -------------------------------------------
-    rows.append(probe_http(
+    # --- Portals (discovery only) ---
+    rows.append(_probe_http(
         "nationalmap", "portal", "Digital Atlas of Australia / TerriaJS",
         "https://nationalmap.gov.au/", "Interactive portal", "WMS/WFS/ArcGIS proxies",
         "various", "various", "current",
         "Aggregates the same custodial services probed above; discovery only",
         expect_bytes=False))
-    rows.append(probe_http(
+    rows.append(_probe_http(
         "data_gov_au", "portal", "data.gov.au (CKAN)",
         "https://data.gov.au/data/api/3/action/package_search?q=CAPAD&rows=1",
         "CKAN API", "catalogue JSON", "n/a", "various", "current",
@@ -248,10 +256,11 @@ def build_register() -> list[dict]:
     return rows
 
 
-def render_markdown(rows: list[dict]) -> str:
+def _render_geo_markdown(rows: list[dict]) -> str:
+    """Render the source register as markdown grouped by category."""
     out = io.StringIO()
     out.write("# Task 4 source register\n\n")
-    out.write(banner("geo_probe_sources.py"))
+    out.write(banner("geographic.probe"))
     out.write(
         "\nEvery candidate source probed for the geographic/environmental criterion, "
         "including routes that refuse scripted access (their status is the finding). "
@@ -262,7 +271,10 @@ def render_markdown(rows: list[dict]) -> str:
         by_cat.setdefault(row["category"], []).append(row)
     for cat, cat_rows in by_cat.items():
         out.write(f"## {cat}\n\n")
-        out.write("| Dataset | Custodian | Access | Status | Format | Native CRS | Licence | Vintage | Size/Count | Notes |\n")
+        out.write(
+            "| Dataset | Custodian | Access | Status | Format | Native CRS "
+            "| Licence | Vintage | Size/Count | Notes |\n"
+        )
         out.write("|---|---|---|---|---|---|---|---|---|---|\n")
         for r in cat_rows:
             out.write(
@@ -275,31 +287,36 @@ def render_markdown(rows: list[dict]) -> str:
     return out.getvalue()
 
 
-def main() -> int:
-    print(f"Probing sources at {utc_now()}\n")
-    rows = build_register()
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
 
-    for row in rows:
-        status = row["http_status"]
-        flag = "" if status == 200 else "  <-- finding"
-        print(f"  [{status}] {row['dataset_id']}: {row['size_or_count'] or row['notes'][:60]}{flag}")
 
-    md_path = META_DIR / "source_register.md"
-    atomic_write_text(md_path, render_markdown(rows))
+def run(verbose: bool = False) -> dict:
+    """
+    Probe geographic/environmental sources and write source register.
+
+    Returns a summary dict with output paths.
+    """
+    rows = _build_geo_register()
+
+    if verbose:
+        for row in rows:
+            status = row["http_status"]
+            flag = "" if status == 200 else "  <-- finding"
+            print(f"    [{status}] {row['dataset_id']}: "
+                  f"{row['size_or_count'] or row['notes'][:60]}{flag}")
+
+    md_path = config.GEO_META_DIR / "source_register.md"
+    atomic_write_text(md_path, _render_geo_markdown(rows))
 
     csv_buf = io.StringIO()
-    writer = csv.DictWriter(csv_buf, fieldnames=CSV_COLUMNS)
+    writer = csv_mod.DictWriter(csv_buf, fieldnames=_CSV_COLUMNS)
     writer.writeheader()
     writer.writerows(rows)
-    csv_path = META_DIR / "source_register.csv"
+    csv_path = config.GEO_META_DIR / "source_register.csv"
     atomic_write_text(csv_path, csv_buf.getvalue())
 
-    print(f"\nWrote {md_path.relative_to(REPO_ROOT)}")
-    print(f"Wrote {csv_path.relative_to(REPO_ROOT)}")
-    ok = sum(1 for r in rows if r["http_status"] == 200)
-    print(f"{ok}/{len(rows)} sources reachable to scripted clients.")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+    print(f"    → {md_path.relative_to(config.PROJECT_ROOT)}")
+    print(f"    → {csv_path.relative_to(config.PROJECT_ROOT)}")
+    return {"source_register_md": md_path, "source_register_csv": csv_path}
