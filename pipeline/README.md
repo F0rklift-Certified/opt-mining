@@ -141,6 +141,53 @@ DATA/
 | Infrastructure | Geoscience Australia Electricity Infrastructure | CC BY 4.0 |
 | Demand | AEMO NEMWeb Operational Demand | Public |
 
+## Data Provenance and Validation
+
+### Provenance Tracking
+
+The pipeline records the origin, licence and vintage of every dataset it acquires. Provenance is captured at two levels:
+
+1. **Source register** (`DATA/geographic/metadata/source_register.csv` / `.md`) — a catalogue of all candidate sources probed during the `probe` stage, including endpoints that refuse scripted access. Records custodian, access method, status code, native CRS, licence, and vintage.
+2. **Download manifests** (`DATA/geographic/metadata/download_manifest.json`) — byte counts, SHA-256 hashes, retrieval timestamps (UTC) and request parameters for every file written during `download` stages.
+3. **Per-domain DATA_PROVENANCE.md** files (e.g. `DATA/geographic/DATA_PROVENANCE.md`, `DATA/wind-resource/DATA_PROVENANCE.md`) — human-readable provenance tables structured per dataset with fields for publisher, access endpoint, temporal coverage, native CRS, units, licence, method, assumptions and limitations.
+
+Derived files (NEM region geometries, slope/TRI rasters) are explicitly labelled as derived and document the transformation applied, so they are never mistaken for custodial data.
+
+### Validation Strategy
+
+Validation is structured in two tiers:
+
+**Domain-specific validation** (each domain's own `validate.py`):
+
+| Domain | Module | Checks |
+|--------|--------|--------|
+| Wind | `pipeline.wind.validate` | GWA raster sampling at known wind farm locations; percentile ranking; crosscheck windowed clips against independent downloads |
+| Geographic | `pipeline.geographic.validate` | CAPAD area (Kosciuszko NP extent); DEM spot-elevation (Armidale, Glen Innes); NLUM class decode completeness; ABS state area cross-check |
+| Demand | `pipeline.demand.validate` | Duplicate detection; 30-min timestamp continuity; regional completeness (5 NEM regions); non-null numeric demand values |
+
+**Cross-domain integration** (`pipeline.validate`):
+
+- Wind farms are on land (NE + ABS mask agreement)
+- Wind farms are outside protected areas (CAPAD)
+- Wind farms have acceptable slope (< 15°)
+- Land-mask assessment: NE 1:50m vs ABS coastline on the analysis grid — quantifies coastal leakage and recommends the preferred mask
+
+### Validation Reports
+
+Validation stages produce Markdown reports in the relevant `metadata/` directory:
+
+- `DATA/geographic/metadata/validation_geographic.md`
+- `DATA/geographic/metadata/landmask_assessment.md`
+- `DATA/wind-resource/metadata/validation_wind_farms.md`
+- `DATA/wind-resource/metadata/crosscheck_prototype.md`
+
+### Design Principles
+
+- **No silent passes.** Every validation check reports its expected value, observed value and pass/fail status.
+- **Validate against reality.** Known operational wind farm locations and gazetted reserve areas serve as ground-truth anchors — if a known-good site fails a check, the data layer is suspect.
+- **Fail loud, not late.** The demand quality gate (`--skip-validate` to bypass) halts the pipeline on data integrity violations; geographic and wind checks produce reports for human review.
+- **Provenance travels with data.** Attribution, CRS, units, and limitations are recorded at ingest so downstream stages and the eventual interface can propagate them without re-deriving context.
+
 ## Dependencies
 
 ```
