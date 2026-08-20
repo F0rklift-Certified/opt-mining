@@ -1,6 +1,6 @@
 # Geoscience Australia Power Lines 2026 — Inspection
 
-- Downloaded: 2026-08-20
+- Report generated: 2026-08-20
 - Official service: `https://services.ga.gov.au/gis/rest/services/Electricity_Infrastructure/MapServer/2`
 - Custodian: Geoscience Australia
 - Attribution: © Commonwealth of Australia (Geoscience Australia) 2026
