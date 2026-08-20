@@ -35,6 +35,7 @@ def main() -> None:
         (NSW, "Geoscience Australia Wind Generators 2026 — NSW", nsw_features),
     ):
         derived = {**collection, "name": name, "features": selected}
+        output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(derived, separators=(",", ":")), encoding="utf-8")
 
     fields = sorted({key for feature in features for key in feature["properties"]})
@@ -83,6 +84,7 @@ technology/fuel type, capacity, status and point coordinates. Point locations
 may represent a facility or a generalised location, so they should validate
 regional ranking rather than exact turbine siting.
 """
+    REPORT.parent.mkdir(parents=True, exist_ok=True)
     REPORT.write_text(report, encoding="utf-8")
 
 
