@@ -4,3 +4,12 @@ requests==2.32.3
 # Task 1 — Wind Resource (Global Wind Atlas GeoTIFF handling)
 rasterio==1.4.3
 numpy==2.2.6
+
+# Task 4 — Geographic & Environmental (no new packages required)
+# Vector GeoJSON: stdlib json (the ArcGIS REST services serve f=geojson).
+# Rasterisation & point-in-polygon: rasterio.features.rasterize on GeoJSON dicts.
+# CRS transforms (incl. EPSG:3577 area evidence): rasterio.warp.transform_geom /
+# transform_bounds. Slope/TRI: numpy Horn 3x3 with latitude-corrected spacing.
+# geopandas/shapely/fiona/pyproj deliberately avoided — nothing in this task
+# needs geometric set operations; if Task 5's integration does, that is Task 5's
+# decision to make with its own requirements section.
