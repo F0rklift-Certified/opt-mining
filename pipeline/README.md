@@ -305,3 +305,17 @@ numpy>=2.2
 ```
 
 No additional dependencies beyond `requirements.txt`. The pipeline deliberately avoids geopandas/shapely/fiona — vector operations use stdlib JSON + rasterio features.
+
+## Open Questions (Team Decision Required)
+
+These questions arose from the Task 5 integration analysis. Each affects how the pipeline scores and ranks sites in Sprint 1. The team needs to make a call on each before implementation proceeds.
+
+| # | Question | Options | Recommendation |
+|---|----------|---------|----------------|
+| 1 | Wind aggregation statistic for 250 m → 5 km cells? | (a) Mean — stable, buries ridges. (b) Max — captures best micro-site, noisy. (c) P90 — compromise. (d) Report multiple, let user choose. | Report mean + p90 as features; use mean as default scoring input; present max as "best micro-site" indicator in explanation. |
+| 2 | Primary hub height for scoring? | (a) 100 m — consistent with capacity factor layers. (b) 150 m — closer to modern turbine heights. | Use 100 m for V1 (CF consistency); carry 150 m as sensitivity layer. |
+| 3 | Slope aggregation statistic per cell? | (a) Mean slope — general terrain difficulty. (b) P90 — flags cells with steep sections. (c) Max — most conservative. | Use mean slope as penalty input; report p90 in explanation. Evidence: exclusion varies 11.6% (mean) to 42.1% (p90) to 85.7% (max) at 10° threshold. |
+| 4 | Population data source for demand allocation? | (a) ABS Census 2021 ERP at SA2 level. (b) ABS Census 2021 at mesh block. (c) ABS gridded population estimates. | SA2 level — sufficient resolution for ~5 km grid, simpler to implement. |
+| 5 | Should demand criterion use operational or total demand? | (a) Operational demand — grid-served load. (b) PRICE_AND_DEMAND — includes price. | Operational demand. It measures the load new generation must serve. |
+| 6 | Hard exclusion threshold for protected areas? | (a) Binary — any CAPAD overlap excludes the cell. (b) Fractional — exclude only if > X% is protected. | Binary exclusion (any intersection). |
+| 7 | Should infrastructure distance have a hard exclusion threshold? | (a) No — continuous distance only. (b) Yes — exclude cells > 100 km from transmission. | No hard exclusion for V1. Distance is a continuous penalty; remote cells rank low naturally. |
