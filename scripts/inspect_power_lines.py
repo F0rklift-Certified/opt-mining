@@ -138,10 +138,10 @@ def main() -> None:
     if len(object_ids) != len(set(object_ids)):
         raise RuntimeError("Duplicate OBJECTID values found across downloaded pages")
 
-    MERGED.parent.mkdir(parents=True, exist_ok=True)
-    NSW.parent.mkdir(parents=True, exist_ok=True)
-    REPORT.parent.mkdir(parents=True, exist_ok=True)
-    PREVIEW.parent.mkdir(parents=True, exist_ok=True)
+    merged_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    preview_path.parent.mkdir(parents=True, exist_ok=True)
 
     merged = {
         "type": "FeatureCollection",
