@@ -48,6 +48,18 @@ CAPAD_BASE = (
 )
 
 
+def apply_geo_vsicurl_env() -> None:
+    """
+    GDAL env for remote reads. Unlike Task 1 (bare .tif URLs), the SRTM
+    mosaics are .vrt indexes referencing .tif tiles, and NLUM is read through
+    /vsizip/, so the allowed-extension list must cover all three.
+    """
+    os.environ["GDAL_DISABLE_READDIR_ON_OPEN"] = "EMPTY_DIR"
+    os.environ["CPL_VSIL_CURL_ALLOWED_EXTENSIONS"] = ".tif,.vrt,.zip"
+    os.environ.setdefault("GDAL_HTTP_MAX_RETRY", "3")
+    os.environ.setdefault("GDAL_HTTP_RETRY_DELAY", "2")
+
+
 def utc_now() -> str:
     """Timestamp used across manifests and report banners."""
     return datetime.now(timezone.utc).isoformat(timespec="seconds")

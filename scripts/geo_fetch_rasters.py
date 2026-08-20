@@ -52,6 +52,7 @@ from geo_common import (  # noqa: E402
     RAW_DIR,
     REPO_ROOT,
     TIMEOUT,
+    apply_geo_vsicurl_env,
     atomic_write_json,
     human_bytes,
     utc_now,
@@ -71,18 +72,6 @@ NLUM_URL = (
 # (White Rock 151.544,-29.762; Sapphire 151.412,-29.700).
 GL1_BBOX = (151.25, -30.0, 151.75, -29.5)
 GL1_AREA = "glen-innes"
-
-
-def apply_geo_vsicurl_env() -> None:
-    """
-    GDAL env for remote reads. Unlike Task 1 (bare .tif URLs), the SRTM
-    mosaics are .vrt indexes referencing .tif tiles, and NLUM is read through
-    /vsizip/, so the allowed-extension list must cover all three.
-    """
-    os.environ["GDAL_DISABLE_READDIR_ON_OPEN"] = "EMPTY_DIR"
-    os.environ["CPL_VSIL_CURL_ALLOWED_EXTENSIONS"] = ".tif,.vrt,.zip"
-    os.environ.setdefault("GDAL_HTTP_MAX_RETRY", "3")
-    os.environ.setdefault("GDAL_HTTP_RETRY_DELAY", "2")
 
 
 def clip_to_file(src: rasterio.DatasetReader, bbox_native, out_path: Path) -> dict:
