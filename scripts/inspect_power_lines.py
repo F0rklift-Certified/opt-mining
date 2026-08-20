@@ -36,6 +36,11 @@ def main() -> None:
     if len(object_ids) != len(set(object_ids)):
         raise RuntimeError("Duplicate OBJECTID values found across downloaded pages")
 
+    MERGED.parent.mkdir(parents=True, exist_ok=True)
+    NSW.parent.mkdir(parents=True, exist_ok=True)
+    REPORT.parent.mkdir(parents=True, exist_ok=True)
+    PREVIEW.parent.mkdir(parents=True, exist_ok=True)
+
     merged = {
         "type": "FeatureCollection",
         "name": "Geoscience Australia Power Lines 2026",
@@ -86,7 +91,7 @@ def main() -> None:
 
     report = f"""# Geoscience Australia Power Lines 2026 — Inspection
 
-- Downloaded: {datetime.now(timezone.utc).date().isoformat()}
+- Report generated: {datetime.now(timezone.utc).date().isoformat()}
 - Official service: `https://services.ga.gov.au/gis/rest/services/Electricity_Infrastructure/MapServer/2`
 - Custodian: Geoscience Australia
 - Attribution: © Commonwealth of Australia (Geoscience Australia) 2026
