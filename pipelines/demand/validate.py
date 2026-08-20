@@ -1,40 +1,57 @@
 """
-Validate AEMO NEM Operational Demand data.
+Validation stage — strict pipeline gate for AEMO demand data.
 
-A strict pipeline gate that reads a consolidated demand CSV and performs
-quality checks. Exits with code 1 if any check fails, code 0 if all pass.
+Reads a consolidated demand CSV and performs quality checks.
+Returns a result object indicating pass/fail; the orchestrator decides
+whether to halt.
 
-Designed to be reusable: the --dataset-type flag selects validation rules
-appropriate for the dataset being checked. Currently supports:
-  - aemo-demand (default): AEMO NEM Operational Demand half-hourly data
+Importable entry point:
+    from pipelines.demand.validate import run
+    result = run(csv_path=Path(...))
+    if not result.passed:
+        ...
 
-Usage:
-  python validate_demand_data.py aemo_operational_demand_20250701_20260630.csv
-  python validate_demand_data.py --dataset-type aemo-demand path/to/file.csv
+Standalone usage:
+    python -m pipelines.demand.validate path/to/file.csv
 
-Checks performed (aemo-demand):
-  1. Duplicate detection — no duplicate (REGIONID, INTERVAL_DATETIME) pairs
-  2. Timestamp continuity — consecutive intervals exactly 30 min apart per region
-  3. Expected interval — all intervals are 30 minutes
-  4. Regional completeness — all 5 NEM regions present
-  5. Numeric conversion — OPERATIONAL_DEMAND is numeric (int/float)
-  6. Non-null demand — no NaN/null values in OPERATIONAL_DEMAND
-
-Exit codes:
-  0 — all checks passed
-  1 — one or more checks failed
+Checks performed:
+    1. Duplicate detection — no duplicate (REGIONID, INTERVAL_DATETIME) pairs
+    2. Timestamp continuity — consecutive intervals exactly 30 min apart per region
+    3. Expected interval — all intervals are 30 minutes (no mixed resolutions)
+    4. Regional completeness — all 5 NEM regions present
+    5. Numeric demand — OPERATIONAL_DEMAND is numeric (int/float)
+    6. Non-null demand — no NaN/null values in OPERATIONAL_DEMAND
 """
 
 import argparse
 import sys
+from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
 
 import pandas as pd
 
+from . import config
 
-# --- Validation Check Functions ---
+
+# ---------------------------------------------------------------------------
+# Result type
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ValidationResult:
+    """Outcome of the validation stage."""
+
+    passed: bool
+    details: list[tuple[str, bool, str]] = field(default_factory=list)
+    """List of (check_name, passed, message) tuples."""
+
+
+# ---------------------------------------------------------------------------
+# Individual check functions
 # Each returns (passed: bool, message: str)
+# ---------------------------------------------------------------------------
 
 
 def check_duplicates(df: pd.DataFrame) -> tuple[bool, str]:
@@ -45,7 +62,6 @@ def check_duplicates(df: pd.DataFrame) -> tuple[bool, str]:
     if n_dupes == 0:
         return True, "No duplicate (REGIONID, INTERVAL_DATETIME) pairs found."
 
-    # Report sample duplicates
     dupe_rows = df[dupes].head(5)
     sample_str = dupe_rows[["REGIONID", "INTERVAL_DATETIME"]].to_string(index=False)
     return False, (
@@ -55,7 +71,7 @@ def check_duplicates(df: pd.DataFrame) -> tuple[bool, str]:
 
 
 def check_timestamp_continuity(df: pd.DataFrame) -> tuple[bool, str]:
-    """Check that consecutive timestamps per region are exactly 30 minutes apart."""
+    """Check that consecutive timestamps per region are exactly 30 min apart."""
     expected_delta = timedelta(minutes=30)
     issues = []
 
@@ -63,10 +79,9 @@ def check_timestamp_continuity(df: pd.DataFrame) -> tuple[bool, str]:
         region_df = df[df["REGIONID"] == region].sort_values("INTERVAL_DATETIME")
         diffs = region_df["INTERVAL_DATETIME"].diff().dropna()
 
-        # Find gaps (intervals > 30 min)
         gaps = diffs[diffs > expected_delta]
         if len(gaps) > 0:
-            for idx in gaps.index[:5]:  # Report up to 5 gaps per region
+            for idx in gaps.index[:5]:
                 row_pos = region_df.index.get_loc(idx)
                 prev_ts = region_df.iloc[row_pos - 1]["INTERVAL_DATETIME"]
                 curr_ts = region_df.iloc[row_pos]["INTERVAL_DATETIME"]
@@ -80,9 +95,7 @@ def check_timestamp_continuity(df: pd.DataFrame) -> tuple[bool, str]:
     if not issues:
         return True, "All timestamps are continuous (30-min intervals) across all regions."
 
-    return False, (
-        f"Timestamp continuity gaps detected:\n" + "\n".join(issues)
-    )
+    return False, f"Timestamp continuity gaps detected:\n" + "\n".join(issues)
 
 
 def check_expected_interval(df: pd.DataFrame) -> tuple[bool, str]:
@@ -94,10 +107,7 @@ def check_expected_interval(df: pd.DataFrame) -> tuple[bool, str]:
         region_df = df[df["REGIONID"] == region].sort_values("INTERVAL_DATETIME")
         diffs = region_df["INTERVAL_DATETIME"].diff().dropna()
 
-        # Find intervals that are not 30 minutes (excluding gaps already caught)
-        non_standard = diffs[(diffs != expected_delta) & (diffs > timedelta(0))]
-        # Filter to only those shorter than 30 min (indicating mixed resolution)
-        shorter = non_standard[non_standard < expected_delta]
+        shorter = diffs[(diffs != expected_delta) & (diffs > timedelta(0)) & (diffs < expected_delta)]
         if len(shorter) > 0:
             unique_intervals = shorter.unique()
             issues.append(
@@ -108,24 +118,16 @@ def check_expected_interval(df: pd.DataFrame) -> tuple[bool, str]:
     if not issues:
         return True, "All intervals are 30 minutes (no mixed resolutions detected)."
 
-    return False, (
-        f"Non-standard intervals detected:\n" + "\n".join(issues)
-    )
+    return False, f"Non-standard intervals detected:\n" + "\n".join(issues)
 
 
 def check_regional_completeness(df: pd.DataFrame) -> tuple[bool, str]:
     """Confirm all 5 expected NEM regions are present."""
-    expected_regions = {"NSW1", "QLD1", "SA1", "TAS1", "VIC1"}
+    expected_regions = set(config.NEM_REGIONS)
     actual_regions = set(df["REGIONID"].unique())
 
     missing = expected_regions - actual_regions
     unexpected = actual_regions - expected_regions
-
-    messages = []
-    if missing:
-        messages.append(f"  Missing regions: {sorted(missing)}")
-    if unexpected:
-        messages.append(f"  Unexpected regions: {sorted(unexpected)} (not necessarily an error)")
 
     if not missing:
         region_counts = df["REGIONID"].value_counts()
@@ -137,9 +139,13 @@ def check_regional_completeness(df: pd.DataFrame) -> tuple[bool, str]:
             msg += f"\n  Note: unexpected regions also found: {sorted(unexpected)}"
         return True, msg
 
-    return False, (
-        f"Regional completeness check failed:\n" + "\n".join(messages)
-    )
+    messages = []
+    if missing:
+        messages.append(f"  Missing regions: {sorted(missing)}")
+    if unexpected:
+        messages.append(f"  Unexpected regions: {sorted(unexpected)}")
+
+    return False, f"Regional completeness check failed:\n" + "\n".join(messages)
 
 
 def check_numeric_demand(df: pd.DataFrame) -> tuple[bool, str]:
@@ -162,7 +168,6 @@ def check_numeric_demand(df: pd.DataFrame) -> tuple[bool, str]:
                 f"Consider converting in the download step."
             )
         else:
-            # Show sample non-numeric values
             mask = pd.to_numeric(df[col], errors="coerce").isna() & df[col].notna()
             samples = df.loc[mask, col].head(5).tolist()
             return False, (
@@ -184,7 +189,6 @@ def check_null_demand(df: pd.DataFrame) -> tuple[bool, str]:
     if n_null == 0:
         return True, f"No null/NaN values in '{col}' (all {len(df):,} rows have values)."
 
-    # Report where nulls occur
     null_rows = df[df[col].isna()]
     regions_affected = sorted(null_rows["REGIONID"].unique())
     return False, (
@@ -194,112 +198,94 @@ def check_null_demand(df: pd.DataFrame) -> tuple[bool, str]:
     )
 
 
-# --- Dataset-type registry ---
+# ---------------------------------------------------------------------------
+# Check registry
+# ---------------------------------------------------------------------------
 
-VALIDATION_CHECKS = {
-    "aemo-demand": [
-        ("Duplicate detection", check_duplicates),
-        ("Timestamp continuity", check_timestamp_continuity),
-        ("Expected 30-min interval", check_expected_interval),
-        ("Regional completeness", check_regional_completeness),
-        ("Numeric demand values", check_numeric_demand),
-        ("Non-null demand values", check_null_demand),
-    ],
-}
-
-
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Validate demand data as a strict pipeline gate.",
-        epilog=(
-            "Example:\n"
-            "  python validate_demand_data.py aemo_operational_demand_20250701_20260630.csv\n"
-            "  python validate_demand_data.py --dataset-type aemo-demand data.csv"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument(
-        "input_csv",
-        type=str,
-        help="Path to the consolidated CSV file to validate.",
-    )
-    parser.add_argument(
-        "--dataset-type",
-        type=str,
-        default="aemo-demand",
-        choices=list(VALIDATION_CHECKS.keys()),
-        help="Type of dataset to validate (default: aemo-demand).",
-    )
-    return parser.parse_args()
+CHECKS = [
+    ("Duplicate detection", check_duplicates),
+    ("Timestamp continuity", check_timestamp_continuity),
+    ("Expected 30-min interval", check_expected_interval),
+    ("Regional completeness", check_regional_completeness),
+    ("Numeric demand values", check_numeric_demand),
+    ("Non-null demand values", check_null_demand),
+]
 
 
-def main():
-    """Run validation checks and report results."""
-    args = parse_args()
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
 
-    input_path = Path(args.input_csv)
-    if not input_path.exists():
-        print(f"ERROR: Input file not found: {input_path}")
-        sys.exit(1)
 
-    dataset_type = args.dataset_type
-    checks = VALIDATION_CHECKS[dataset_type]
+def run(csv_path: Path, verbose: bool = False) -> ValidationResult:
+    """
+    Run all validation checks against the consolidated demand CSV.
 
-    print("=" * 70)
-    print(f"DATA VALIDATION — {dataset_type}")
-    print(f"Input: {input_path}")
-    print("=" * 70)
+    Parameters
+    ----------
+    csv_path : Path
+        Path to the consolidated CSV file.
+    verbose : bool
+        Print detailed check output.
 
-    # Load data
-    print(f"\nLoading {input_path.name}...")
-    df = pd.read_csv(input_path)
+    Returns
+    -------
+    ValidationResult
+        Object with .passed (bool) and .details (list of check results).
+    """
+    print(f"  Input: {csv_path.name}")
+    print(f"  Loading...")
 
-    # Parse datetime column if present
+    df = pd.read_csv(csv_path)
+
     if "INTERVAL_DATETIME" in df.columns:
         df["INTERVAL_DATETIME"] = pd.to_datetime(df["INTERVAL_DATETIME"])
 
-    print(f"  Loaded: {len(df):,} rows, {df.shape[1]} columns")
-    print(f"\n{'─' * 70}")
-    print("VALIDATION CHECKS")
-    print(f"{'─' * 70}\n")
+    print(f"  Loaded: {len(df):,} rows, {df.shape[1]} columns\n")
 
-    # Run checks
+    details: list[tuple[str, bool, str]] = []
     all_passed = True
-    results = []
 
-    for check_name, check_fn in checks:
+    for check_name, check_fn in CHECKS:
         passed, message = check_fn(df)
-        status = "PASS" if passed else "FAIL"
-        results.append((check_name, passed, message))
+        details.append((check_name, passed, message))
 
+        status = "PASS" if passed else "FAIL"
         print(f"  [{status}] {check_name}")
-        # Indent the message details
-        for line in message.split("\n"):
-            print(f"         {line}")
-        print()
+        if verbose or not passed:
+            for line in message.split("\n"):
+                print(f"         {line}")
 
         if not passed:
             all_passed = False
 
-    # Summary
-    print(f"{'─' * 70}")
-    n_passed = sum(1 for _, p, _ in results if p)
-    n_failed = sum(1 for _, p, _ in results if not p)
+    return ValidationResult(passed=all_passed, details=details)
 
-    if all_passed:
-        print(f"\nRESULT: ALL CHECKS PASSED ({n_passed}/{len(results)})")
-        print("=" * 70)
-        sys.exit(0)
-    else:
-        print(f"\nRESULT: VALIDATION FAILED ({n_failed} of {len(results)} checks failed)")
-        print("\nFailed checks:")
-        for check_name, passed, message in results:
-            if not passed:
-                print(f"  - {check_name}")
-        print("=" * 70)
-        sys.exit(1)
 
+# ---------------------------------------------------------------------------
+# Standalone execution
+# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Validate AEMO demand data (pipeline gate).")
+    parser.add_argument("input_csv", type=str, help="Path to consolidated CSV.")
+    parser.add_argument("--verbose", action="store_true")
+    args = parser.parse_args()
+
+    input_path = Path(args.input_csv)
+    if not input_path.exists():
+        print(f"ERROR: File not found: {input_path}")
+        sys.exit(1)
+
+    result = run(csv_path=input_path, verbose=args.verbose)
+
+    n_passed = sum(1 for _, p, _ in result.details if p)
+    n_total = len(result.details)
+
+    if result.passed:
+        print(f"\n  RESULT: ALL CHECKS PASSED ({n_passed}/{n_total})")
+        sys.exit(0)
+    else:
+        n_failed = n_total - n_passed
+        print(f"\n  RESULT: VALIDATION FAILED ({n_failed} of {n_total} checks failed)")
+        sys.exit(1)
