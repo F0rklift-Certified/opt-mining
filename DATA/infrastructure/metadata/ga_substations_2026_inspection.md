@@ -6,7 +6,8 @@
 - Format: ArcGIS Feature Service downloaded as GeoJSON
 - CRS: EPSG:7844 (GDA2020)
 - National feature count: 1866
-- NSW feature count: 586
+- State filter: NSW
+- Filtered feature count: 586
 - Geometry types: {'Point': 1866}
 - Valid point coordinates: 1866/1866
 - States: {'QLD': 444, 'NSW': 586, 'SA': 128, 'NT': 38, 'WA': 239, 'TAS': 86, 'VIC': 326, 'ACT': 19}
@@ -17,6 +18,12 @@
 ## Fields
 
 attribute_source, attribute_source_date, created_date, feature_description, feature_name, feature_source, feature_source_date, feature_subtype, feature_type, globalid, last_edited_on, latitude, locality, longitude, objectid, spatial_confidence, state, status, voltage_kv
+
+## Configuration used
+
+- State filter: NSW
+- Output directory: /Users/nb/Desktop/Opt Mining/DATA/infrastructure/substations
+- Report directory: /Users/nb/Desktop/Opt Mining/DATA/infrastructure/metadata
 
 ## Initial assessment
 

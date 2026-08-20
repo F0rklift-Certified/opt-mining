@@ -1,5 +1,24 @@
-"""Merge and inspect Geoscience Australia Power Lines GeoJSON downloads."""
+"""Merge and inspect Geoscience Australia Power Lines GeoJSON downloads.
 
+Usage:
+  python inspect_power_lines.py
+  python inspect_power_lines.py --state QLD
+  python inspect_power_lines.py --state VIC --width 1200 --height 900
+  python inspect_power_lines.py --voltage-threshold 132 --stroke-thin 0.3 --stroke-thick 1.2
+
+Options:
+  --state             State filter for subset (default: NSW). Use 'ALL' to skip filtering.
+  --width             SVG canvas width in pixels (default: 1000)
+  --height            SVG canvas height in pixels (default: 760)
+  --margin            SVG canvas margin in pixels (default: 35)
+  --stroke-thin       Stroke width for lines below voltage threshold (default: 0.55)
+  --stroke-thick      Stroke width for lines at or above voltage threshold (default: 0.9)
+  --voltage-threshold Voltage (kV) at which thick stroke kicks in (default: 220)
+  --output-dir        Output directory for merged/filtered GeoJSON (default: DATA/infrastructure/transmission-lines)
+  --report-dir        Output directory for inspection report and SVG (default: DATA/infrastructure/metadata)
+"""
+
+import argparse
 from collections import Counter
 from datetime import datetime, timezone
 import json
@@ -8,14 +27,75 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "DATA" / "infrastructure"
-PARTS = [
-    DATA / "transmission-lines" / "ga_power_lines_2026_part_001.geojson",
-    DATA / "transmission-lines" / "ga_power_lines_2026_part_002.geojson",
-]
-MERGED = DATA / "transmission-lines" / "ga_power_lines_2026_australia.geojson"
-NSW = DATA / "transmission-lines" / "ga_power_lines_2026_nsw.geojson"
-REPORT = DATA / "metadata" / "ga_power_lines_2026_inspection.md"
-PREVIEW = DATA / "metadata" / "ga_power_lines_2026_preview.svg"
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Merge and inspect Geoscience Australia Power Lines GeoJSON downloads.",
+        epilog=(
+            "Examples:\n"
+            "  python inspect_power_lines.py --state QLD\n"
+            "  python inspect_power_lines.py --width 1200 --height 900\n"
+            "  python inspect_power_lines.py --voltage-threshold 132 --stroke-thin 0.3"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--state",
+        type=str,
+        default="NSW",
+        help="State to filter for the subset file (default: NSW). Use 'ALL' to skip state filtering.",
+    )
+    parser.add_argument(
+        "--width",
+        type=int,
+        default=1000,
+        help="SVG canvas width in pixels (default: 1000)",
+    )
+    parser.add_argument(
+        "--height",
+        type=int,
+        default=760,
+        help="SVG canvas height in pixels (default: 760)",
+    )
+    parser.add_argument(
+        "--margin",
+        type=int,
+        default=35,
+        help="SVG canvas margin in pixels (default: 35)",
+    )
+    parser.add_argument(
+        "--stroke-thin",
+        type=float,
+        default=0.55,
+        help="Stroke width for lines below voltage threshold (default: 0.55)",
+    )
+    parser.add_argument(
+        "--stroke-thick",
+        type=float,
+        default=0.9,
+        help="Stroke width for lines at or above voltage threshold (default: 0.9)",
+    )
+    parser.add_argument(
+        "--voltage-threshold",
+        type=int,
+        default=220,
+        help="Voltage (kV) at which thick stroke is used (default: 220)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Output directory for merged/filtered GeoJSON (default: DATA/infrastructure/transmission-lines)",
+    )
+    parser.add_argument(
+        "--report-dir",
+        type=str,
+        default=None,
+        help="Output directory for inspection report and SVG preview (default: DATA/infrastructure/metadata)",
+    )
+    return parser.parse_args()
 
 
 def iter_coordinates(value):
@@ -30,7 +110,29 @@ def iter_coordinates(value):
 
 
 def main() -> None:
-    collections = [json.loads(path.read_text(encoding="utf-8")) for path in PARTS]
+    args = parse_args()
+
+    # Resolve output directories
+    output_dir = Path(args.output_dir) if args.output_dir else DATA / "transmission-lines"
+    report_dir = Path(args.report_dir) if args.report_dir else DATA / "metadata"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    # Input parts
+    parts = [
+        DATA / "transmission-lines" / "ga_power_lines_2026_part_001.geojson",
+        DATA / "transmission-lines" / "ga_power_lines_2026_part_002.geojson",
+    ]
+
+    # Output paths
+    merged_path = output_dir / "ga_power_lines_2026_australia.geojson"
+    state_label = args.state.lower() if args.state.upper() != "ALL" else "all"
+    state_path = output_dir / f"ga_power_lines_2026_{state_label}.geojson"
+    report_path = report_dir / "ga_power_lines_2026_inspection.md"
+    preview_path = report_dir / "ga_power_lines_2026_preview.svg"
+
+    # Load and merge
+    collections = [json.loads(path.read_text(encoding="utf-8")) for path in parts]
     features = [feature for collection in collections for feature in collection["features"]]
     object_ids = [feature["properties"].get("objectid") for feature in features]
     if len(object_ids) != len(set(object_ids)):
@@ -47,17 +149,25 @@ def main() -> None:
         "crs": collections[0].get("crs"),
         "features": features,
     }
-    MERGED.write_text(json.dumps(merged, separators=(",", ":")), encoding="utf-8")
+    merged_path.write_text(json.dumps(merged, separators=(",", ":")), encoding="utf-8")
 
-    nsw_features = [
-        feature
-        for feature in features
-        if str(feature["properties"].get("state", "")).strip().upper() == "NSW"
-    ]
-    nsw = {**merged, "name": "Geoscience Australia Power Lines 2026 — NSW"}
-    nsw["features"] = nsw_features
-    NSW.write_text(json.dumps(nsw, separators=(",", ":")), encoding="utf-8")
+    # State filter
+    if args.state.upper() == "ALL":
+        state_features = features
+    else:
+        state_features = [
+            feature
+            for feature in features
+            if str(feature["properties"].get("state", "")).strip().upper() == args.state.upper()
+        ]
+    state_collection = {
+        **merged,
+        "name": f"Geoscience Australia Power Lines 2026 — {args.state.upper()}",
+        "features": state_features,
+    }
+    state_path.write_text(json.dumps(state_collection, separators=(",", ":")), encoding="utf-8")
 
+    # Inspection stats
     fields = sorted({key for feature in features for key in feature["properties"]})
     missing = {
         field: sum(
@@ -98,7 +208,8 @@ def main() -> None:
 - Format: ArcGIS Feature Service downloaded as GeoJSON
 - CRS: EPSG:7844 (GDA2020)
 - National feature count: {len(features)}
-- NSW feature count: {len(nsw_features)}
+- State filter applied: {args.state.upper()}
+- Filtered feature count: {len(state_features)}
 - Duplicate OBJECTIDs: {len(object_ids) - len(set(object_ids))}
 - Geometry types: {dict(geometry_counts)}
 - Bounds: {[round(value, 6) for value in bounds]}
@@ -111,6 +222,13 @@ def main() -> None:
 
 {', '.join(fields)}
 
+## Configuration used
+
+- State filter: {args.state}
+- SVG dimensions: {args.width}x{args.height} (margin: {args.margin})
+- Stroke thin/thick: {args.stroke_thin}/{args.stroke_thick}
+- Voltage threshold: {args.voltage_threshold} kV
+
 ## Initial assessment
 
 This national line dataset is suitable for screening-level straight-line
@@ -119,11 +237,10 @@ state, revision and spatial-confidence attributes. It must not be treated as an
 engineering asset register or used instead of asset-safety services. Accuracy,
 completeness and currency limitations must remain visible in the final report.
 """
-    REPORT.write_text(report, encoding="utf-8")
+    report_path.write_text(report, encoding="utf-8")
 
-    # Create a dependency-free SVG preview. This is only visual evidence; the
-    # GeoJSON remains the analysis dataset.
-    width, height, margin = 1000, 760, 35
+    # Create SVG preview
+    width, height, margin = args.width, args.height, args.margin
     min_x, min_y, max_x, max_y = bounds
     scale = min(
         (width - 2 * margin) / (max_x - min_x),
@@ -158,7 +275,7 @@ completeness and currency limitations must remain visible in the final report.
             ("M" if index == 0 else "L") + f"{x:.2f},{y:.2f}"
             for index, (x, y) in enumerate(points)
         )
-        stroke_width = 0.55 if voltage < 220 else 0.9
+        stroke_width = args.stroke_thin if voltage < args.voltage_threshold else args.stroke_thick
         paths.append(
             f'<path d="{path_data}" fill="none" stroke="{colour}" '
             f'stroke-width="{stroke_width}" stroke-linecap="round"/>'
@@ -175,12 +292,17 @@ completeness and currency limitations must remain visible in the final report.
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
 <rect width="100%" height="100%" fill="white"/>
 <text x="35" y="30" font-family="sans-serif" font-size="22" font-weight="bold">Geoscience Australia Power Lines 2026</text>
-<text x="35" y="53" font-family="sans-serif" font-size="14">3,147 national features; colour represents nominal voltage</text>
+<text x="35" y="53" font-family="sans-serif" font-size="14">{len(features)} national features; colour represents nominal voltage</text>
 <g>{''.join(paths)}</g>
 <rect x="770" y="55" width="180" height="250" rx="6" fill="white" fill-opacity="0.9" stroke="#cccccc"/>
 <g font-family="sans-serif">{''.join(legend_items)}</g>
 </svg>"""
-    PREVIEW.write_text(svg, encoding="utf-8")
+    preview_path.write_text(svg, encoding="utf-8")
+
+    print(f"Merged {len(features)} features → {merged_path.name}")
+    print(f"Filtered {len(state_features)} features ({args.state.upper()}) → {state_path.name}")
+    print(f"Report → {report_path.name}")
+    print(f"SVG preview → {preview_path.name}")
 
 
 if __name__ == "__main__":

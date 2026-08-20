@@ -1,13 +1,14 @@
 # Geoscience Australia Power Lines 2026 — Inspection
 
-- Downloaded: 2026-08-14
+- Downloaded: 2026-08-20
 - Official service: `https://services.ga.gov.au/gis/rest/services/Electricity_Infrastructure/MapServer/2`
 - Custodian: Geoscience Australia
 - Attribution: © Commonwealth of Australia (Geoscience Australia) 2026
 - Format: ArcGIS Feature Service downloaded as GeoJSON
 - CRS: EPSG:7844 (GDA2020)
 - National feature count: 3147
-- NSW feature count: 957
+- State filter applied: NSW
+- Filtered feature count: 957
 - Duplicate OBJECTIDs: 0
 - Geometry types: {'LineString': 3147}
 - Bounds: [114.623651, -43.164393, 153.594076, -12.364884]
@@ -19,6 +20,13 @@
 ## Fields
 
 attribute_source, attribute_source_date, capacity_kv, created_date, feature_description, feature_name, feature_source, feature_source_date, feature_subtype, feature_type, globalid, last_edited_on, objectid, spatial_confidence, st_length(shape), state, status, supplied_feature_edits
+
+## Configuration used
+
+- State filter: NSW
+- SVG dimensions: 1000x760 (margin: 35)
+- Stroke thin/thick: 0.55/0.9
+- Voltage threshold: 220 kV
 
 ## Initial assessment
 
