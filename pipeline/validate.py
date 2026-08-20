@@ -54,6 +54,9 @@ CELL_DEG = 0.05
 PX_PER_CELL = int(round(CELL_DEG / GWA_PIXEL_DEG))
 STRIP_BBOX = config.COAST_BBOX
 
+# Siting constraint defaults
+DEFAULT_MAX_SLOPE_DEG = 15.0
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -83,7 +86,7 @@ def _sample_raster_at(path: Path, lon: float, lat: float) -> float:
 # ---------------------------------------------------------------------------
 
 
-def _run_cross_domain_checks(verbose: bool) -> list[dict]:
+def _run_cross_domain_checks(verbose: bool, max_slope: float = DEFAULT_MAX_SLOPE_DEG) -> list[dict]:
     """Check wind farms against geographic layers."""
     checks: list[dict] = []
 
@@ -124,7 +127,8 @@ def _run_cross_domain_checks(verbose: bool) -> list[dict]:
               "inside" if in_capad else "outside", not in_capad)
         if gl1_slope_path.exists():
             slope = _sample_raster_at(gl1_slope_path, lon, lat)
-            check(f"{name}: slope < 15 deg", "< 15 deg", f"{slope:.1f} deg", slope < 15.0)
+            check(f"{name}: slope < {max_slope:.0f} deg", f"< {max_slope:.0f} deg",
+                  f"{slope:.1f} deg", slope < max_slope)
 
     return checks
 
@@ -241,16 +245,27 @@ def _run_landmask_assessment(verbose: bool) -> Path:
 def run(
     verbose: bool = False,
     skip_land_sea: bool = False,
+    max_slope: float = DEFAULT_MAX_SLOPE_DEG,
 ) -> dict:
     """
     Run cross-domain integration validation.
+
+    Parameters
+    ----------
+    verbose : bool
+        Enable detailed logging.
+    skip_land_sea : bool
+        Skip the land-mask assessment (requires network access).
+    max_slope : float
+        Maximum allowable slope in degrees for wind farm siting checks.
+        Default: 15.0 degrees.
 
     Returns a summary dict with output paths and check results.
     """
     results: dict[str, object] = {}
 
     print("  [1/2] Cross-domain wind farm checks (land, CAPAD, slope)...")
-    checks = _run_cross_domain_checks(verbose)
+    checks = _run_cross_domain_checks(verbose, max_slope=max_slope)
     passed = sum(1 for c in checks if c["passed"])
     print(f"    {passed}/{len(checks)} checks passed")
     results["cross_domain_checks"] = checks

@@ -32,7 +32,7 @@ from . import config
 # ---------------------------------------------------------------------------
 
 RASTER_NAME = "gwa_v4_wind-speed_100m_new-england-rez.tif"
-FACTOR = config.AGGREGATION_FACTOR  # 20
+FACTOR = config.AGGREGATION_FACTOR  # 20 (default)
 
 STATISTICS = {
     "mean": lambda b: b.mean(axis=(1, 3)),
@@ -59,12 +59,21 @@ def _blockify(array: np.ndarray, factor: int) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
-def run(verbose: bool = False) -> dict:
+def run(verbose: bool = False, agg_factor: int | None = None) -> dict:
     """
     Run the analyse stage: aggregation sensitivity analysis.
 
+    Parameters
+    ----------
+    verbose : bool
+        Enable detailed logging.
+    agg_factor : int | None
+        Aggregation factor (native pixels per analysis cell side).
+        None uses the default (20 = ~5 km cells).
+
     Returns a summary dict with the report path.
     """
+    factor = agg_factor if agg_factor is not None else FACTOR
     raster_path = config.WIND_DIR / RASTER_NAME
     ref_path = config.WIND_REF_DIR / "nsw_wind_farms_new_england.csv"
 
@@ -80,17 +89,17 @@ def run(verbose: bool = False) -> dict:
                 for row in csv.DictReader(fh):
                     r, c = src.index(float(row["longitude"]), float(row["latitude"]))
                     farm_cells.append({"name": row["name"],
-                                       "block": (r // FACTOR, c // FACTOR)})
+                                       "block": (r // factor, c // factor)})
 
     if not np.isfinite(data).all():
         raise RuntimeError("window contains NoData; aggregation stats would be biased")
 
-    blocks = _blockify(data, FACTOR)
+    blocks = _blockify(data, factor)
     native_valid = data[np.isfinite(data)]
     aggregated = {name: fn(blocks) for name, fn in STATISTICS.items()}
 
-    cell_km_x = res[0] * FACTOR * 111.32 * np.cos(np.radians(-30.5))
-    cell_km_y = res[1] * FACTOR * 111.32
+    cell_km_x = res[0] * factor * 111.32 * np.cos(np.radians(-30.5))
+    cell_km_y = res[1] * factor * 111.32
 
     lines = [
         "# Aggregation Sensitivity — 250 m Native Grid to ~5 km Analysis Cells",
@@ -99,8 +108,8 @@ def run(verbose: bool = False) -> dict:
         f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}. Do not edit by hand.*",
         "",
         f"**Input:** `{RASTER_NAME}` (wind speed at 100 m, m/s)",
-        f"**Aggregation factor:** {FACTOR} x {FACTOR} native pixels per analysis cell "
-        f"({FACTOR * res[0]:.4f} deg ~ {cell_km_x:.1f} km E-W x {cell_km_y:.1f} km N-S)",
+        f"**Aggregation factor:** {factor} x {factor} native pixels per analysis cell "
+        f"({factor * res[0]:.4f} deg ~ {cell_km_x:.1f} km E-W x {cell_km_y:.1f} km N-S)",
         f"**Result:** {data.shape[1]} x {data.shape[0]} native pixels -> "
         f"{blocks.shape[2]} x {blocks.shape[0]} analysis cells",
         "",

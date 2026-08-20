@@ -51,6 +51,17 @@ def parse_args() -> argparse.Namespace:
         help=f"End date YYYY-MM-DD (default: {config.DEFAULT_END_DATE})",
     )
 
+    # Region filter
+    parser.add_argument(
+        "--regions",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated NEM region IDs to include (default: all 5). "
+            "Example: --regions NSW1,QLD1"
+        ),
+    )
+
     # Stage control
     parser.add_argument(
         "--only",
@@ -147,6 +158,16 @@ def main():
         print(f"ERROR: --start-date ({args.start_date}) must be before --end-date ({args.end_date}).")
         sys.exit(1)
 
+    # Validate regions
+    if args.regions:
+        regions = [r.strip().upper() for r in args.regions.split(",") if r.strip()]
+        invalid = [r for r in regions if r not in config.NEM_REGIONS]
+        if invalid:
+            print(f"ERROR: Invalid region(s): {invalid}. Valid: {config.NEM_REGIONS}")
+            sys.exit(1)
+    else:
+        regions = config.DEFAULT_REGIONS
+
     # Resolve output directory
     output_dir = Path(args.output_dir) if args.output_dir else config.OUTPUT_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -174,6 +195,7 @@ def main():
     print("AEMO NEM OPERATIONAL DEMAND PIPELINE")
     print("=" * 70)
     print(f"  Date range : {args.start_date} to {args.end_date}")
+    print(f"  Regions    : {', '.join(regions)}")
     print(f"  Output dir : {output_dir}")
     print(f"  Stages     : {' → '.join(stages)}")
     print(f"  CSV target : {csv_filename}")
@@ -274,6 +296,7 @@ def main():
                 output_dir=output_dir,
                 start_date=args.start_date,
                 end_date=args.end_date,
+                regions=regions,
                 verbose=args.verbose,
             )
             outputs_produced.append(("Annual summary CSV", agg_csv))

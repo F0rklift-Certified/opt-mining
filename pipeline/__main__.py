@@ -155,6 +155,44 @@ def parse_args() -> argparse.Namespace:
         default="2026-06-30",
         help="End date for demand data YYYY-MM-DD (default: 2026-06-30)",
     )
+    parser.add_argument(
+        "--regions",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated NEM region IDs for demand analysis "
+            "(default: all 5 — NSW1,QLD1,SA1,TAS1,VIC1)"
+        ),
+    )
+
+    # Wind options
+    parser.add_argument(
+        "--heights",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated hub heights in metres for wind-speed downloads "
+            "(default: 50,100,150)"
+        ),
+    )
+    parser.add_argument(
+        "--turbine-class",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated IEC turbine classes for capacity-factor layers "
+            "(default: IEC2). Valid: IEC1, IEC2, IEC3"
+        ),
+    )
+    parser.add_argument(
+        "--agg-factor",
+        type=int,
+        default=None,
+        help=(
+            "Aggregation factor: native GWA pixels per analysis cell side. "
+            "20 = ~5 km cells (default: 20)"
+        ),
+    )
 
     # Infrastructure options
     parser.add_argument(
@@ -181,6 +219,15 @@ def parse_args() -> argparse.Namespace:
         "--skip-land-sea",
         action="store_true",
         help="Skip the land/sea check in validate (requires network access)",
+    )
+    parser.add_argument(
+        "--max-slope",
+        type=float,
+        default=15.0,
+        help=(
+            "Maximum allowable slope in degrees for wind farm siting checks "
+            "(default: 15.0)"
+        ),
     )
 
     # Output
@@ -247,6 +294,20 @@ def _build_kwargs(stage: str, args: argparse.Namespace, bbox: tuple) -> dict:
         kwargs["bbox"] = bbox
         kwargs["area_name"] = args.area_name
 
+    if stage == "wind.download":
+        # Parse heights
+        if args.heights:
+            kwargs["heights"] = [int(h.strip()) for h in args.heights.split(",")]
+        # Parse turbine classes
+        if args.turbine_class:
+            kwargs["turbine_classes"] = [
+                tc.strip().upper() for tc in args.turbine_class.split(",")
+            ]
+
+    if stage == "wind.analyse":
+        if args.agg_factor is not None:
+            kwargs["agg_factor"] = args.agg_factor
+
     if stage == "wind.validate":
         kwargs["prototype_path"] = Path(args.prototype_path) if args.prototype_path else None
         kwargs["skip_land_sea"] = args.skip_land_sea
@@ -257,6 +318,7 @@ def _build_kwargs(stage: str, args: argparse.Namespace, bbox: tuple) -> dict:
 
     if stage == "validate":
         kwargs["skip_land_sea"] = args.skip_land_sea
+        kwargs["max_slope"] = args.max_slope
 
     return kwargs
 
@@ -268,6 +330,8 @@ def _run_demand(args: argparse.Namespace) -> None:
     original_argv = sys.argv
     demand_args = ["python -m pipeline.demand"]
     demand_args += ["--start-date", args.start_date, "--end-date", args.end_date]
+    if args.regions:
+        demand_args += ["--regions", args.regions]
     if args.verbose:
         demand_args.append("--verbose")
 
@@ -314,6 +378,11 @@ def main():
     print(f"  Stages     : {' → '.join(stages)}")
     print(f"  State      : {args.state}")
     print(f"  Fuel type  : {args.fuel_type}")
+    print(f"  Heights    : {args.heights or '50,100,150 (default)'}")
+    print(f"  Turbine    : {args.turbine_class or 'IEC2 (default)'}")
+    print(f"  Agg factor : {args.agg_factor or '20 (default)'}")
+    print(f"  Max slope  : {args.max_slope}°")
+    print(f"  Regions    : {args.regions or 'all (NSW1,QLD1,SA1,TAS1,VIC1)'}")
     print("=" * 70)
 
     pipeline_start = time.time()

@@ -35,6 +35,52 @@ GWA_DEFAULT_SAMPLES = [
     ("capacity-factor_IEC2", None),
 ]
 
+# --- Configurable defaults for CLI ---
+DEFAULT_HEIGHTS = [50, 100, 150]
+DEFAULT_TURBINE_CLASSES = ["IEC2"]
+VALID_TURBINE_CLASSES = ["IEC1", "IEC2", "IEC3"]
+
+
+def build_samples(
+    heights: list[int] | None = None,
+    turbine_classes: list[str] | None = None,
+) -> list[tuple[str, int | None]]:
+    """
+    Build the GWA sample list from configurable heights and turbine classes.
+
+    Parameters
+    ----------
+    heights : list[int] | None
+        Hub heights in metres for wind-speed layers. None uses DEFAULT_HEIGHTS.
+    turbine_classes : list[str] | None
+        IEC turbine classes for capacity-factor layers. None uses DEFAULT_TURBINE_CLASSES.
+
+    Returns
+    -------
+    list[tuple[str, int | None]]
+        List of (variable, height_or_None) tuples for the download stage.
+    """
+    if heights is None:
+        heights = DEFAULT_HEIGHTS
+    if turbine_classes is None:
+        turbine_classes = DEFAULT_TURBINE_CLASSES
+
+    samples: list[tuple[str, int | None]] = []
+
+    # Wind speed at each height
+    for h in heights:
+        samples.append(("wind-speed", h))
+
+    # Power density at the primary height (max of requested, or 100)
+    pd_height = max(h for h in heights if h >= 100) if any(h >= 100 for h in heights) else heights[0]
+    samples.append(("power-density", pd_height))
+
+    # Capacity factor for each turbine class
+    for tc in turbine_classes:
+        samples.append((f"capacity-factor_{tc}", None))
+
+    return samples
+
 GWA_HEIGHTS = [10, 50, 100, 150, 200]
 GWA_HEIGHT_VARIABLES = [
     ("wind-speed", "m/s", "10-year mean wind speed"),
@@ -54,5 +100,6 @@ GWA_FLAT_VARIABLES = [
 
 # --- Aggregation grid ---
 # 20 × 0.0025° = 0.05° ≈ 5 km cell. Matches Product Knowledge Base target.
-AGGREGATION_FACTOR = 20
+DEFAULT_AGGREGATION_FACTOR = 20
+AGGREGATION_FACTOR = DEFAULT_AGGREGATION_FACTOR  # backward compat for direct imports
 NATIVE_PIXEL_DEG = 0.0025  # GWA native pixel size

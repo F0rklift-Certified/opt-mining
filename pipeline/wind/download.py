@@ -117,17 +117,34 @@ def _clip_gwa_sample(variable, height, bbox, area, out_dir, verbose=False):
 def run(
     bbox: tuple[float, ...] = config.DEFAULT_BBOX,
     area_name: str = config.DEFAULT_AREA,
+    heights: list[int] | None = None,
+    turbine_classes: list[str] | None = None,
     verbose: bool = False,
 ) -> dict:
     """
     Download GWA samples for the study window.
+
+    Parameters
+    ----------
+    bbox : tuple
+        Study window (W, S, E, N) in EPSG:4326.
+    area_name : str
+        Short slug for filenames.
+    heights : list[int] | None
+        Hub heights to download wind-speed layers for. None uses defaults.
+    turbine_classes : list[str] | None
+        IEC turbine classes for capacity-factor layers. None uses defaults.
+    verbose : bool
+        Enable detailed logging.
 
     Returns a summary dict with record counts and the manifest path.
     """
     apply_vsicurl_env()
     records, failures = [], []
 
-    for variable, height in config.GWA_DEFAULT_SAMPLES:
+    samples = config.build_samples(heights=heights, turbine_classes=turbine_classes)
+
+    for variable, height in samples:
         try:
             records.append(
                 _clip_gwa_sample(variable, height, bbox, area_name, config.WIND_DIR, verbose)

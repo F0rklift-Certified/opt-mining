@@ -26,6 +26,9 @@ DEFAULT_END_DATE = "2026-06-30"
 # --- NEM regions (expected) ---
 NEM_REGIONS = ["NSW1", "QLD1", "SA1", "TAS1", "VIC1"]
 
+# --- Default regions for analysis (all 5 unless overridden) ---
+DEFAULT_REGIONS = list(NEM_REGIONS)
+
 # --- Request settings ---
 TIMEOUT = 30
 RETRY_ATTEMPTS = 3

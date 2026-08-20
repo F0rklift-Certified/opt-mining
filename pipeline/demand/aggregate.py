@@ -55,6 +55,7 @@ def run(
     output_dir: Path,
     start_date: str,
     end_date: str,
+    regions: list[str] | None = None,
     verbose: bool = False,
 ) -> tuple[Path, Path]:
     """
@@ -70,6 +71,8 @@ def run(
         Pipeline start date (YYYY-MM-DD) — recorded in metadata.
     end_date : str
         Pipeline end date (YYYY-MM-DD) — recorded in metadata.
+    regions : list[str] | None
+        NEM region IDs to include. None means all regions present in data.
     verbose : bool
         Print additional detail.
 
@@ -91,6 +94,11 @@ def run(
     df["OPERATIONAL_DEMAND"] = pd.to_numeric(df["OPERATIONAL_DEMAND"], errors="coerce")
 
     print(f"  Loaded: {len(df):,} rows, {df['REGIONID'].nunique()} regions")
+
+    # Filter to requested regions
+    if regions:
+        df = df[df["REGIONID"].isin(regions)]
+        print(f"  Filtered to regions: {', '.join(regions)} ({len(df):,} rows)")
 
     # Extract month for seasonal grouping
     df["month"] = df["INTERVAL_DATETIME"].dt.month
