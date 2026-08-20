@@ -95,8 +95,8 @@ samples were downloaded directly from GA, AEMO and EnergyCo.
 
 ## 5. Sample Data Downloaded
 
-| File Name | Source | Size | Spatial Coverage | Temporal Coverage | Location in Repo |
-|-----------|--------|------|------------------|-------------------|------------------|
+| File Name | Source | Size | Spatial Coverage | Temporal Coverage | Location in Repo / Notes |
+|-----------|--------|------|------------------|-------------------|-------------------------|
 | `ga_power_lines_2026_australia.geojson` | Geoscience Australia Electricity Infrastructure | 16 MB | Australia, all states and territories | Current service downloaded 2026-08-13 | `DATA/infrastructure/transmission-lines/` |
 | `ga_power_lines_2026_nsw.geojson` | Derived from the national GA download | 5.2 MB | New South Wales | Current service downloaded 2026-08-13 | `DATA/infrastructure/transmission-lines/` |
 | `ga_substations_2026_australia.geojson` | Geoscience Australia Electricity Infrastructure | 1.4 MB | Australia, all states and territories | Current service downloaded 2026-08-15 | `DATA/infrastructure/substations/` |
