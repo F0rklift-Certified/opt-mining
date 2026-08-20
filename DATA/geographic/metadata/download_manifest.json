@@ -9,7 +9,7 @@
     ]
   },
   "vectors": {
-    "retrieved_utc": "2026-08-20T04:49:02+00:00",
+    "retrieved_utc": "2026-08-20T05:08:27+00:00",
     "generated_by": "scripts/geo_fetch_vectors.py",
     "commit_guardrail_bytes": 10000000,
     "samples": [
@@ -95,7 +95,7 @@
     "failures": []
   },
   "rasters": {
-    "retrieved_utc": "2026-08-20T04:51:22+00:00",
+    "retrieved_utc": "2026-08-20T05:08:49+00:00",
     "generated_by": "scripts/geo_fetch_rasters.py",
     "gl1_subwindow": {
       "name": "glen-innes",
