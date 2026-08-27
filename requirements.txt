@@ -5,11 +5,12 @@ requests==2.32.3
 rasterio==1.4.3
 numpy==2.2.6
 
-# Task 4 — Geographic & Environmental (no new packages required)
-# Vector GeoJSON: stdlib json (the ArcGIS REST services serve f=geojson).
-# Rasterisation & point-in-polygon: rasterio.features.rasterize on GeoJSON dicts.
-# CRS transforms (incl. EPSG:3577 area evidence): rasterio.warp.transform_geom /
-# transform_bounds. Slope/TRI: numpy Horn 3x3 with latitude-corrected spacing.
-# geopandas/shapely/fiona/pyproj deliberately avoided — nothing in this task
-# needs geometric set operations; if Task 5's integration does, that is Task 5's
-# decision to make with its own requirements section.
+# Sprint 1 — Grid generation and feature layers (S1-02 onwards)
+# Introduced at S1-02 (Finalise Common Analysis Cell) because generating ~47k
+# polygon cells with attributes and writing to GeoPackage is exactly what
+# GeoPandas is designed for. All downstream feature-layer tasks (S1-03–S1-08)
+# will use these for spatial joins, overlay, and GeoPackage I/O.
+geopandas==1.1.4
+shapely==2.1.2
+pyogrio==0.13.0
+pyproj==3.7.2
