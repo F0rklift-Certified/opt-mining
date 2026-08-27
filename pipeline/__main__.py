@@ -66,6 +66,9 @@ def _get_runner(stage: str):
         return run
     elif stage == "demand":
         return None  # handled specially
+    elif stage == "grid":
+        from .grid.generate import run
+        return run
     elif stage == "validate":
         from .validate import run
         return run

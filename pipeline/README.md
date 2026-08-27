@@ -1,6 +1,6 @@
 # Opt-Mining Data Pipeline
 
-Modular pipeline for wind resource (Task 1), electricity infrastructure (Task 3), geographic/environmental (Task 4), and demand (Task 2) data investigation.
+Modular pipeline for wind resource (Task 1), electricity infrastructure (Task 3), geographic/environmental (Task 4), demand (Task 2), and grid generation (S1-02) data processing.
 
 ## Quick Start
 
@@ -13,6 +13,7 @@ python -m pipeline --only wind
 python -m pipeline --only geographic
 python -m pipeline --only infrastructure
 python -m pipeline --only demand
+python -m pipeline --only grid
 
 # Run a single stage
 python -m pipeline --only wind.probe
@@ -33,6 +34,10 @@ python -m pipeline --only wind.analyse --agg-factor 10
 
 # Demand: specific date range and regions
 python -m pipeline --only demand --start-date 2024-01-01 --end-date 2024-12-31 --regions NSW1,QLD1
+
+# Grid generation (standalone)
+python -m pipeline.grid
+python -m pipeline.grid --verbose
 
 # Validation: stricter slope threshold
 python -m pipeline --max-slope 12
@@ -62,6 +67,11 @@ pipeline/
 ├── common/
 │   ├── __init__.py
 │   └── geo.py              # ArcGIS REST, atomic writes, banners, human_bytes
+├── grid/
+│   ├── __init__.py         # Subpackage docstring (S1-02 architecture decision)
+│   ├── __main__.py         # Standalone CLI: python -m pipeline.grid
+│   ├── config.py           # Grid constants (GWA origin, cell size, NSW bbox, CRS)
+│   └── generate.py         # generate_grid() → GeoDataFrame; run() → GeoPackage
 ├── wind/
 │   ├── __init__.py
 │   ├── config.py           # GWA URLs, wind paths, aggregation constants
@@ -85,6 +95,9 @@ pipeline/
 │   ├── helpers.py          # GeoJSON load/filter/stats
 │   ├── download.py         # Stage: presence check of pre-downloaded files
 │   └── inspect.py          # Stage: substations, power lines, generators
+├── integration/
+│   ├── __init__.py
+│   └── analyse.py          # Task 5 evidence: grid geometry, CRS alignment
 └── demand/
     ├── __init__.py
     ├── __main__.py          # Demand-specific CLI
@@ -104,6 +117,7 @@ wind.probe → wind.download → wind.inspect → wind.validate → wind.analyse
 → geographic.probe → geographic.download → geographic.inspect → geographic.derive → geographic.validate
 → infrastructure.download → infrastructure.inspect
 → demand
+→ grid (common analysis cell generation)
 → validate (cross-domain integration checks)
 ```
 
@@ -147,10 +161,18 @@ Each stage module exposes a `run()` function:
 from pipeline.wind.probe import run as wind_probe
 from pipeline.geographic.download import run as geo_download
 from pipeline.infrastructure.inspect import run as infra_inspect
+from pipeline.grid.generate import run as grid_run
+from pipeline.grid.generate import generate_grid
 
 wind_probe(verbose=True)
 geo_download(bbox=(150.0, -31.5, 152.0, -29.5), area_name="new-england-rez")
 infra_inspect(state="NSW", fuel_type="wind")
+
+# Grid: generate and write to GeoPackage
+grid_run(verbose=True)
+
+# Grid: get the GeoDataFrame directly (no I/O)
+gdf = generate_grid()
 ```
 
 ## Data Outputs
@@ -237,6 +259,14 @@ A successful full pipeline run produces the following file tree under `DATA/`:
 | `demand_annual_summary.meta.json` | aggregate | Metadata for the summary (date range, row count) |
 | `inspection_summary.txt` | inspect | Statistical summary of demand data |
 
+### Grid (`DATA/grid/`)
+
+| File | Stage | Description |
+|------|-------|-------------|
+| `nsw_analysis_grid.gpkg` | grid | NSW common analysis cell grid (GeoPackage, EPSG:4326) |
+| `nsw_analysis_grid_metadata.json` | grid | Grid metadata (CRS, origin, cell count, area stats) |
+| `decision_analysis_cell.md` | — | Architecture decision document (Option A selection) |
+
 ### Cross-Domain Validation (`DATA/geographic/metadata/`)
 
 | File | Stage | Description |
@@ -312,9 +342,13 @@ pandas>=2.2
 requests>=2.32
 rasterio>=1.4
 numpy>=2.2
+geopandas>=1.1
+shapely>=2.1
+pyogrio>=0.13
+pyproj>=3.7
 ```
 
-No additional dependencies beyond `requirements.txt`. The pipeline deliberately avoids geopandas/shapely/fiona — vector operations use stdlib JSON + rasterio features.
+See `requirements.txt` for pinned versions. GeoPandas and its spatial stack were introduced at S1-02 (grid generation) and are used by all downstream feature-layer tasks (S1-03–S1-08).
 
 ## Open Questions (Team Decision Required)
 
