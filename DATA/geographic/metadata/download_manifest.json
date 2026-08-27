@@ -1,0 +1,200 @@
+{
+  "study_window": {
+    "name": "new-england-rez",
+    "bbox_epsg4326": [
+      150.0,
+      -31.5,
+      152.0,
+      -29.5
+    ]
+  },
+  "vectors": {
+    "retrieved_utc": "2026-08-20T05:08:27+00:00",
+    "generated_by": "scripts/geo_fetch_vectors.py",
+    "commit_guardrail_bytes": 10000000,
+    "samples": [
+      {
+        "dataset": "ABS ASGS 2021 State/Territory (STE)",
+        "source": "https://geo.abs.gov.au/arcgis/rest/services/ASGS2021/STE/FeatureServer/0",
+        "output_file": "DATA/geographic/boundaries/abs_ste_2021_national.geojson",
+        "features": 9,
+        "local_bytes": 3641554,
+        "crs": "EPSG:4326 (GeoJSON, outSR explicit)",
+        "max_allowable_offset_deg": 0.0005,
+        "filter": "state_name_2021 <> 'Outside Australia'"
+      },
+      {
+        "dataset": "ABS ASGS 2021 Australia outline (AUS)",
+        "source": "https://geo.abs.gov.au/arcgis/rest/services/ASGS2021/AUS/FeatureServer/0",
+        "output_file": "DATA/geographic/boundaries/abs_aus_2021_national.geojson",
+        "features": 1,
+        "local_bytes": 3296127,
+        "crs": "EPSG:4326 (GeoJSON, outSR explicit)",
+        "max_allowable_offset_deg": 0.0005,
+        "filter": "aus_code_2021 = 'AUS'"
+      },
+      {
+        "dataset": "ABS ASGS 2021 Local Government Areas (window extract)",
+        "source": "https://geo.abs.gov.au/arcgis/rest/services/ASGS2021/LGA/FeatureServer/0",
+        "output_file": "DATA/geographic/boundaries/abs_lga_2021_new-england-rez.geojson",
+        "features": 12,
+        "local_bytes": 6166744,
+        "crs": "EPSG:4326 (GeoJSON, outSR explicit)",
+        "max_allowable_offset_deg": null,
+        "spatial_filter": "envelope (150.0, -31.5, 152.0, -29.5) EPSG:4326"
+      },
+      {
+        "dataset": "ABS ASGS 2021 Urban Centres and Localities (window extract)",
+        "source": "https://geo.abs.gov.au/arcgis/rest/services/ASGS2021/UCL/FeatureServer/0",
+        "output_file": "DATA/geographic/urban/abs_ucl_2021_new-england-rez.geojson",
+        "features": 28,
+        "local_bytes": 640491,
+        "crs": "EPSG:4326 (GeoJSON, outSR explicit)",
+        "max_allowable_offset_deg": 0.0005,
+        "spatial_filter": "envelope (150.0, -31.5, 152.0, -29.5) EPSG:4326"
+      },
+      {
+        "dataset": "CAPAD 2024 terrestrial, NSW",
+        "source": "https://gis.environment.gov.au/gispubmap/rest/services/ogc_services/CAPAD/FeatureServer/0",
+        "output_file": "DATA/geographic/protected/dcceew_capad-terrestrial_2024_nsw.geojson",
+        "features": 1018,
+        "local_bytes": 3325953,
+        "crs": "EPSG:4326 (GeoJSON, outSR explicit)",
+        "max_allowable_offset_deg": 0.0005,
+        "filter": "STATE = 'NSW'"
+      },
+      {
+        "dataset": "CAPAD 2024 terrestrial, study-window extract (full resolution)",
+        "source": "https://gis.environment.gov.au/gispubmap/rest/services/ogc_services/CAPAD/FeatureServer/0",
+        "output_file": "DATA/geographic/protected/dcceew_capad-terrestrial_2024_new-england-rez.geojson",
+        "features": 61,
+        "local_bytes": 3430509,
+        "crs": "EPSG:4326 (GeoJSON, outSR explicit)",
+        "max_allowable_offset_deg": null,
+        "spatial_filter": "envelope (150.0, -31.5, 152.0, -29.5) EPSG:4326"
+      },
+      {
+        "dataset": "Natural Earth 1:50m land, Australia-region landmasses",
+        "source": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_land.geojson",
+        "output_file": "DATA/geographic/coastline/ne_land-50m_australia.geojson",
+        "features": 56,
+        "local_bytes": 308562,
+        "crs": "EPSG:4326 (GeoJSON, outSR explicit)",
+        "filter": "landmass bbox intersects (112.0, -44.5, 154.5, -9.0)"
+      },
+      {
+        "dataset": "NEM regions (derived from ABS STE; not authoritative)",
+        "source": "https://geo.abs.gov.au/arcgis/rest/services/ASGS2021/STE/FeatureServer/0",
+        "output_file": "DATA/geographic/derived/nem_regions_asgs2021_national.geojson",
+        "features": 5,
+        "local_bytes": 2057249,
+        "crs": "EPSG:4326 (GeoJSON, outSR explicit)",
+        "derivation": "see scripts/geo_fetch_vectors.py derive_nem_regions()"
+      }
+    ],
+    "failures": []
+  },
+  "rasters": {
+    "retrieved_utc": "2026-08-20T05:08:49+00:00",
+    "generated_by": "scripts/geo_fetch_rasters.py",
+    "gl1_subwindow": {
+      "name": "glen-innes",
+      "bbox_epsg4326": [
+        151.25,
+        -30.0,
+        151.75,
+        -29.5
+      ],
+      "reason": "full-window GL1 (~104 MB raw) exceeds the commit guardrail; sub-window covers both Task 1 wind farms"
+    },
+    "samples": [
+      {
+        "output_file": "DATA/geographic/elevation/srtm-gl3_elevation_90m_new-england-rez.tif",
+        "local_bytes": 5895826,
+        "window_px": {
+          "width": 2400,
+          "height": 2400
+        },
+        "crs": "EPSG:4326",
+        "pixel_size": [
+          0.000833333333333144,
+          0.000833333333333144
+        ],
+        "dtype": "int16",
+        "nodata": 0.0,
+        "dataset": "SRTM GL3 elevation, 3 arc-second (~90 m), study window",
+        "source": "https://opentopography.s3.sdsc.edu/raster/SRTM_GL3/SRTM_GL3_srtm.vrt",
+        "bbox_epsg4326": [
+          150.0,
+          -31.5,
+          152.0,
+          -29.5
+        ],
+        "access": "GDAL /vsicurl/ windowed read"
+      },
+      {
+        "output_file": "DATA/geographic/elevation/srtm-gl1_elevation_30m_glen-innes.tif",
+        "local_bytes": 2515437,
+        "window_px": {
+          "width": 1800,
+          "height": 1800
+        },
+        "crs": "EPSG:4326",
+        "pixel_size": [
+          0.0002777777777778146,
+          0.0002777777777778146
+        ],
+        "dtype": "int16",
+        "nodata": -32768.0,
+        "dataset": "SRTM GL1 elevation, 1 arc-second (~30 m), wind-farm sub-window",
+        "source": "https://opentopography.s3.sdsc.edu/raster/SRTM_GL1/SRTM_GL1_srtm.vrt",
+        "bbox_epsg4326": [
+          151.25,
+          -30.0,
+          151.75,
+          -29.5
+        ],
+        "access": "GDAL /vsicurl/ windowed read"
+      },
+      {
+        "output_file": "DATA/geographic/landuse/abares_nlum-alumv8_2020-21_new-england-rez.tif",
+        "local_bytes": 220861,
+        "window_px": {
+          "width": 884,
+          "height": 999
+        },
+        "crs": "EPSG:3577",
+        "pixel_size": [
+          250.0,
+          250.0
+        ],
+        "dtype": "int16",
+        "nodata": 0.0,
+        "dataset": "ABARES NLUM v7.1 250 m ALUM v8 land use, 2020-21 (window clip)",
+        "source": "https://www.agriculture.gov.au/sites/default/files/documents/NLUM_v7_1_250m_ALUMV8_2020_21_alb_20260814.zip",
+        "bbox_epsg4326": [
+          150.0,
+          -31.5,
+          152.0,
+          -29.5
+        ],
+        "bbox_native_epsg3577": [
+          1688056.661039719,
+          -3578372.942115622,
+          1909103.0714613094,
+          -3328595.2437648443
+        ],
+        "access": "zip download to raw/ (gitignored) + /vsizip/ window clip",
+        "zip_bytes": 64220773,
+        "zip_member": "NLUM_v7_1_250m_ALUMV8_2020_21_alb.tif"
+      },
+      {
+        "dataset": "ALUM v8 class table (machine-extracted)",
+        "source": "https://www.agriculture.gov.au/sites/default/files/documents/NLUM_v7_1_250m_ALUMV8_2020_21_alb_20260814.zip",
+        "output_file": "DATA/geographic/landuse/abares_alumv8_class_table.csv",
+        "zip_member": "NLUM_v7_1_250m_ALUMV8_2020_21_alb.csv"
+      }
+    ],
+    "failures": []
+  }
+}

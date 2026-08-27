@@ -1,0 +1,44 @@
+{
+  "dataset": "AEMO NEM Operational Demand \u2014 Annual Summary",
+  "description": "Per-region annual demand statistics derived from half-hourly AEMO operational demand data. Values are in MW. These are regional aggregates, not cell-level estimates.",
+  "source": "https://nemweb.com.au/Reports/Archive/Operational_Demand/ACTUAL_DAILY/",
+  "publisher": "Australian Energy Market Operator (AEMO)",
+  "licence": "AEMO public data \u2014 free to use with attribution",
+  "pipeline": "pipelines.demand (aggregate stage)",
+  "generated_at": "2026-08-20T05:38:58.307100Z",
+  "input_file": "aemo_operational_demand_daily_2025.csv",
+  "temporal_range": {
+    "start": "2025-07-01T04:30:00",
+    "end": "2026-07-01T04:00:00"
+  },
+  "requested_range": {
+    "start": "2025-07-01",
+    "end": "2026-06-30"
+  },
+  "temporal_resolution_input": "30 minutes (half-hourly)",
+  "spatial_resolution": "NEM Region (5 regions: NSW1, QLD1, SA1, TAS1, VIC1)",
+  "units": "MW (megawatts)",
+  "metric": "Operational demand \u2014 electricity demand met by scheduled, semi-scheduled and significant non-scheduled generation. Excludes behind-the-meter generation (rooftop PV).",
+  "seasonal_definitions": {
+    "summer": "December, January, February (Australian meteorological summer)",
+    "winter": "June, July, August (Australian meteorological winter)"
+  },
+  "columns": {
+    "REGIONID": "NEM region identifier (NSW1, QLD1, SA1, TAS1, VIC1)",
+    "MEAN_DEMAND_MW": "Annual mean operational demand (MW)",
+    "MAX_DEMAND_MW": "Annual maximum (peak) operational demand (MW)",
+    "MIN_DEMAND_MW": "Annual minimum operational demand (MW)",
+    "STD_DEMAND_MW": "Standard deviation of operational demand (MW)",
+    "SUMMER_MEAN_MW": "Mean demand during summer months (Dec-Feb) (MW)",
+    "WINTER_MEAN_MW": "Mean demand during winter months (Jun-Aug) (MW)",
+    "START_DATE": "Requested pipeline start date",
+    "END_DATE": "Requested pipeline end date"
+  },
+  "limitations": [
+    "Regional granularity only \u2014 5 values, not per grid cell.",
+    "NEM coverage gap: Western Australia (SWIS) and NT not included.",
+    "Operational demand excludes rooftop PV; actual consumption is higher.",
+    "Cell-level demand indicators require spatial allocation (Task 5)."
+  ],
+  "downstream_use": "Input to Task 5 spatial allocation. MEAN_DEMAND_MW is the primary indicator for suitability scoring. Cell-level values derived from this are estimated/proxy demand indicators, not actual local consumption."
+}
