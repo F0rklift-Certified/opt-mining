@@ -1,0 +1,43 @@
+{
+  "description": "NSW common analysis cell grid for Opt-Mining platform",
+  "task": "S1-02",
+  "generated_utc": "2026-08-27T06:30:24+00:00",
+  "crs_storage": "EPSG:4326",
+  "crs_computation": "EPSG:3577",
+  "cell_size_deg": 0.05,
+  "cell_factor": 20,
+  "gwa_origin": [
+    109.21125,
+    -8.86125
+  ],
+  "gwa_step_deg": 0.0025,
+  "grid_origin_snapped": [
+    141.01125000000002,
+    -28.161250000000003
+  ],
+  "bbox_nsw": [
+    141.0,
+    -37.55,
+    153.7,
+    -28.15
+  ],
+  "n_cols": 253,
+  "n_rows": 187,
+  "total_cells": 47311,
+  "representative_cell_km": {
+    "width_km": 4.676,
+    "height_km": 5.557,
+    "at_latitude": -32.849999999999994
+  },
+  "area_km2_range": {
+    "min": 24.54,
+    "max": 27.205,
+    "mean": 25.929
+  },
+  "land_masking": "Deferred to S1-06/S1-07. This grid is the full rectangular bounding box.",
+  "notes": [
+    "Every cell edge aligns exactly with GWA v4 native pixel boundaries.",
+    "Cell IDs encode centroid lat/lon for human readability.",
+    "area_km2 computed via EPSG:3577 (Australian Albers Equal Area)."
+  ]
+}
