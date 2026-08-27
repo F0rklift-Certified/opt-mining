@@ -41,6 +41,16 @@ python -m pipeline --max-slope 12
 python -m pipeline --verbose
 ```
 
+## Data Specification
+
+The authoritative specification of all datasets used in the Sprint 1 pipeline is:
+
+**[`DATA/data-specification/sprint1_data_specification.md`](../DATA/data-specification/sprint1_data_specification.md)**
+
+This document records the source, variables, units, CRS, resolution, temporal coverage, licence, limitations, and pipeline use for every dataset. No data may enter the pipeline without being listed there.
+
+Datasets considered but excluded are documented in [`DATA/data-specification/sprint1_out_of_scope.md`](../DATA/data-specification/sprint1_out_of_scope.md).
+
 ## Architecture
 
 ```
