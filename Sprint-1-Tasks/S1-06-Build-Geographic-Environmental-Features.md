@@ -5,7 +5,9 @@
 **Story Points:** 5  
 **Labels:** feature-engineering, geographic, environmental  
 **Blocked by:** S1-01, S1-02  
-**Blocks:** S1-07, S1-08
+**Blocks:** S1-07, S1-08  
+**Status:** Complete  
+**Completed:** 2026-08-27
 
 ---
 
@@ -35,22 +37,22 @@ Geographic and environmental features serve two purposes:
 
 ## Acceptance Criteria
 
-- [ ] Pipeline module (`pipeline/geographic/`) derives the following for each analysis cell:
+- [x] Pipeline module (`pipeline/geographic/`) derives the following for each analysis cell:
   - `elevation_m` — representative elevation (mean or median within cell)
   - `slope_deg` — representative slope (mean, max, or percentile within cell — document choice)
   - `land_use_class` — dominant land-use class within cell (from ABARES NLUM/ALUM)
   - `protected_area` — boolean flag (any overlap with CAPAD protected areas)
   - `protected_area_name` — name(s) of overlapping protected area(s), if applicable
   - Other criteria justified by Sprint 0 investigation (e.g. terrain ruggedness index)
-- [ ] Method for summarising raster data within each cell is documented:
+- [x] Method for summarising raster data within each cell is documented:
   - Which zonal statistic (mean, median, max, mode)?
   - How are partial cells handled at boundaries?
   - How is NoData within cells handled?
-- [ ] Output table: `cell_id | elevation_m | slope_deg | land_use | protected_area | protected_area_name | tri | confidence_flag`
-- [ ] CRS transformations are explicit and logged
-- [ ] Automated — runs as part of the pipeline
-- [ ] Unit tests cover zonal statistics logic
-- [ ] Performance is acceptable for full NSW grid (document runtime)
+- [x] Output table: `cell_id | elevation_m | slope_deg | land_use | protected_area | protected_area_name | tri | confidence_flag`
+- [x] CRS transformations are explicit and logged
+- [x] Automated — runs as part of the pipeline
+- [x] Unit tests cover zonal statistics logic
+- [x] Performance is acceptable for full NSW grid (document runtime)
 
 ---
 
@@ -95,3 +97,15 @@ For each raster input and each cell polygon:
 | NSW001  | 842         | 3.1       | Grazing  | No             | —                   | high       |
 | NSW002  | 1105        | 7.8       | Forestry | No             | —                   | high       |
 | NSW003  | 654         | 2.4       | Grazing  | Yes            | Oxley Wild Rivers NP| high       |
+
+---
+
+## Completion Notes
+
+- Implemented as the `geographic.features` stage in `pipeline/geographic/features.py`, registered in `config.STAGES` after `grid`.
+- Outputs: `DATA/geographic/features/optmining_geographic-features_2024_nsw.gpkg` + method report `DATA/geographic/metadata/geographic_features_method.md`.
+- Data specification updated at §4.4.8 / §7 (v1.1).
+- Zonal statistic: mean of valid pixels (cell-centre inclusion, `all_touched=False`); land use = modal NLUM code with lowest-code tie-break; `protected_area` = any CAPAD intersection (EPSG:3577); confidence low when a required raster (elevation/slope/NLUM) is out of coverage or ≥50% NoData (TRI excluded).
+- Runtime: 47,311 NSW cells in ~7s.
+- Naming clarification: the acceptance criteria referred to the land-use column as `land_use_class`; the delivered column (and the data spec) use `land_use`, matching the output-table line in this same doc.
+- Implemented with pure `rasterio` + `numpy` zonal statistics; `rasterstats` (mentioned in Technical Notes as an option) was deliberately NOT added as a dependency.
