@@ -350,16 +350,16 @@ pyproj>=3.7
 
 See `requirements.txt` for pinned versions. GeoPandas and its spatial stack were introduced at S1-02 (grid generation) and are used by all downstream feature-layer tasks (S1-03–S1-08).
 
-## Open Questions (Team Decision Required)
+## Frozen Decisions (resolved 2026-08-27)
 
-These questions arose from the Task 5 integration analysis. Each affects how the pipeline scores and ranks sites in Sprint 1. The team needs to make a call on each before implementation proceeds.
+These questions arose from the Task 5 integration analysis. They were resolved by team consensus and **frozen** in `DATA/data-specification/sprint1_data_specification.md` §2 (decisions Q1–Q7). Changes now follow the specification's change-control process (§8). The table below is the decision record.
 
-| # | Question | Options | Recommendation |
-|---|----------|---------|----------------|
-| 1 | Wind aggregation statistic for 250 m → 5 km cells? | (a) Mean — stable, buries ridges. (b) Max — captures best micro-site, noisy. (c) P90 — compromise. (d) Report multiple, let user choose. | Report mean + p90 as features; use mean as default scoring input; present max as "best micro-site" indicator in explanation. |
-| 2 | Primary hub height for scoring? | (a) 100 m — consistent with capacity factor layers. (b) 150 m — closer to modern turbine heights. | Use 100 m for V1 (CF consistency); carry 150 m as sensitivity layer. |
-| 3 | Slope aggregation statistic per cell? | (a) Mean slope — general terrain difficulty. (b) P90 — flags cells with steep sections. (c) Max — most conservative. | Use mean slope as penalty input; report p90 in explanation. Evidence: exclusion varies 11.6% (mean) to 42.1% (p90) to 85.7% (max) at 10° threshold. |
-| 4 | Population data source for demand allocation? | (a) ABS Census 2021 ERP at SA2 level. (b) ABS Census 2021 at mesh block. (c) ABS gridded population estimates. | SA2 level — sufficient resolution for ~5 km grid, simpler to implement. |
-| 5 | Should demand criterion use operational or total demand? | (a) Operational demand — grid-served load. (b) PRICE_AND_DEMAND — includes price. | Operational demand. It measures the load new generation must serve. |
-| 6 | Hard exclusion threshold for protected areas? | (a) Binary — any CAPAD overlap excludes the cell. (b) Fractional — exclude only if > X% is protected. | Binary exclusion (any intersection). |
-| 7 | Should infrastructure distance have a hard exclusion threshold? | (a) No — continuous distance only. (b) Yes — exclude cells > 100 km from transmission. | No hard exclusion for V1. Distance is a continuous penalty; remote cells rank low naturally. |
+| # | Question | Decision |
+|---|----------|----------|
+| 1 | Wind aggregation statistic for 250 m → 5 km cells? | **Mean** — single stable statistic; report P90 as a feature and max as a "best micro-site" indicator in explanation. |
+| 2 | Primary hub height for scoring? | **100 m** — consistent with the capacity-factor layers; 150 m carried as a sensitivity layer only. |
+| 3 | Slope aggregation statistic per cell? | **Mean for scoring; P90 in explanation.** Evidence: exclusion varies 11.6% (mean) to 42.1% (p90) to 85.7% (max) at a 10° threshold. |
+| 4 | Population data source for demand allocation? | **ABS Census 2021 ERP at SA2 level** — sufficient resolution for a ~5 km grid, simpler than mesh block. |
+| 5 | Operational or total demand? | **Operational demand** — grid-served load, the load new generation must serve (excludes behind-the-meter PV). |
+| 6 | Hard exclusion threshold for protected areas? | **Binary** — any CAPAD intersection excludes the cell. |
+| 7 | Infrastructure distance hard exclusion? | **No hard exclusion for V1** — continuous distance penalty only; remote cells rank low naturally. |
