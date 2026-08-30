@@ -1,8 +1,14 @@
 # Opt-Mining – Product Knowledge Base
 
-*Status: Living document. Updated as Sprint 0 resolves data and technical questions.*
+*Status: Living document. Version 1.1 — updated 2026-08-30 to reflect the Sprint 1 freeze (2026-08-27).*
 
-*Updated following the client meeting. Unresolved questions are collected under Open Questions.*
+*Sprint 0 has resolved the data and technical questions this document originally left open. The authoritative, frozen detail now lives in:*
+
+- *`DATA/data-specification/sprint1_data_specification.md` — frozen dataset list, parameters and CRS/temporal strategy (v1.0, 2026-08-27).*
+- *`DATA/data-specification/sprint1_out_of_scope.md` — datasets investigated but excluded, with revisit conditions.*
+- *`DATA/grid/decision_analysis_cell.md` — the finalised common analysis cell decision (S1-02).*
+
+*This knowledge base is the product-level summary; where it and the frozen specification differ, the specification governs.*
 
 ## Product Definition
 
@@ -37,11 +43,11 @@ Users can adjust the decision criteria and obtain a re-ranked shortlist. Weighti
 
 ## Site Definition
 
-A "site" is a **grid cell**, at approximately **5 km** resolution.
+A "site" is a **grid cell**. The cell is now finalised (S1-02) as a **0.05° cell anchored to the Global Wind Atlas v4 raster origin** — approximately **4.7 km × 5.56 km** at NSW mid-latitudes (~25 km²). Storage is EPSG:4326 (WGS 84); all distance and area calculations use EPSG:3577 (GDA94 / Australian Albers, equal-area). Each cell is exactly 20 × 20 GWA native pixels, so wind data aggregates cleanly with no boundary ambiguity.
 
-This is screening-level resolution, chosen deliberately: native raster resolution across Australia will not run on the available hardware. The resolution and its limitations must be documented wherever results are presented.
+This is screening-level resolution, chosen deliberately: native raster resolution across Australia will not run on the available hardware. Cell width varies ~10% with latitude and cells are not equal-area; both facts must be documented wherever results are presented.
 
-If national-scale processing proves too computationally expensive, demonstrate on one or several states - NSW first - while keeping the architecture capable of national expansion.
+Sprint 1 is scoped to **NSW first (~47,311 cells in the bounding box; land-masking deferred to S1-06/S1-07)**, with the architecture kept capable of national expansion (~278,000 land cells, profiling required before Sprint 2). See `DATA/grid/decision_analysis_cell.md` for the full decision and alignment proof.
 
 ## Core Platform Components
 
@@ -63,7 +69,7 @@ Turns each source dataset into a per-cell feature. Wind speed and power density 
 
 ### Demand Indicator
 
-Derives a robust regional demand indicator from AEMO historical NEM demand, then allocates it to grid cells. AEMO reports at NEM region level (NSW1, QLD1, SA1, TAS1, VIC1); the allocation proxy from region to cell must be chosen and documented.
+Derives a robust regional demand indicator from AEMO historical NEM demand, then allocates it to grid cells. AEMO reports at NEM region level (NSW1, QLD1, SA1, TAS1, VIC1). The allocation approach is now frozen (Sprint 1 §2, decisions Q4/Q5): use **operational demand** (grid-served load, excluding behind-the-meter PV that new wind cannot displace), aggregated to **annual mean MW per NEM region**, then allocate to cells by **population weighting using ABS Census 2021 Estimated Resident Population at SA2 level** (`cell_demand = region_annual_mean_MW × cell_population / region_total_population`). The result is always labelled an *estimated demand indicator*, never actual local consumption.
 
 ### Infrastructure Accessibility
 
@@ -71,12 +77,14 @@ Distance and access measures derived from transmission lines, substations, conne
 
 ### Exclusion and Constraint Filter
 
-A small number of defensible hard exclusions, subject to data availability:
+A small number of defensible hard exclusions, now frozen (Sprint 1 §4.4 and decisions Q3/Q6/Q7):
 
-* Protected areas and national parks - hard exclusion.
-* Clearly unsuitable geographic areas - hard exclusion.
-* Slope and terrain - investigate as a suitability penalty or threshold, not an automatic exclusion.
-* Grid proximity - investigate as a suitability penalty or threshold, not an automatic exclusion.
+* **Protected areas** - hard exclusion. Binary: any CAPAD 2024 terrestrial polygon intersecting a cell excludes the whole cell (decision Q6).
+* **Ocean** - hard exclusion. Cells outside the ABS 2021 Australia outline (land mask).
+* **Water bodies** - hard exclusion. NLUM class 6 (lakes, reservoirs, rivers).
+* **Dense urban** - hard exclusion. NLUM class 5.4.x, cross-checked against ABS UCL polygons.
+* **Slope and terrain** - resolved as a **continuous suitability penalty**, not an exclusion (decision Q3): mean slope per cell drives the scoring penalty; P90 slope is reported in the explanation layer.
+* **Grid proximity** - resolved as a **continuous distance penalty**, not an exclusion (decision Q7): Euclidean distance (EPSG:3577) to the nearest transmission line ≥132 kV and nearest substation. No hard distance threshold — remote cells rank low naturally.
 
 Deterministic, inspectable rules, kept separate from the scoring model.
 
@@ -122,6 +130,7 @@ The single interface through which the dashboard and any external consumer reach
 * The architecture is modular by technology - wind first, with solar and storage addable later.
 * Deterministic rules are expressed as inspectable code, not learned from data.
 * Coordinate systems, resolutions and units are explicit at every boundary.
+* Temporal alignment is explicit: all inputs are long-run indicators, not synchronised time series. The gap between the wind climatology (2008–2017) and the demand window (2025–2026) is disclosed wherever the two criteria are combined.
 * Provenance travels with the data.
 * Analyses are reproducible from recorded inputs and versions.
 * Results are explainable, not merely presented.
@@ -135,18 +144,23 @@ The single interface through which the dashboard and any external consumer reach
 
 ## Data Sources
 
-Investigated in Sprint 0 before implementation is locked.
+Investigated in Sprint 0 and now **frozen** for Sprint 1. The authoritative dataset detail (exact files, vintages, CRS, licences, limitations) is in `DATA/data-specification/sprint1_data_specification.md`; datasets that were investigated but excluded are in `sprint1_out_of_scope.md`.
 
-| Source | Use | Priority |
+| Source | Use | Role |
 |---|---|---|
-| Global Wind Atlas | Mean wind speed, power density, terrain roughness, orography, capacity-factor layers | Highest |
-| AEMO - NEM demand | Historical regional demand indicator, ~3–5 recent complete years | High |
-| AEMO - network and generation | Substations, transmission lines, connection points, generators | High |
-| Geoscience Australia | National DEM, ~30 m SRTM-derived elevation; slope | High |
-| Administrative boundaries / NationalMap | Region and state geometry | Medium |
-| Protected and environmentally constrained areas | Hard exclusions | Medium |
-| Existing renewable energy facilities | Validation reference | Medium |
-| Road and accessibility data | Access measures | Secondary |
+| Global Wind Atlas v4 — wind speed @ 100 m, power density @ 100 m | Wind resource (Criterion 1) | Scoring input |
+| Global Wind Atlas v4 — capacity factor IEC2 | Interpretable resource indicator | Presentation/explanation only |
+| Global Wind Atlas v4 — wind speed @ 150 m | Hub-height sensitivity | Sensitivity only |
+| AEMO NEM operational demand (half-hourly, Jul 2025–Jun 2026) | Regional demand indicator (Criterion 2) | Scoring input |
+| ABS Census 2021 ERP @ SA2 | Population weighting for demand allocation | Scoring input (spatial denominator) |
+| GA power lines 2026 (≥132 kV) | Distance to transmission (Criterion 3) | Scoring input |
+| GA substations 2026 | Distance to substation (Criterion 3) | Secondary scoring input |
+| SRTM GL3 (~90 m) + derived Horn slope | Terrain penalty (Criterion 4) | Scoring input (penalty) |
+| ABARES NLUM v7.1 (land use) | Water/urban exclusion + land-use penalty (Criterion 4) | Exclusion + penalty |
+| DCCEEW CAPAD 2024 (terrestrial protected areas) | Hard exclusion (Criterion 4) | Exclusion |
+| ABS ASGS 2021 — Australia outline, STE, UCL + derived NEM regions | Land mask, region assignment, urban cross-check | Exclusion / region join |
+| GA wind generators 2026; AEMO/EnergyCo REZ boundaries; ABS LGA | Known wind farms, policy overlay, labelling | Validation / context only (not scored) |
+| Road and accessibility data (OSM) | Access measures | **Out of scope for V1** — deferred to V2 |
 
 All sources are public. Licence terms and attribution requirements are recorded with the data and carried through to the interface and exported outputs.
 
@@ -186,16 +200,22 @@ Success is a planner producing a defensible, reproducible shortlist in a fractio
 
 ## Open Questions
 
-**ML Suitability Indicator (conditional).** Investigate whether publicly available wind-farm and development locations provide sufficient reference examples to train an additional data-driven suitability score based on wind, infrastructure, terrain and other available features. This component complements — not replaces — the transparent weighted suitability model. Proceed with implementation only if suitable training/reference data are confirmed in Sprint 0. If the data is insufficient, document the finding and defer.
+**ML Suitability Indicator (still conditional).** Investigate whether publicly available wind-farm and development locations provide sufficient reference examples to train an additional data-driven suitability score based on wind, infrastructure, terrain and other available features. This component complements — not replaces — the transparent weighted suitability model. Proceed with implementation only if suitable training/reference data are confirmed. Note the constraint surfaced in Sprint 0: existing wind-farm locations are treated as **validation anchors, not scoring or training inputs** — rewarding cells for already hosting a wind farm would be circular. Any ML indicator must avoid that leakage. If the data is insufficient, document the finding and defer.
 
-**Demand Indicator.** Investigate AEMO NEM historical demand data covering approximately 3–5 recent complete years and recommend the most appropriate dataset. Because AEMO demand is regional (NEM region level), investigate population weighting as the spatial proxy for allocating demand to 5 km cells. Clearly document that the result is an estimated demand indicator, not actual local consumption.
+## Resolved Questions (Sprint 1 freeze, 2026-08-27)
+
+**Demand Indicator — RESOLVED (decisions Q4/Q5).** Use AEMO **operational demand** (not total demand), aggregated to annual mean MW per NEM region, allocated to cells by population weighting using **ABS Census 2021 ERP at SA2 level**. One year (Jul 2025–Jun 2026) is downloaded and complete; extendable to 3+ years for robustness in a later sprint. The result is always labelled an estimated demand indicator. See `sprint1_data_specification.md` §4.2.
+
+**Common analysis cell — RESOLVED (S1-02).** 0.05° GWA-aligned geographic cells, EPSG:4326 storage / EPSG:3577 computation. See `decision_analysis_cell.md`.
+
+**Slope, grid proximity and protected-area handling — RESOLVED (decisions Q3/Q6/Q7).** Slope and grid proximity are continuous penalties; protected areas are a binary hard exclusion. See the Exclusion and Constraint Filter section above.
 
 ## Known Risks
 
 * **Data integration.** Sources differ in format, resolution, projection, region naming and update cadence. This is the most likely source of silent error, and the reason Sprint 0 exists.
 * **Computational cost.** Continental-scale geospatial processing is expensive; the ~5 km grid is the primary mitigation, with state-level demonstration as the fallback.
-* **The ML deliverable.** See Open Questions - the mandatory deliverable and the client's data framing are not yet fully reconciled.
-* **Demand allocation.** A weak region-to-cell proxy would undermine the demand criterion regardless of how good the other data is.
+* **The ML deliverable.** See Open Questions - the mandatory deliverable and the client's data framing are not yet fully reconciled. Sprint 0 established that existing wind-farm data is a validation anchor, not a training/scoring input, which constrains any future data-driven indicator.
+* **Demand allocation.** A weak region-to-cell proxy would undermine the demand criterion regardless of how good the other data is. Mitigated by the frozen SA2 population-weighting approach (decision Q4), but the proxy's limitations (uniform allocation within each SA2, industrial loads not captured) remain and must be disclosed.
 * **False precision.** Screening-level output presented with more confidence than the resolution supports.
 
 ## Future Capability Areas
