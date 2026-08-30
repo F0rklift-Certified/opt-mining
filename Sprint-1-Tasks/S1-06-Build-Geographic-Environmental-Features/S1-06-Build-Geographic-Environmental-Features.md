@@ -95,3 +95,70 @@ For each raster input and each cell polygon:
 | NSW001  | 842         | 3.1       | Grazing  | No             | —                   | high       |
 | NSW002  | 1105        | 7.8       | Forestry | No             | —                   | high       |
 | NSW003  | 654         | 2.4       | Grazing  | Yes            | Oxley Wild Rivers NP| high       |
+
+---
+
+## How to Complete This Task
+
+This ticket is now backed by a full spec. Three companion documents sit in this
+same folder and should be read in this order before writing any code:
+
+1. **`requirements.md`** — the authoritative, testable definition of "done".
+   Every acceptance criterion above is expanded into EARS-format requirements
+   with precise, verifiable clauses. When this ticket and `requirements.md`
+   appear to disagree, `requirements.md` wins.
+2. **`design.md`** — how the stage is built: the new
+   `pipeline/geographic/features.py` module, its `run(verbose=False) -> dict`
+   entry point, the zonal-statistics method (elevation/slope/TRI), the
+   categorical land-use mode (NLUM code → ALUM name), CAPAD protected-area
+   overlap in EPSG:3577, the output schema, provenance, and the Correctness
+   Properties the tests must uphold. Read this to understand *how* the
+   requirements are satisfied.
+3. **`tasks.md`** — the actual build order. This is the checklist you execute:
+   a dependency-ordered plan (with a Task Dependency Graph) that goes config →
+   grid/raster/vector loaders → the pure zonal/mode/overlap core → confidence →
+   writers → provenance → `run()` → stage registration → no-silent-passes
+   validation → property/unit tests → documentation.
+
+### Working the plan
+
+- Open `tasks.md` and execute tasks top-to-bottom. Each task lists the specific
+  requirement clauses it satisfies (`_Requirements: ...`) and, where useful, a
+  `_Design ref:_` pointer — use those to jump back into `requirements.md` /
+  `design.md` for detail.
+- Tasks marked with `*` are optional test sub-tasks; core implementation tasks
+  are never optional. Do not skip the no-silent-passes validation or the stage
+  registration.
+- Stop at the checkpoints, run the test suite, and confirm green before moving on.
+
+### Things the spec pins down (don't diverge silently)
+
+- **Zonal statistics on pure rasterio/numpy/geopandas** — the design deliberately
+  does **not** add `rasterstats`; it reuses the established windowed-read +
+  cell-centre-mask idiom already used in `validate.py` / `derive.py`. Keep that
+  consistency.
+- **CRS explicit at every boundary** — EPSG:4326 storage, EPSG:3577 for
+  area/overlap computation (CAPAD protected-area intersection). Log every
+  transform; never convert silently.
+- **Categorical land use uses mode** (most common ALUM class), not mean, with a
+  documented tie-break; NLUM codes are mapped to names via the ALUM class table.
+- **Coverage gap is real** — several source rasters cover only the New England
+  REZ / Glen Innes windows, not all of NSW. Cells with insufficient valid pixels
+  are flagged low confidence, never back-filled (Constitution: "never invent
+  data").
+
+### Cross-component impact (must ship together)
+
+Finishing this task is not just writing `features.py`. To keep the pipeline
+consistent you must also: register `geographic.features` in `pipeline/config.py`
+`STAGES` **after `grid`**; add the `_get_runner` dispatch in
+`pipeline/__main__.py`; update the `pipeline/geographic/__init__.py` docstring;
+add the no-silent-passes checks; record provenance (`DATA_PROVENANCE.md` +
+`download_manifest.json` + `source_register`); document the full-NSW-grid
+runtime; and update `pipeline/README.md` (stage order + expected outputs) and the
+data specification §4.4.6/§4.4.7 + §7.
+
+> Note: this file is a documentation snapshot. The `requirements.md` / `design.md` /
+> `tasks.md` that Kiro's task runner uses live in the workspace spec store; the
+> copies in this folder are for reading alongside the ticket and may drift if the
+> spec is later edited.
