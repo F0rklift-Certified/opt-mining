@@ -1,6 +1,6 @@
 # Sprint 1 Data Specification
 
-**Version:** 1.0
+**Version:** 1.1
 **Date:** 2026-08-27
 **Status:** FROZEN — Sprint 1 baseline
 **Blocks:** S1-02, S1-03, S1-04, S1-05, S1-06
@@ -441,6 +441,26 @@ This criterion determines whether a cell is physically and legally suitable for 
 
 ---
 
+#### 4.4.8 Geographic & Environmental Feature Table (Derived — S1-06)
+
+| Field | Value |
+|-------|-------|
+| **Dataset name** | Per-cell Geographic & Environmental Feature Table — derived on the common analysis grid |
+| **Source** | **DERIVED** by `pipeline/geographic/features.py` (the `geographic.features` stage, S1-06) from the common analysis grid (§3) and the geographic/environmental sources §4.4.2 (CAPAD), §4.4.3 (NLUM), §4.4.5 (SRTM GL3 elevation), §4.4.6 (derived Horn slope), plus the derived Riley TRI raster (see below) |
+| **File in repository** | `DATA/geographic/features/optmining_geographic-features_2024_nsw.gpkg` (GeoPackage, one layer, one row per grid `cell_id`) |
+| **Variable(s) — per-cell columns** | `cell_id` (str, grid identifier, reused byte-for-byte from §3); `elevation_m` (float, mean of valid pixels, metres AMSL); `slope_deg` (float, mean of valid pixels, degrees, plausible 0–90); `land_use` (str, ALUM v8 tertiary class name of the modal NLUM code, or `unmapped:<code>`); `protected_area` (bool, any-CAPAD-intersection flag, frozen decision Q6); `protected_area_name` (str, distinct CAPAD names joined by `"; "`, `"(unnamed protected area)"` placeholder for features with no name, `""` when none); `tri` (float, mean of valid pixels, metres, Glen-Innes sub-window only); `confidence_flag` (str, exactly `high` or `low`) |
+| **Units** | `elevation_m`/`tri` in metres; `slope_deg` in degrees; other columns categorical/boolean/string |
+| **CRS** | EPSG:4326 (storage; geometry copied byte-for-byte from the grid). Protected-area intersection is computed in EPSG:3577 (§5) and raster sampling reprojects cell geometry to each raster's CRS at the read boundary; every transformation is logged in the method report. |
+| **Aggregation statistic** | `elevation_m`, `slope_deg`, `tri`: **mean** of valid (non-NoData) pixels per cell (cell-centre pixel-inclusion rule). `land_use`: **mode** of valid NLUM codes, lowest-code tie-break. `slope_deg` mean implements frozen decision Q3 (mean for scoring); `protected_area` boolean implements frozen decision Q6 (any intersection excludes). Neither Q3 nor Q6 is *changed* by this stage — they are *implemented as frozen* (see §2), so no §8 frozen-parameter change is triggered and no §2/README dual edit is required. |
+| **Coverage gap** | The full NSW analysis grid contains 47,311 cells, but the current source rasters cover only part of it: elevation, slope, and NLUM cover the **New England REZ** extent, and the TRI raster covers only the **Glen-Innes** sub-window (~30 m). Cells outside a raster's coverage receive a **null** value for each variable derived from that raster. The method report records, per raster, the count of cells inside vs outside coverage (inside + outside = total cell count). |
+| **Out-of-coverage confidence** | Any cell that lies outside the coverage of a **required** source raster (elevation, slope, or NLUM), or that has ≥50% NoData pixels for a required raster, is assigned `confidence_flag = low`. TRI is **excluded** from the confidence decision because it covers only Glen-Innes by design; otherwise the entire NSW grid would flag low. Because current coverage is limited to the New England REZ, most NSW cells are `low` confidence — this is expected and honest until source coverage is extended (§8 Sprint 1 Prerequisites). |
+| **Role in model** | Per-cell feature inputs for Criterion 4 (Geographic Suitability). Feeds the S1-07 multi-criteria suitability scoring model (terrain penalty, land-use penalty) and the S1-08 exclusion layer (protected-area and land-use hard exclusions). |
+| **Pipeline step** | `pipeline/geographic/features.py` (`geographic.features` stage), scheduled in `config.STAGES` immediately after `grid` (it CONSUMES the grid) and before the cross-domain `validate` stage → S1-07 suitability scoring, S1-08 exclusion layer |
+| **DERIVED — not custodial data.** | Fully regenerable from the source datasets (§4.4.2, §4.4.3, §4.4.5, §4.4.6, derived TRI) and the grid (§3); reproducible and deterministic. Stamped by the do-not-edit method report (`DATA/geographic/metadata/geographic_features_method.md`) rather than a download-manifest SHA row, consistent with the other derived products (§4.4.6, §4.4.7). |
+| **Known limitations** | (1) Coverage gap above — most NSW cells are out of coverage and carry null variables + `low` confidence until source rasters are extended to the full NSW bbox (§8 Prerequisites). (2) TRI is Glen-Innes-only and is excluded from the confidence decision. (3) Inherits all source-raster limitations (SRTM NoData=0 sea-level conflation §4.4.5; slope quantisation §4.4.6; NLUM categorical resampling §4.4.3). (4) The `2024` vintage token tracks the CAPAD 2024 edition, the most recent-vintage source. |
+
+---
+
 ## 5. CRS Alignment Strategy
 
 **Project-wide rule:** EPSG:4326 for storage, EPSG:3577 for distance/area computation. Enforce with runtime `assert_crs` checks at every function boundary that crosses a CRS. Mismatches raise immediately rather than producing silently wrong distances.
@@ -522,6 +542,7 @@ Summary of how each dataset flows through the pipeline to produce the four scori
 | SRTM GL3 (§4.4.5) | `geographic.download` → `geographic.derive` | Source DEM for slope derivation | 4 — Intermediate |
 | Derived Slope (§4.4.6) | `geographic.derive` → feature builder | Cell-level mean slope (°) + P90 slope (°) | 4 — Continuous penalty |
 | ABS STE + NEM Regions (§4.4.7) | `geographic.download` + `geographic.derive` → grid builder | NEM region assignment per cell | 2 — Region join |
+| Geographic Feature Table (§4.4.8) | CAPAD (§4.4.2) + NLUM (§4.4.3) + SRTM GL3 (§4.4.5) + Derived Slope (§4.4.6) + Derived TRI → `geographic.features` (S1-06) | Per-cell `elevation_m`, `slope_deg`, `tri`, `land_use`, `protected_area` (+ names), `confidence_flag` | 4 — Suitability (S1-07) + Exclusion (S1-08) |
 
 ---
 
@@ -538,6 +559,8 @@ No new dataset may be added to this specification without:
 3. **Integration assessment** — CRS alignment, temporal alignment, and spatial resolution compatibility verified against the grid definition (§3)
 4. **Version bump** — This document's version number incremented and date updated
 5. **Team review** — At least one team member reviews the addition
+
+**Applied — Geographic Feature Table (§4.4.8), v1.1:** The per-cell Geographic & Environmental Feature Table was added under this process. (1) *Gap:* S1-06 requires a per-cell feature layer keyed to the grid `cell_id` to feed the S1-07 suitability model and S1-08 exclusion layer — no such output existed. (2) *Metadata:* full §4-format entry at §4.4.8. (3) *Integration:* stored EPSG:4326, computed EPSG:3577 (§5), keyed byte-for-byte to the grid `cell_id` (§3); it is a DERIVED product regenerable from its sources. (4) *Version bump:* 1.0 → 1.1 (below). Note this is a **new derived output**, not a change to a frozen parameter — the stage *implements* frozen decisions Q3 (slope = mean for scoring) and Q6 (any-CAPAD-intersection boolean exclusion) exactly as recorded in §2, so the "Modifying a Frozen Parameter" process below is **not** triggered and no §2/README dual edit is made.
 
 ### Modifying a Frozen Parameter
 
@@ -573,3 +596,4 @@ Datasets may be moved to the out-of-scope document (`sprint1_out_of_scope.md`) w
 | Version | Date | Change |
 |---------|------|--------|
 | 1.0 | 2026-08-27 | Initial release — Sprint 1 baseline. All team decisions frozen. |
+| 1.1 | 2026-08-27 | Added §4.4.8 Geographic & Environmental Feature Table (derived, S1-06) and its §7 pipeline-mapping row via the §8 "Adding a New Dataset" process. Frozen decisions Q3 and Q6 are implemented (not changed); §2 unmodified. |
