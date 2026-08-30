@@ -69,6 +69,9 @@ def _get_runner(stage: str):
     elif stage == "grid":
         from .grid.generate import run
         return run
+    elif stage == "geographic.features":
+        from .geographic.features import run
+        return run
     elif stage == "validate":
         from .validate import run
         return run
