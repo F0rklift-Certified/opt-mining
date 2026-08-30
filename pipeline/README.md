@@ -10,7 +10,9 @@ python -m pipeline
 
 # Run only one domain
 python -m pipeline --only wind
-python -m pipeline --only geographic
+python -m pipeline --only geographic   # resolves 6 geographic stages: probe, download,
+                                       # inspect, derive, validate, features — with
+                                       # features running last against a pre-existing grid
 python -m pipeline --only infrastructure
 python -m pipeline --only demand
 python -m pipeline --only grid
@@ -118,8 +120,11 @@ wind.probe → wind.download → wind.inspect → wind.validate → wind.analyse
 → infrastructure.download → infrastructure.inspect
 → demand
 → grid (common analysis cell generation)
+→ geographic.features (per-cell geographic feature table on the common grid, S1-06)
 → validate (cross-domain integration checks)
 ```
+
+Note: `geographic.features` is registered in `config.STAGES` after `grid` (not inline with the other `geographic.*` stages) because it CONSUMES the grid — the grid producer must run before this consumer.
 
 ## CLI Options
 
@@ -142,6 +147,8 @@ wind.probe → wind.download → wind.inspect → wind.validate → wind.analyse
 --skip-land-sea       Skip the land/sea remote check in validate
 --verbose             Detailed logging
 ```
+
+**`--only geographic` and the feature builder.** Because `geographic.features` is registered in `config.STAGES` after `grid`, `--only geographic` resolves all six geographic stages in `STAGES` order — `geographic.probe, geographic.download, geographic.inspect, geographic.derive, geographic.validate, geographic.features` — with `features` running last. Note that `--only geographic` runs `geographic.features` **without** first running `grid`, so it depends on a previously-generated grid file (`DATA/grid/nsw_analysis_grid.gpkg`) already existing on disk; the stage fails loudly with a clear error if the grid is absent. Run `python -m pipeline --only grid` first (or a full run) if the grid has not yet been generated.
 
 ### Parameter Details
 
@@ -228,6 +235,8 @@ A successful full pipeline run produces the following file tree under `DATA/`:
 | `protected/dcceew_capad-terrestrial_2024_nsw.geojson` | download | CAPAD protected areas (full NSW) |
 | `urban/abs_ucl_2021_new-england-rez.geojson` | download | Urban centre/locality boundaries |
 | `derived/nem_regions_asgs2021_national.geojson` | derive | NEM region geometries (dissolved from state boundaries) |
+| `features/optmining_geographic-features_2024_nsw.gpkg` | geographic.features | Per-cell geographic feature table on the common analysis grid (GeoPackage, EPSG:4326): `cell_id`, `elevation_m`, `slope_deg`, `land_use`, `protected_area`, `protected_area_name`, `tri`, `confidence_flag` (S1-06) |
+| `metadata/geographic_features_method.md` | geographic.features | Method report: zonal-statistics method, coverage (New England REZ / Glen-Innes-only TRI vs full NSW grid), confidence counts, CRS transformations, runtime |
 | `DATA_PROVENANCE.md` | download | Human-readable provenance table |
 | `metadata/source_register.csv` | probe | Catalogue of all probed data sources |
 | `metadata/download_manifest.json` | download | SHA-256 hashes, byte counts, timestamps |
