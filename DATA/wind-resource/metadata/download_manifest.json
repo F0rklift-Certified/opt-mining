@@ -1,14 +1,14 @@
 {
-  "retrieved_utc": "2026-08-19T11:08:54+00:00",
+  "retrieved_utc": "2026-08-31T03:57:41+00:00",
   "dataset": "Global Wind Atlas v4 (country GeoTIFF set)",
   "country": "AUS",
   "study_window": {
-    "name": "new-england-rez",
+    "name": "nsw",
     "bbox_epsg4326": [
-      150.0,
-      -31.5,
-      152.0,
-      -29.5
+      141.01125,
+      -37.51125,
+      153.66125,
+      -28.16125
     ]
   },
   "samples": [
@@ -211,7 +211,137 @@
         "dtype": "float32",
         "nodata": NaN
       }
+    },
+    {
+      "variable": "wind-speed",
+      "height_m": 100,
+      "api_endpoint": "https://globalwindatlas.info/api/gis/country/AUS/wind-speed/100",
+      "source_url": "https://gwa.cdn.nazkamapps.com/country_tifs_v4/AUS_wind-speed_100m.tif",
+      "remote_bytes": 617611287,
+      "last_modified": "Thu, 12 Jun 2025 16:58:03 GMT",
+      "output_file": "DATA/wind-resource/gwa_v4_wind-speed_100m_nsw.tif",
+      "local_bytes": 60138554,
+      "bbox": [
+        141.01125,
+        -37.51125,
+        153.66125,
+        -28.16125
+      ],
+      "area_name": "nsw",
+      "window": {
+        "col_off": 12720,
+        "row_off": 7720,
+        "width": 5060,
+        "height": 3740
+      },
+      "source_grid": {
+        "crs": "EPSG:4326",
+        "width": 21601,
+        "height": 18374,
+        "pixel_size_deg": [
+          0.002500000000000001,
+          0.002500000000000001
+        ],
+        "bounds": [
+          109.21125000000009,
+          -54.79625000000004,
+          163.21375000000012,
+          -8.861250000000027
+        ],
+        "dtype": "float32",
+        "nodata": NaN
+      }
+    },
+    {
+      "variable": "power-density",
+      "height_m": 100,
+      "api_endpoint": "https://globalwindatlas.info/api/gis/country/AUS/power-density/100",
+      "source_url": "https://gwa.cdn.nazkamapps.com/country_tifs_v4/AUS_power-density_100m.tif",
+      "remote_bytes": 648639694,
+      "last_modified": "Thu, 12 Jun 2025 17:33:02 GMT",
+      "output_file": "DATA/wind-resource/gwa_v4_power-density_100m_nsw.tif",
+      "local_bytes": 62689043,
+      "bbox": [
+        141.01125,
+        -37.51125,
+        153.66125,
+        -28.16125
+      ],
+      "area_name": "nsw",
+      "window": {
+        "col_off": 12720,
+        "row_off": 7720,
+        "width": 5060,
+        "height": 3740
+      },
+      "source_grid": {
+        "crs": "EPSG:4326",
+        "width": 21601,
+        "height": 18374,
+        "pixel_size_deg": [
+          0.002500000000000001,
+          0.002500000000000001
+        ],
+        "bounds": [
+          109.21125000000009,
+          -54.79625000000004,
+          163.21375000000012,
+          -8.861250000000027
+        ],
+        "dtype": "float32",
+        "nodata": NaN
+      }
+    },
+    {
+      "variable": "capacity-factor_IEC2",
+      "height_m": null,
+      "api_endpoint": "https://globalwindatlas.info/api/gis/country/AUS/capacity-factor_IEC2",
+      "source_url": "https://gwa.cdn.nazkamapps.com/country_tifs_v4/AUS_capacity-factor_IEC2.tif",
+      "remote_bytes": 652392460,
+      "last_modified": "Thu, 12 Jun 2025 16:58:04 GMT",
+      "output_file": "DATA/wind-resource/gwa_v4_capacity-factor_IEC2_nsw.tif",
+      "local_bytes": 61682762,
+      "bbox": [
+        141.01125,
+        -37.51125,
+        153.66125,
+        -28.16125
+      ],
+      "area_name": "nsw",
+      "window": {
+        "col_off": 12720,
+        "row_off": 7720,
+        "width": 5060,
+        "height": 3740
+      },
+      "source_grid": {
+        "crs": "EPSG:4326",
+        "width": 21601,
+        "height": 18374,
+        "pixel_size_deg": [
+          0.002500000000000001,
+          0.002500000000000001
+        ],
+        "bounds": [
+          109.21125000000009,
+          -54.79625000000004,
+          163.21375000000012,
+          -8.861250000000027
+        ],
+        "dtype": "float32",
+        "nodata": NaN
+      }
     }
   ],
-  "failures": []
+  "failures": [],
+  "derived_features": [
+    {
+      "output_file": "DATA/wind-resource/features/gwa_v4_wind-feature_2025_nsw.gpkg",
+      "stage": "wind.features",
+      "derived_from": "DATA/wind-resource/gwa_v4_wind-speed_100m_nsw.tif",
+      "sha256": "c7b00b1588805663684f8212cb0e707f4830d2b7d8781e2287cfd642a27aea49",
+      "local_bytes": 13803520,
+      "generated_utc": "2026-08-31T04:06:29+00:00"
+    }
+  ]
 }
