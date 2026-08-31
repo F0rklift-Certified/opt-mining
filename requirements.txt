@@ -14,3 +14,8 @@ geopandas==1.1.4
 shapely==2.1.2
 pyogrio==0.13.0
 pyproj==3.7.2
+
+# Test-only: property-based testing for feature-layer stages (S1-03 onwards).
+# rasterstats deliberately NOT used — zonal statistics are implemented in-repo
+# so the pixel-inclusion rule stays explicit and auditable.
+hypothesis==6.112.1

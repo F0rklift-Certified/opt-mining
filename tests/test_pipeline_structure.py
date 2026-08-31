@@ -18,6 +18,7 @@ _NEEDS_RASTERIO = [
     "pipeline.wind.inspect",
     "pipeline.wind.validate",
     "pipeline.wind.analyse",
+    "pipeline.wind.features",
     "pipeline.geographic.download",
     "pipeline.geographic.inspect",
     "pipeline.geographic.derive",
@@ -73,6 +74,10 @@ class TestWindImports:
 
     def test_analyse(self):
         mod = _try_import("pipeline.wind.analyse")
+        assert hasattr(mod, "run")
+
+    def test_features(self):
+        mod = _try_import("pipeline.wind.features")
         assert hasattr(mod, "run")
 
 
@@ -153,6 +158,11 @@ class TestTopLevel:
         assert "infrastructure.inspect" in config.STAGES
         assert "demand" in config.STAGES
         assert "validate" in config.STAGES
+        # wind.features consumes the grid, so it must be registered after
+        # the grid stage that produces it (Req 6.3).
+        assert "wind.features" in config.STAGES
+        assert config.STAGES.index("wind.features") > config.STAGES.index("grid")
+        assert config.STAGES.index("wind.features") < config.STAGES.index("validate")
 
     def test_config_domains(self):
         assert "wind" in config.DOMAINS
@@ -183,7 +193,10 @@ class TestOrchestratorResolution:
         args = parse_args()
         stages = resolve_stages(args)
         assert all(s.startswith("wind.") for s in stages)
-        assert len(stages) == 5
+        # wind now resolves 6 stages (was 5) after registering wind.features
+        # (S1-03 feature builder), which sits after `grid` in STAGES.
+        assert len(stages) == 6
+        assert stages[-1] == "wind.features"
 
     def test_only_single_stage(self):
         import sys
