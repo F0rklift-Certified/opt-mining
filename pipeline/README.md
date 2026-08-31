@@ -118,8 +118,23 @@ wind.probe → wind.download → wind.inspect → wind.validate → wind.analyse
 → infrastructure.download → infrastructure.inspect
 → demand
 → grid (common analysis cell generation)
+→ wind.features (S1-03 per-cell wind feature table — consumes the grid)
 → validate (cross-domain integration checks)
 ```
+
+`wind.features` is registered after `grid` (not inline with the other
+`wind.*` stages) because it consumes `DATA/grid/nsw_analysis_grid.gpkg`.
+Note that `--only wind` therefore runs `wind.features` last, against a
+pre-existing grid file on disk — regenerate it first with `--only grid`
+if absent. Its source raster is the NSW-wide GWA clip, regenerated with:
+
+```bash
+python -m pipeline --only wind.download \
+  --bbox 141.01125,-37.51125,153.66125,-28.16125 --area-name nsw --heights 100
+```
+
+(That bbox is the exact grid extent, snapped to the GWA lattice so each
+analysis cell is a clean 20×20 native-pixel block.)
 
 ## CLI Options
 
@@ -200,6 +215,11 @@ A successful full pipeline run produces the following file tree under `DATA/`:
 | `gwa_v4_wind-speed_150m_new-england-rez.tif` | download | Mean wind speed at 150 m hub height |
 | `gwa_v4_power-density_100m_new-england-rez.tif` | download | Power density at 100 m (W/m²) |
 | `gwa_v4_capacity-factor_IEC2_new-england-rez.tif` | download | Capacity factor for IEC Class II turbine |
+| `gwa_v4_wind-speed_100m_nsw.tif` | download | Mean wind speed at 100 m, NSW-wide grid-extent clip (S1-03 source) |
+| `gwa_v4_power-density_100m_nsw.tif` | download | Power density at 100 m, NSW-wide clip |
+| `gwa_v4_capacity-factor_IEC2_nsw.tif` | download | IEC Class II capacity factor, NSW-wide clip |
+| `features/gwa_v4_wind-feature_2025_nsw.gpkg` | wind.features | Per-cell wind feature table (S1-03): cell_id, wind_speed_100m, units, data_source, confidence_flag |
+| `metadata/wind_feature_method.md` | wind.features | Method report: variable justification, aggregation rule, stats, validation checks |
 | `DATA_PROVENANCE.md` | download | Human-readable provenance table |
 | `metadata/layer_availability.md` | probe | GWA layer reachability report |
 | `metadata/download_manifest.json` | download | SHA-256 hashes, byte counts, timestamps |
