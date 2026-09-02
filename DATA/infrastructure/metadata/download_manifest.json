@@ -1,8 +1,8 @@
 {
   "optmining_infra-features_2026_nsw.gpkg": {
-    "sha256": "3161007b500e8234e6e52e72d0b2185d2f2fff95339f367e32f9b2424bf06186",
+    "sha256": "12bca14fccc7d89f687d5026dc762b8a1d32f5f4365e8d893e0163881bbe1d8e",
     "bytes": 13692928,
-    "utc": "2026-09-02T06:23:16+00:00",
+    "utc": "2026-09-02T08:05:56+00:00",
     "generation_params": {
       "state": "NSW",
       "computation_crs": "EPSG:3577"
