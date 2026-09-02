@@ -19,6 +19,15 @@ from ..common.geo import atomic_write_text, utc_now
 from . import config
 
 
+def _repo_relative(path: Path) -> str:
+    """Return a portable repository-relative path for generated artifacts."""
+    path = Path(path)
+    try:
+        return path.resolve().relative_to(config.PROJECT_ROOT.resolve()).as_posix()
+    except ValueError:
+        return path.name
+
+
 def load_grid(path: Path) -> gpd.GeoDataFrame:
     if not Path(path).exists():
         raise FileNotFoundError(path)
@@ -151,7 +160,7 @@ def write_method_report(stats: dict, path: Path) -> None:
         "`demand_proxy` is a normalized proxy indicator, not measured local demand; the input is a regional aggregate.", "",
         "## Assumptions and limitations", "- Every assigned cell within a NEM region receives an equal share of that region's annual mean demand.", "- NSW1 represents NSW and ACT under the NEM convention.", "- Cells outside all NEM polygons receive null demand and low confidence.", "- Uniform allocation does not represent local load centres or feeder constraints.", "",
         "## Inputs", f"- Demand aggregate: `{stats['aggregate_path']}`; column `MEAN_DEMAND_MW` (MW).", f"- NEM region geometry: `{stats['regions_path']}`.", f"- Analysis grid: `{stats['grid_path']}`.", "- No weighting dataset is used in this MVP.", "",
-        "## Reproducibility and checks", f"- Storage CRS: {config.STORAGE_CRS}; computation CRS: {config.COMPUTATION_CRS}.", f"- CRS transform: grid {config.STORAGE_CRS} → {config.COMPUTATION_CRS} for spatial allocation; output stored in {config.STORAGE_CRS}.", f"- Cells: {stats['n_cells']}; outside-region: {stats['n_outside_region']}; boundary/tie-break candidates: {stats['boundary_cell_count']}.", f"- Per-region counts: `{json.dumps(stats['per_region_counts'], sort_keys=True)}`.", f"- Confidence counts: `{json.dumps(stats['confidence_counts'], sort_keys=True)}`.", "- Confidence definitions: high = centroid-assigned cell with valid proxy; medium = deterministic boundary/weighted fallback; low = outside/unmatched region or null proxy.", "- Boundary assignments use centroid containment, then greatest overlap and lexicographic REGIONID tie-break.",
+        "## Reproducibility and checks", f"- Storage CRS: {config.STORAGE_CRS}; computation CRS: {config.COMPUTATION_CRS}.", f"- CRS transform: grid {config.STORAGE_CRS} → {config.COMPUTATION_CRS} for spatial allocation; output stored in {config.STORAGE_CRS}.", f"- Cells: {stats['n_cells']}; outside-region: {stats['n_outside_region']}; boundary/tie-break candidates: {stats['boundary_cell_count']}.", f"- Per-region counts: `{json.dumps(stats['per_region_counts'], sort_keys=True)}`.", f"- Confidence counts: `{json.dumps(stats['confidence_counts'], sort_keys=True)}`.", "- Confidence definitions: high = centroid-assigned cell with valid proxy; medium = deterministic boundary-overlap fallback; low = outside/unmatched region or null proxy.", "- Boundary assignments use centroid containment, then greatest overlap and lexicographic REGIONID tie-break.", f"- Aggregate regions outside this grid scope are explicitly reported: `{json.dumps(stats['unassigned_regions'])}`.",
     ]
     atomic_write_text(path, "\n".join(lines) + "\n")
 
@@ -169,7 +178,16 @@ def validate_feature_table(table: gpd.GeoDataFrame, grid: gpd.GeoDataFrame, sour
     }
     expected = aggregate.set_index("REGIONID")[config.DEMAND_INPUT_COLUMN]
     observed = raw.groupby(source).sum(min_count=1)
-    checks["demand_conservation"] = all(abs(float(observed.get(r, 0)) - float(v)) <= config.CONSERVATION_TOLERANCE_MW for r, v in expected.items() if r in observed)
+    missing_regions = [str(r) for r in expected.index if r not in observed.index and float(expected.loc[r]) != 0.0]
+    checks["demand_conservation"] = not missing_regions and all(
+        abs(float(observed.loc[r]) - float(v)) <= config.CONSERVATION_TOLERANCE_MW
+        for r, v in expected.items()
+    )
+    if missing_regions:
+        raise ValueError(
+            "Feature table validation failed: demand_conservation "
+            f"(missing observed regions with non-zero demand: {missing_regions})"
+        )
     failed = [name for name, passed in checks.items() if not passed]
     if failed:
         raise ValueError("Feature table validation failed: " + ", ".join(failed))
@@ -216,11 +234,18 @@ def run(verbose: bool = False, allocation_method: str = "uniform", grid_path: Pa
     proxy = normalise_proxy(raw, source)
     confidence = assign_confidence(source, proxy, boundary_indices)
     table = build_feature_table(grid, proxy, allocation_method, source, confidence)
-    validate_feature_table(table, grid, source, raw, aggregate)
     output_path = config.OUTPUT_DIR / config.FEATURE_TABLE_NAME
     report_path = config.OUTPUT_DIR / config.METHOD_REPORT_NAME
-    stats = {"grid_path": str(grid_path), "aggregate_path": str(aggregate_path), "regions_path": str(nem_regions_path), "n_cells": len(table), "n_outside_region": int(source.isna().sum()), "boundary_cell_count": len(boundary_indices), "per_region_counts": {str(k): int(v) for k, v in source.value_counts(dropna=True).items()}, "confidence_counts": {str(k): int(v) for k, v in confidence.value_counts().items()}}
+    assigned_regions = set(source.dropna().astype(str))
+    scoped_aggregate = aggregate[aggregate["REGIONID"].astype(str).isin(assigned_regions)].copy()
+    validate_feature_table(table, grid, source, raw, scoped_aggregate)
+    stats = {"grid_path": _repo_relative(grid_path), "aggregate_path": _repo_relative(aggregate_path), "regions_path": _repo_relative(nem_regions_path), "n_cells": len(table), "n_outside_region": int(source.isna().sum()), "boundary_cell_count": len(boundary_indices), "per_region_counts": {str(k): int(v) for k, v in source.value_counts(dropna=True).items()}, "confidence_counts": {str(k): int(v) for k, v in confidence.value_counts().items()}, "unassigned_regions": sorted(set(aggregate["REGIONID"].astype(str)) - assigned_regions)}
     write_feature_table(table, output_path)
+    from .validate import validate_feature_table as validate_persisted_feature_table
+    persisted_validation = validate_persisted_feature_table(output_path, grid_path, aggregate_path)
+    if not persisted_validation.passed:
+        failed = [name for name, passed, _ in persisted_validation.details if not passed]
+        raise ValueError("Persisted demand feature validation failed: " + ", ".join(failed))
     write_method_report(stats, report_path)
     record_provenance(output_path, stats)
     if verbose:

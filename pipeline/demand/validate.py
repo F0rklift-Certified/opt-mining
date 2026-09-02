@@ -232,6 +232,7 @@ def validate_feature_table(feature_path: Path, grid_path: Path, aggregate_path: 
         ("Proxy range", feature.demand_proxy.dropna().between(0, 1).all(), f"out_of_range={int((~feature.demand_proxy.dropna().between(0, 1)).sum())}"),
         ("Source regions", set(feature.source_region.dropna()).issubset(set(aggregate.REGIONID)), f"allowed={sorted(aggregate.REGIONID)}, observed={sorted(feature.source_region.dropna().unique())}"),
         ("Confidence enum", set(feature.confidence_flag.dropna()).issubset(set(config.CONFIDENCE_LEVELS)), f"allowed={config.CONFIDENCE_LEVELS}, observed={sorted(feature.confidence_flag.dropna().unique())}"),
+        ("Null proxy confidence", not ((feature.demand_proxy.isna()) & (feature.confidence_flag != "low")).any(), f"violations={int(((feature.demand_proxy.isna()) & (feature.confidence_flag != 'low')).sum())}"),
     ]
     details.extend(checks)
     return ValidationResult(all(passed for _, passed, _ in checks), details)
