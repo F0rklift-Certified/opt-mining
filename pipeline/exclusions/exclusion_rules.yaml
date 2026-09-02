@@ -1,0 +1,61 @@
+# Exclusion rules for the S1-07 exclusion layer.
+#
+# Rules are DATA: pipeline/exclusions/rules.py evaluates this list
+# generically and has no built-in notion of "protected area" or "slope".
+# Add, remove, reorder or retune a rule by editing this file — no code
+# change is required. Rules are evaluated independently; a cell can fail
+# more than one.
+#
+# Fields available per cell (computed in pipeline/exclusions/apply.py —
+# see that module's and the package __init__.py docstrings for the current
+# data-source scope and coverage caveats):
+#
+#   protected_area        bool           any CAPAD protected-area overlap (full NSW coverage)
+#   protected_area_name   str            "; "-joined names of overlapping protected areas ("" if none)
+#   slope_deg              float | null   mean Horn slope (degrees) over the cell
+#                                          (SRTM GL3 derived raster — New England REZ window only)
+#   urban_area             bool           overlaps an ABS Urban Centre/Locality polygon
+#                                          (New England REZ window only)
+#   wind_speed_100m_ms     float | null   mean GWA v4 wind speed (m/s) at 100 m hub height
+#                                          (New England REZ window only)
+#
+# condition syntax:
+#   "== value" | "!= value" | "> n" | ">= n" | "< n" | "<= n" | "is_null" | "is_not_null"
+#   A missing (null) field value only ever matches is_null / is_not_null —
+#   it never silently satisfies a numeric or equality condition.
+#
+# reason_template (optional): a Python str.format() template evaluated
+#   against the cell's fields plus this rule's own `threshold` value (if
+#   set). Falls back to `description` when omitted.
+#
+# Frozen decisions this default set implements (do not diverge silently —
+# see pipeline/README.md "Frozen Decisions"):
+#   Q6 — protected-area exclusion is BINARY: any CAPAD intersection excludes.
+#   The 15 degree slope threshold matches the project's existing
+#   `--max-slope` default (pipeline/validate.py DEFAULT_MAX_SLOPE_DEG).
+
+exclusions:
+  - name: protected_area
+    description: "Cell overlaps a protected area (CAPAD)"
+    field: protected_area
+    condition: "== True"
+    reason_template: "Protected area: {protected_area_name}"
+
+  - name: missing_wind_data
+    description: "No valid wind resource data available"
+    field: wind_speed_100m_ms
+    condition: "is_null"
+    reason_template: "Missing wind data"
+
+  - name: excessive_slope
+    description: "Mean slope exceeds construction threshold"
+    field: slope_deg
+    condition: "> 15"
+    threshold: 15
+    reason_template: "Slope exceeds {threshold}\xb0"
+
+  - name: urban_area
+    description: "Cell is within an urban centre"
+    field: urban_area
+    condition: "== True"
+    reason_template: "Urban area"

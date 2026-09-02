@@ -14,3 +14,6 @@ geopandas==1.1.4
 shapely==2.1.2
 pyogrio==0.13.0
 pyproj==3.7.2
+
+# S1-07 — Exclusion layer: configurable rules loaded from YAML, not hard-coded
+pyyaml==6.0.2

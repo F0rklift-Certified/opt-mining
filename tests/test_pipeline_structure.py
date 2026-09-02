@@ -23,6 +23,7 @@ _NEEDS_RASTERIO = [
     "pipeline.geographic.derive",
     "pipeline.geographic.validate",
     "pipeline.validate",
+    "pipeline.exclusions.apply",
 ]
 
 
@@ -135,6 +136,24 @@ class TestDemandImports:
         from pipeline.demand import config as dc
         assert hasattr(dc, "OUTPUT_DIR")
         assert hasattr(dc, "STAGES")
+
+
+class TestExclusionsImports:
+    """Exclusion-layer subpackage modules are importable (S1-07)."""
+
+    def test_config(self):
+        from pipeline.exclusions import config as ec
+        assert hasattr(ec, "EXCLUSIONS_DIR")
+        assert hasattr(ec, "DEFAULT_RULES_PATH")
+
+    def test_rules(self):
+        from pipeline.exclusions.rules import evaluate_cell, load_rules
+        assert callable(load_rules)
+        assert callable(evaluate_cell)
+
+    def test_apply(self):
+        mod = _try_import("pipeline.exclusions.apply")
+        assert hasattr(mod, "run")
 
 
 class TestTopLevel:

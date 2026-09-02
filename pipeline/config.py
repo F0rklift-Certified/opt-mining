@@ -52,8 +52,9 @@ STAGES = [
     "infrastructure.inspect",
     "demand",
     "grid",  # common analysis cell (S1-02) — must run before feature layers
+    "exclusions",  # S1-07 exclusion layer — consumes grid + geographic/wind sources
     "validate",  # cross-domain integration checks
 ]
 
 # --- Domain list ---
-DOMAINS = ["wind", "geographic", "infrastructure", "demand", "grid"]
+DOMAINS = ["wind", "geographic", "infrastructure", "demand", "grid", "exclusions"]
