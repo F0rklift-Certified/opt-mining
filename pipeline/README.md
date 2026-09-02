@@ -18,6 +18,7 @@ python -m pipeline --only grid
 # Run a single stage
 python -m pipeline --only wind.probe
 python -m pipeline --only geographic.derive
+python -m pipeline --only infrastructure.features --infra-features-crs EPSG:3577
 
 # Skip domains or stages
 python -m pipeline --skip demand --skip infrastructure
@@ -95,6 +96,7 @@ pipeline/
 │   ├── helpers.py          # GeoJSON load/filter/stats
 │   ├── download.py         # Stage: presence check of pre-downloaded files
 │   └── inspect.py          # Stage: substations, power lines, generators
+│   └── features.py         # Stage (S1-05): per-cell infrastructure features
 ├── integration/
 │   ├── __init__.py
 │   └── analyse.py          # Task 5 evidence: grid geometry, CRS alignment

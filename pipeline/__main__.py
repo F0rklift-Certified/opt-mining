@@ -91,7 +91,7 @@ def parse_args() -> argparse.Namespace:
         description=(
             "Opt-Mining Data Pipeline — Wind, Geographic, Infrastructure & Demand.\n\n"
             "Runs domain subpackages sequentially:\n"
-            "  wind → geographic → infrastructure → demand → cross-domain validate"
+            "  wind → geographic → infrastructure → demand → grid → feature layers → cross-domain validate"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -129,7 +129,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Run only the specified domain or stage. "
-            "Examples: 'wind', 'geographic.derive', 'demand', 'validate'"
+            "Examples: 'wind', 'geographic.derive', 'demand', 'infrastructure.features', 'validate'"
         ),
     )
     parser.add_argument(
