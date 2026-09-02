@@ -6,16 +6,16 @@ Consolidated pipeline for downloading, validating, inspecting and aggregating AE
 
 ```bash
 # Full pipeline (download → validate → inspect → aggregate → feature)
-python -m pipelines.demand
+python -m pipeline.demand
 
 # Skip download, use existing CSV
-python -m pipelines.demand --skip-download --input-csv path/to/existing.csv
+python -m pipeline.demand --skip-download --input-csv path/to/existing.csv
 
 # Run only the aggregation stage
-python -m pipelines.demand --only aggregate --input-csv path/to/existing.csv
+python -m pipeline.demand --only aggregate --input-csv path/to/existing.csv
 
 # Custom date range
-python -m pipelines.demand --start-date 2023-07-01 --end-date 2026-06-30
+python -m pipeline.demand --start-date 2023-07-01 --end-date 2026-06-30
 ```
 
 ## Stages
@@ -62,7 +62,7 @@ One row per NEM region. This is the primary output for downstream use (Task 5 sp
 ## Architecture
 
 ```
-pipelines/demand/
+pipeline/demand/
 ├── __init__.py      # Package docstring
 ├── __main__.py      # CLI orchestrator (argparse, stage routing, error handling)
 ├── config.py        # Shared constants (paths, URLs, defaults)
@@ -76,8 +76,8 @@ pipelines/demand/
 Each module exposes a `run()` function that can be imported independently:
 
 ```python
-from pipelines.demand.validate import run as validate
-from pipelines.demand.aggregate import run as aggregate
+from pipeline.demand.validate import run as validate
+from pipeline.demand.aggregate import run as aggregate
 
 result = validate(csv_path=Path("data.csv"))
 agg_csv, meta = aggregate(csv_path=Path("data.csv"), output_dir=Path("."), ...)

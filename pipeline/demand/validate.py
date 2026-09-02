@@ -6,13 +6,13 @@ Returns a result object indicating pass/fail; the orchestrator decides
 whether to halt.
 
 Importable entry point:
-    from pipelines.demand.validate import run
+    from pipeline.demand.validate import run
     result = run(csv_path=Path(...))
     if not result.passed:
         ...
 
 Standalone usage:
-    python -m pipelines.demand.validate path/to/file.csv
+    python -m pipeline.demand.validate path/to/file.csv
 
 Checks performed:
     1. Duplicate detection — no duplicate (REGIONID, INTERVAL_DATETIME) pairs
@@ -218,17 +218,19 @@ def validate_feature_table(feature_path: Path, grid_path: Path, aggregate_path: 
 
     details: list[tuple[str, bool, str]] = []
     try:
-        feature = gpd.read_file(feature_path)
+        feature = gpd.read_file(feature_path, layer=config.FEATURE_TABLE_LAYER)
         grid = gpd.read_file(grid_path)
         aggregate = pd.read_csv(aggregate_path)
     except Exception as exc:
         return ValidationResult(False, [("Feature_Table readable", False, str(exc))])
 
     expected_cols = ["cell_id", "demand_proxy", "allocation_method", "source_region", "confidence_flag", "geometry"]
+    feature_crs = feature.crs.to_string() if feature.crs is not None else None
     checks = [
         ("Feature row count", len(feature) == len(grid), f"expected={len(grid)}, observed={len(feature)}"),
         ("Feature cell_id set", feature.cell_id.is_unique and set(feature.cell_id) == set(grid.cell_id), f"expected={len(grid)} unique grid IDs, observed={feature.cell_id.nunique()}"),
         ("Feature schema", feature.columns.tolist() == expected_cols, f"expected={expected_cols}, observed={feature.columns.tolist()}"),
+        ("Feature CRS", feature_crs == config.STORAGE_CRS, f"expected={config.STORAGE_CRS}, observed={feature_crs or 'missing'}"),
         ("Proxy range", feature.demand_proxy.dropna().between(0, 1).all(), f"out_of_range={int((~feature.demand_proxy.dropna().between(0, 1)).sum())}"),
         ("Source regions", set(feature.source_region.dropna()).issubset(set(aggregate.REGIONID)), f"allowed={sorted(aggregate.REGIONID)}, observed={sorted(feature.source_region.dropna().unique())}"),
         ("Confidence enum", set(feature.confidence_flag.dropna()).issubset(set(config.CONFIDENCE_LEVELS)), f"allowed={config.CONFIDENCE_LEVELS}, observed={sorted(feature.confidence_flag.dropna().unique())}"),

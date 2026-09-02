@@ -13,8 +13,6 @@ from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd
-from shapely.geometry import Point
-
 from ..common.geo import atomic_write_text, utc_now
 from . import config
 

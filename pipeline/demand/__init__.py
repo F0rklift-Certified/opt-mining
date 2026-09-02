@@ -9,7 +9,7 @@ Stages:
     5. feature — Per-cell demand proxy on the common analysis grid
 
 Usage:
-    python -m pipelines.demand                        # run all stages
-    python -m pipelines.demand --only download        # run one stage
-    python -m pipelines.demand --skip-download        # skip a stage
+    python -m pipeline.demand                         # run all stages
+    python -m pipeline.demand --only download         # run one stage
+    python -m pipeline.demand --skip-download         # skip a stage
 """
