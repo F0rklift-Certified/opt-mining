@@ -207,6 +207,13 @@ class TestOrchestratorResolution:
         )
         assert kwargs["computation_crs"] == "EPSG:3857"
 
+    def test_infrastructure_features_rejects_geographic_crs(self):
+        import sys
+        sys.argv = ["test", "--infra-features-crs", "EPSG:4326"]
+        from pipeline.__main__ import parse_args
+        with pytest.raises(SystemExit):
+            parse_args()
+
     def test_skip_domain(self):
         import sys
         sys.argv = ["test", "--skip", "demand", "--skip", "infrastructure"]
