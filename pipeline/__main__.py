@@ -84,6 +84,21 @@ def _get_runner(stage: str):
 # ---------------------------------------------------------------------------
 
 
+def _projected_crs_arg(value: str) -> str:
+    """Argparse validator for CRS values used in metre-based distances."""
+    from pyproj import CRS
+
+    try:
+        crs = CRS.from_user_input(value)
+    except Exception as exc:
+        raise argparse.ArgumentTypeError(f"Invalid CRS {value!r}: {exc}") from exc
+    if not crs.is_projected:
+        raise argparse.ArgumentTypeError(
+            f"--infra-features-crs must be projected for metre distances (got {value!r})"
+        )
+    return value
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
@@ -209,7 +224,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--infra-features-crs",
-        type=str,
+        type=_projected_crs_arg,
         default="EPSG:3577",
         help="Projected CRS for infrastructure distances (default: EPSG:3577)",
     )

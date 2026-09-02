@@ -95,7 +95,7 @@ pipeline/
 │   ├── config.py           # GA endpoint, expected files, filters
 │   ├── helpers.py          # GeoJSON load/filter/stats
 │   ├── download.py         # Stage: presence check of pre-downloaded files
-│   └── inspect.py          # Stage: substations, power lines, generators
+│   ├── inspect.py          # Stage: substations, power lines, generators
 │   └── features.py         # Stage (S1-05): per-cell infrastructure features
 ├── integration/
 │   ├── __init__.py
