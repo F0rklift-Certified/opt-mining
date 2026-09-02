@@ -193,6 +193,20 @@ class TestOrchestratorResolution:
         stages = resolve_stages(args)
         assert stages == ["geographic.derive"]
 
+    def test_infrastructure_features_stage_and_crs_option(self):
+        import sys
+        sys.argv = [
+            "test", "--only", "infrastructure.features",
+            "--infra-features-crs", "EPSG:3857",
+        ]
+        from pipeline.__main__ import _build_kwargs, parse_args, resolve_stages
+        args = parse_args()
+        assert resolve_stages(args) == ["infrastructure.features"]
+        kwargs = _build_kwargs(
+            "infrastructure.features", args, (150.0, -31.5, 152.0, -29.5)
+        )
+        assert kwargs["computation_crs"] == "EPSG:3857"
+
     def test_skip_domain(self):
         import sys
         sys.argv = ["test", "--skip", "demand", "--skip", "infrastructure"]

@@ -11,6 +11,7 @@ from pipeline.infrastructure import config
 from pipeline.infrastructure.features import (
     _assign_confidence,
     _compute_rez_membership,
+    _load_rez,
     _nearest_distance_km,
     _resolve_connection_points,
     validate_feature_table,
@@ -34,6 +35,21 @@ def test_nearest_distance_uses_line_interior():
     assert np.isclose(distance, 0.1)
 
 
+def test_nearest_distance_empty_target_preserves_centroid_index():
+    centroids = _centroids([(5, 100), (10, 200)])
+    empty = gpd.GeoDataFrame(geometry=[], crs="EPSG:3577")
+    distances = _nearest_distance_km(centroids, empty)
+    assert distances.index.equals(centroids.index)
+    assert distances.isna().all()
+
+
+def test_all_unavailable_rez_sources_return_none(tmp_path: Path):
+    # An invalid archive exercises the best-effort path without requiring
+    # external EnergyCo data or a shapefile fixture.
+    (tmp_path / "new_england.zip").write_bytes(b"not a zip archive")
+    assert _load_rez(tmp_path) is None
+
+
 def test_rez_membership_returns_names_and_null_for_no_overlap():
     grid = gpd.GeoDataFrame(
         {"cell_id": ["inside", "outside"]},
@@ -51,7 +67,7 @@ def test_rez_membership_returns_names_and_null_for_no_overlap():
     assert pd.isna(names.iloc[1])
 
 
-def test_unavailable_connection_source_is_counted(tmp_path: Path):
+def test_missing_connection_source_is_not_excluded(tmp_path: Path):
     points, excluded = _resolve_connection_points(tmp_path / "missing.xlsx")
     assert points.empty
     assert excluded == 0
