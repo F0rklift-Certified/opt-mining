@@ -103,12 +103,18 @@ def _load_rez(rez_dir: Path) -> gpd.GeoDataFrame | None:
             # that the REZ overlay is unavailable/partial and confidence is
             # lowered for affected rows.
             continue
+    # Best-effort loading is also valid when every candidate archive is
+    # unavailable or malformed. Returning None lets the caller emit null
+    # REZ features and low confidence rather than failing on frames[0].
+    if not frames:
+        return None
     return gpd.GeoDataFrame(pd.concat(frames, ignore_index=True), geometry="geometry", crs=frames[0].crs)
 
 
 def _nearest_distance_km(centroids_3577: gpd.GeoDataFrame, target_3577: gpd.GeoDataFrame) -> pd.Series:
     if target_3577 is None or target_3577.empty:
-        return pd.Series(np.nan, index=centroids_3577.cell_id, dtype="float64")
+        # Match the non-empty path's index contract for safe DataFrame joins.
+        return pd.Series(np.nan, index=centroids_3577.index, dtype="float64")
     joined = gpd.sjoin_nearest(centroids_3577[["cell_id", "geometry"]], target_3577[["geometry"]], distance_col="dist_m")
     distances = joined.groupby("cell_id")["dist_m"].min() / 1000.0
     return centroids_3577.cell_id.map(distances).set_axis(centroids_3577.index)
