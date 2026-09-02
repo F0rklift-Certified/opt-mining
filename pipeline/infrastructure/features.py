@@ -12,10 +12,24 @@ from pathlib import Path
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from pyproj import CRS
 from shapely.geometry import Point, shape
 
 from ..common.geo import atomic_write_text, utc_now
 from . import config, helpers
+
+
+def _validate_computation_crs(value: str) -> str:
+    """Validate that distance calculations use a projected CRS."""
+    try:
+        crs = CRS.from_user_input(value)
+    except Exception as exc:
+        raise ValueError(f"Invalid infrastructure computation CRS {value!r}: {exc}") from exc
+    if not crs.is_projected:
+        raise ValueError(
+            f"Infrastructure computation CRS must be projected for metre distances; got {value!r}"
+        )
+    return crs.to_string()
 
 
 def _load_grid(path: Path) -> gpd.GeoDataFrame:
@@ -44,6 +58,8 @@ def _load_ga_layer(path: Path, state: str) -> gpd.GeoDataFrame:
             row = dict(feature.get("properties") or {})
             row["geometry"] = shape(geom)
             rows.append(row)
+    if not rows:
+        return gpd.GeoDataFrame({"geometry": []}, geometry="geometry", crs=config.GA_SOURCE_CRS)
     return gpd.GeoDataFrame(rows, geometry="geometry", crs=config.GA_SOURCE_CRS)
 
 
@@ -79,16 +95,30 @@ def _load_rez(rez_dir: Path) -> gpd.GeoDataFrame | None:
     if not files:
         return None
     frames = []
+    source_crs = None
     names = {"new_england": "New England REZ", "central_west_orana": "Central-West Orana REZ", "hunter_central_coast": "Hunter-Central Coast REZ"}
     for archive in files:
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 with zipfile.ZipFile(archive) as zf:
-                    zf.extractall(tmp)
+                    root = Path(tmp).resolve()
+                    for member in zf.infolist():
+                        target = (root / member.filename).resolve()
+                        if target != root and root not in target.parents:
+                            raise ValueError(
+                                f"Unsafe path {member.filename!r} in REZ archive {archive}"
+                            )
+                        zf.extract(member, root)
                 shp = next(Path(tmp).rglob("*.shp"))
                 frame = gpd.read_file(shp)
                 if frame.crs is None:
                     raise ValueError(f"REZ source {archive} has no CRS")
+                if source_crs is None:
+                    source_crs = frame.crs
+                elif not frame.crs.equals(source_crs):
+                    # Normalize all archives before concatenation so that
+                    # geometries cannot be mixed under a single CRS label.
+                    frame = frame.to_crs(source_crs)
                 stem = archive.stem
                 zone_name = next((v for k, v in names.items() if k in stem), archive.stem)
                 frame = frame[["geometry"]].copy()
@@ -108,7 +138,7 @@ def _load_rez(rez_dir: Path) -> gpd.GeoDataFrame | None:
     # REZ features and low confidence rather than failing on frames[0].
     if not frames:
         return None
-    return gpd.GeoDataFrame(pd.concat(frames, ignore_index=True), geometry="geometry", crs=frames[0].crs)
+    return gpd.GeoDataFrame(pd.concat(frames, ignore_index=True), geometry="geometry", crs=source_crs)
 
 
 def _nearest_distance_km(centroids_3577: gpd.GeoDataFrame, target_3577: gpd.GeoDataFrame) -> pd.Series:
@@ -245,11 +275,18 @@ Full grid cells processed: {stats['n_cells']}. Runtime: {stats['runtime_seconds'
 def _write_provenance(feature_path: Path, stats: dict) -> None:
     config.INFRA_META_DIR.mkdir(parents=True, exist_ok=True)
     prov = config.INFRA_DIR / "DATA_PROVENANCE.md"
-    row = f"\n| infrastructure.features | {feature_path.name} | GA lines/substations, AEMO KCI, EnergyCo REZ | EPSG:3577 centroid distances | Derived product; generated {utc_now()} |\n"
+    row = f"| infrastructure.features | {feature_path.name} | GA lines/substations, AEMO KCI, EnergyCo REZ | {stats['computation_crs']} centroid distances | Derived product; generated {utc_now()} |"
     if prov.exists():
         existing = prov.read_text()
-        if feature_path.name not in existing:
-            atomic_write_text(prov, existing.rstrip() + "\n" + row)
+        lines = existing.splitlines()
+        replaced = False
+        for i, line in enumerate(lines):
+            if line.startswith("| infrastructure.features |") and feature_path.name in line:
+                lines[i] = row
+                replaced = True
+        if not replaced:
+            lines.append(row)
+        atomic_write_text(prov, "\n".join(lines).rstrip() + "\n")
     else:
         atomic_write_text(prov, "# Infrastructure Data Provenance\n\n| Stage | Output | Sources | Method | Notes |\n|---|---|---|---|---|\n" + row)
     manifest = config.INFRA_META_DIR / config.FEATURE_MANIFEST_NAME
@@ -259,6 +296,7 @@ def _write_provenance(feature_path: Path, stats: dict) -> None:
 
 
 def run(verbose: bool = False, state: str = config.DEFAULT_STATE, grid_path: Path | None = None, computation_crs: str = config.COMPUTATION_CRS) -> dict:
+    computation_crs = _validate_computation_crs(computation_crs)
     started = time.perf_counter()
     grid_path = Path(grid_path or config.GRID_PATH)
     grid = _load_grid(grid_path)
