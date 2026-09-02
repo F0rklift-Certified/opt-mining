@@ -2,7 +2,7 @@
 CLI entry point for the data pipeline.
 
 Runs domain subpackages sequentially:
-  wind → geographic → infrastructure → demand → cross-domain validate
+  wind → geographic → infrastructure → demand → grid → demand.feature → validate
 
 Usage:
     python -m pipeline                          # run all stages
@@ -68,6 +68,9 @@ def _get_runner(stage: str):
         return None  # handled specially
     elif stage == "grid":
         from .grid.generate import run
+        return run
+    elif stage == "demand.feature":
+        from .demand.feature import run
         return run
     elif stage == "validate":
         from .validate import run
@@ -166,6 +169,13 @@ def parse_args() -> argparse.Namespace:
             "Comma-separated NEM region IDs for demand analysis "
             "(default: all 5 — NSW1,QLD1,SA1,TAS1,VIC1)"
         ),
+    )
+    parser.add_argument(
+        "--allocation-method",
+        type=str,
+        default="uniform",
+        choices=["uniform"],
+        help="Demand allocation method for demand.feature (default: uniform)",
     )
 
     # Wind options
@@ -322,6 +332,9 @@ def _build_kwargs(stage: str, args: argparse.Namespace, bbox: tuple) -> dict:
     if stage == "validate":
         kwargs["skip_land_sea"] = args.skip_land_sea
         kwargs["max_slope"] = args.max_slope
+
+    if stage == "demand.feature":
+        kwargs["allocation_method"] = args.allocation_method
 
     return kwargs
 
