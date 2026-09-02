@@ -105,7 +105,8 @@ pipeline/
     ├── download.py          # Stage: fetch AEMO demand ZIPs
     ├── validate.py          # Stage: quality gate
     ├── inspect.py           # Stage: statistical summary
-    └── aggregate.py         # Stage: annual mean demand per NEM region
+    ├── aggregate.py         # Stage: annual mean demand per NEM region
+    └── feature.py           # Stage (S1-04): per-cell demand proxy
 ```
 
 ## Stage Execution Order
@@ -118,6 +119,7 @@ wind.probe → wind.download → wind.inspect → wind.validate → wind.analyse
 → infrastructure.download → infrastructure.inspect
 → demand
 → grid (common analysis cell generation)
+→ infrastructure.features (per-cell infrastructure features)
 → validate (cross-domain integration checks)
 ```
 
@@ -134,6 +136,7 @@ wind.probe → wind.download → wind.inspect → wind.validate → wind.analyse
 --start-date DATE     Demand data start (default: 2025-07-01)
 --end-date DATE       Demand data end (default: 2026-06-30)
 --regions IDS         Comma-separated NEM region IDs for demand (default: all 5)
+--infra-features-crs CRS Projected CRS for infrastructure distances (default: EPSG:3577)
 --heights METRES      Comma-separated hub heights for wind-speed downloads (default: 50,100,150)
 --turbine-class CLS   Comma-separated IEC classes for capacity-factor (default: IEC2)
 --agg-factor N        Native pixels per analysis cell side (default: 20 = ~5 km)
@@ -249,6 +252,7 @@ A successful full pipeline run produces the following file tree under `DATA/`:
 | `connection-points/aemo_kci_2026.xlsx` | download | AEMO key connection information |
 | `renewable-energy-zones/aemo_indicative_rez_boundaries_2026.kmz` | download | AEMO indicative REZ boundaries |
 | `metadata/*_inspection.md` | inspect | Feature counts, schema summaries, spatial extent |
+| `optmining_infra-features_2026_nsw.gpkg` | infrastructure.features | Per-cell infrastructure distances and REZ membership; distances use EPSG:3577 from cell centroids |
 
 ### Electricity Demand (`DATA/electricity-demand/`)
 
