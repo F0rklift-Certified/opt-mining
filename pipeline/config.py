@@ -52,6 +52,7 @@ STAGES = [
     "infrastructure.inspect",
     "demand",
     "grid",  # common analysis cell (S1-02) — must run before feature layers
+    "infrastructure.features",  # per-cell infrastructure features (S1-05)
     "validate",  # cross-domain integration checks
 ]
 
