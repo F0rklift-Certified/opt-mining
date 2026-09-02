@@ -212,6 +212,31 @@ CHECKS = [
 ]
 
 
+def validate_feature_table(feature_path: Path, grid_path: Path, aggregate_path: Path) -> ValidationResult:
+    """Validate the S1-04 per-cell Feature_Table with explicit pass/fail checks."""
+    import geopandas as gpd
+
+    details: list[tuple[str, bool, str]] = []
+    try:
+        feature = gpd.read_file(feature_path)
+        grid = gpd.read_file(grid_path)
+        aggregate = pd.read_csv(aggregate_path)
+    except Exception as exc:
+        return ValidationResult(False, [("Feature_Table readable", False, str(exc))])
+
+    expected_cols = ["cell_id", "demand_proxy", "allocation_method", "source_region", "confidence_flag", "geometry"]
+    checks = [
+        ("Feature row count", len(feature) == len(grid), f"expected={len(grid)}, observed={len(feature)}"),
+        ("Feature cell_id set", feature.cell_id.is_unique and set(feature.cell_id) == set(grid.cell_id), f"expected={len(grid)} unique grid IDs, observed={feature.cell_id.nunique()}"),
+        ("Feature schema", feature.columns.tolist() == expected_cols, f"expected={expected_cols}, observed={feature.columns.tolist()}"),
+        ("Proxy range", feature.demand_proxy.dropna().between(0, 1).all(), f"out_of_range={int((~feature.demand_proxy.dropna().between(0, 1)).sum())}"),
+        ("Source regions", set(feature.source_region.dropna()).issubset(set(aggregate.REGIONID)), f"allowed={sorted(aggregate.REGIONID)}, observed={sorted(feature.source_region.dropna().unique())}"),
+        ("Confidence enum", set(feature.confidence_flag.dropna()).issubset(set(config.CONFIDENCE_LEVELS)), f"allowed={config.CONFIDENCE_LEVELS}, observed={sorted(feature.confidence_flag.dropna().unique())}"),
+    ]
+    details.extend(checks)
+    return ValidationResult(all(passed for _, passed, _ in checks), details)
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
