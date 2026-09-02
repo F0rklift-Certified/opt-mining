@@ -2,7 +2,7 @@
 CLI entry point for the data pipeline.
 
 Runs domain subpackages sequentially:
-  wind → geographic → infrastructure → demand → cross-domain validate
+  wind → geographic → infrastructure → demand → grid → infrastructure.features → validate
 
 Usage:
     python -m pipeline                          # run all stages
@@ -68,6 +68,9 @@ def _get_runner(stage: str):
         return None  # handled specially
     elif stage == "grid":
         from .grid.generate import run
+        return run
+    elif stage == "infrastructure.features":
+        from .infrastructure.features import run
         return run
     elif stage == "validate":
         from .validate import run
@@ -205,6 +208,12 @@ def parse_args() -> argparse.Namespace:
         help="State filter for infrastructure inspection (default: NSW)",
     )
     parser.add_argument(
+        "--infra-features-crs",
+        type=str,
+        default="EPSG:3577",
+        help="Projected CRS for infrastructure distances (default: EPSG:3577)",
+    )
+    parser.add_argument(
         "--fuel-type",
         type=str,
         default="wind",
@@ -322,6 +331,10 @@ def _build_kwargs(stage: str, args: argparse.Namespace, bbox: tuple) -> dict:
     if stage == "validate":
         kwargs["skip_land_sea"] = args.skip_land_sea
         kwargs["max_slope"] = args.max_slope
+
+    if stage == "infrastructure.features":
+        kwargs["state"] = args.state
+        kwargs["computation_crs"] = args.infra_features_crs
 
     return kwargs
 
