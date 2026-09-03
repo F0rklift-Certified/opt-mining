@@ -1,0 +1,53 @@
+name: CI
+
+# Continuous integration for the Opt-Mining geospatial pipeline.
+#
+# Runs the pytest suite (tests/, discovered via pytest.ini) on every push and
+# pull request against the supported interpreter range.
+#
+# IMPORTANT — Python version policy:
+#   The matrix is deliberately pinned to 3.10, 3.11, 3.12 and 3.13. Python 3.14
+#   is EXCLUDED because the S1-02 grid builder (pipeline/grid/generate.py) emits
+#   degenerate zero-area cells on CPython 3.14.x, silently corrupting the grid
+#   and every feature layer that joins to it. This mirrors requires-python
+#   (">=3.10,<3.14") in pyproject.toml. Do not add 3.14 here until the upstream
+#   issue is resolved.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+# Cancel in-progress runs for the same ref when a new commit is pushed.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest -v
