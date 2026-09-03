@@ -165,6 +165,69 @@ class TestExclusionsImports:
         assert hasattr(mod, "run")
 
 
+class TestIntegrationImports:
+    """Integration subpackage: Task 5 analyse plus the S1-08 merge stage."""
+
+    _CONFIG_ATTRS = (
+        "INTEGRATION_DIR", "INTEGRATION_META_DIR", "INTEGRATION_VINTAGE",
+        "OUTPUT_FILENAME", "CSV_FILENAME", "OUTPUT_LAYER",
+        "METHOD_REPORT_FILENAME", "VALIDATION_REPORT_FILENAME", "MANIFEST_FILENAME",
+        "GRID_PATH", "GRID_LAYER", "WIND_PATH", "WIND_LAYER",
+        "GEOGRAPHIC_PATH", "GEOGRAPHIC_LAYER", "INFRA_PATH", "INFRA_LAYER",
+        "DEMAND_PATH", "DEMAND_LAYER", "EXCLUSIONS_PATH", "EXCLUSIONS_LAYER",
+        "STORAGE_CRS", "COMPUTATION_CRS",
+        "WIND_CONFIDENCE_LEVELS", "GEO_CONFIDENCE_LEVELS",
+        "INFRA_CONFIDENCE_LEVELS", "DEMAND_CONFIDENCE_LEVELS",
+        "SLOPE_TOLERANCE_DEG", "WIND_TOLERANCE_MS",
+    )
+
+    def test_config(self):
+        from pipeline.integration import config as ic
+        missing = [name for name in self._CONFIG_ATTRS if not hasattr(ic, name)]
+        assert missing == []
+
+    def test_config_paths_derive_from_upstream_configs(self):
+        # Every input path is composed from the producing domain's config so a
+        # rename upstream propagates here (and tests can monkeypatch one place).
+        from pipeline.demand import config as dc
+        from pipeline.exclusions import config as ec
+        from pipeline.infrastructure import config as infc
+        from pipeline.integration import config as ic
+        from pipeline.wind import config as wc
+        assert ic.GRID_PATH == ec.GRID_PATH
+        assert ic.WIND_PATH.parent == wc.WIND_FEATURES_DIR
+        assert wc.WIND_FEATURE_VINTAGE in ic.WIND_PATH.name
+        assert ic.INFRA_PATH == infc.INFRA_DIR / infc.FEATURE_TABLE_NAME
+        assert ic.INFRA_LAYER == infc.FEATURE_TABLE_LAYER
+        assert ic.INFRA_CONFIDENCE_LEVELS == infc.CONFIDENCE_LEVELS
+        assert ic.DEMAND_PATH == dc.OUTPUT_DIR / dc.FEATURE_TABLE_NAME
+        assert ic.DEMAND_LAYER == dc.FEATURE_TABLE_LAYER
+        assert ic.DEMAND_CONFIDENCE_LEVELS == dc.CONFIDENCE_LEVELS
+        assert ic.EXCLUSIONS_PATH == ec.EXCLUSIONS_DIR / ec.OUTPUT_FILENAME
+        assert ic.EXCLUSIONS_LAYER is None  # apply.py writes without layer=; auto-detect
+        assert ic.WIND_CONFIDENCE_LEVELS == (wc.CONF_VALID, wc.CONF_NODATA)
+        assert ic.STORAGE_CRS == ec.STORAGE_CRS == "EPSG:4326"
+        assert ic.OUTPUT_FILENAME.endswith(".gpkg") and ic.CSV_FILENAME.endswith(".csv")
+        assert ic.INTEGRATION_META_DIR.parent == ic.INTEGRATION_DIR
+
+    def test_config_matches_rasterio_backed_upstream_modules(self):
+        # geographic/wind constants live in modules that import rasterio, so the
+        # integration config repeats them as literals; guard against drift here.
+        geo = _try_import("pipeline.geographic.features")
+        wind = _try_import("pipeline.wind.features")
+        from pipeline.integration import config as ic
+        assert ic.GEOGRAPHIC_PATH == geo.OUTPUT_PATH
+        assert ic.GEOGRAPHIC_LAYER == geo.OUTPUT_LAYER
+        assert ic.GEO_CONFIDENCE_LEVELS == (geo.CONFIDENCE_HIGH, geo.CONFIDENCE_LOW)
+        assert ic.WIND_LAYER == wind.FEATURE_LAYER
+        assert ic.GRID_LAYER == wind.GRID_LAYER
+        assert ic.GRID_PATH == wind.GRID_PATH
+
+    def test_analyse(self):
+        from pipeline.integration.analyse import run
+        assert callable(run)
+
+
 class TestTopLevel:
     """Top-level pipeline modules are importable and consistent."""
 
