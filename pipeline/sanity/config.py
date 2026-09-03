@@ -60,6 +60,12 @@ SCORED_LAYER = _scoring_config.OUTPUT_LAYER  # "suitability_score"
 # the most recent one under this directory by the documented UTC rule.
 SHORTLIST_DIR = _shortlist_config.SHORTLIST_DIR  # DATA/shortlist/
 
+# The stem prefix the S1-11 stage encodes the UTC Run_Timestamp onto
+# (`sprint1_shortlist`), composed from shortlist/config.py so a rename of the
+# shortlist output convention propagates into resolve_shortlist's parsing rule
+# rather than silently drifting. Requirement 1.6.
+SHORTLIST_OUTPUT_PREFIX = _shortlist_config.OUTPUT_PREFIX  # "sprint1_shortlist"
+
 # S1-08 Integrated_Feature_Table — source of the per-cell feature values that
 # the spot-checks read.
 INTEGRATED_PATH = (
