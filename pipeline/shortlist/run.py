@@ -52,7 +52,10 @@ from .report import (
 )
 from .select import eligible_cells, select_shortlist
 from .summary import compute_summary
+from .validate import build_validation_report, validate as validate_shortlist
 from .write import write_csv, write_geojson
+
+from ..common.geo import atomic_write_text
 
 
 def _rel(path: Path | str) -> str:
@@ -240,7 +243,39 @@ def run(
         print(f"        -> {_rel(manifest_path)}, {_rel(provenance_path)}, "
               f"{_rel(register_path)}")
 
+    # Validate — no silent passes (Requirement 12). The report is written even
+    # when validation fails, so a failed run still leaves the evidence behind;
+    # a failed check then raises so the orchestrator halts with a non-zero exit
+    # status (Requirement 10.3). Cross-domain checks (shortlist vs Scored_Table
+    # vs grid) live in the cross-domain `pipeline/validate.py` tier (12.7).
+    print("        Validating (no silent passes)...")
+    validation = validate_shortlist(
+        assembled,
+        effective_top_n=effective_top_n,
+        csv_path=resolved.csv,
+        geojson_path=resolved.geojson,
+        metadata_sidecar_path=metadata_sidecar_path,
+    )
+    validation_path = config.SHORTLIST_META_DIR / config.VALIDATION_REPORT_FILENAME
+    atomic_write_text(validation_path, build_validation_report(validation, ts, pv))
+    if verbose or validation["failed"]:
+        for check in validation["checks"]:
+            status = "PASS" if check["passed"] else "**FAIL**"
+            print(f"          [{status}] {check['name']}: "
+                  f"expected {check['expected']}, observed {check['observed']}")
+    print(f"        {validation['passed']}/{validation['total']} checks passed "
+          f"({validation['failed']} failures)  -> {_rel(validation_path)}")
+
     runtime_s = time.time() - t0
+
+    # Halt AFTER the report is written so the evidence survives a failed run
+    # (Requirement 10.3, 12).
+    if validation["failed"]:
+        raise RuntimeError(
+            f"shortlist failed validation: {', '.join(validation['failed_names'])} "
+            f"(see {validation_path})"
+        )
+
     print(f"        Shortlisted {n_shortlisted:,} of {n_eligible:,} eligible "
           f"(Top_N {effective_top_n}); runtime {runtime_s:.1f}s")
 
@@ -250,6 +285,7 @@ def run(
         "shortlist_geojson_path": str(resolved.geojson),
         "summary_report_path": str(summary_report_path),
         "metadata_sidecar_path": str(metadata_sidecar_path),
+        "validation_report_path": str(validation_path),
         "manifest_path": str(manifest_path),
         "provenance_path": str(provenance_path),
         "source_register_path": str(register_path),
@@ -269,5 +305,7 @@ def run(
             "resolved_stem": resolved.collision.resolved_stem,
         },
         "geometry": geometry,
+        # No-silent-passes validation result (Requirement 12).
+        "validation": validation,
         "runtime_seconds": runtime_s,
     }

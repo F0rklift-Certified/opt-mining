@@ -61,6 +61,7 @@ OUTPUT_PREFIX = "sprint1_shortlist"
 
 SUMMARY_REPORT_FILENAME = "shortlist_summary.md"
 METADATA_SIDECAR_FILENAME = "shortlist_metadata.json"
+VALIDATION_REPORT_FILENAME = "shortlist_validation.md"
 MANIFEST_FILENAME = "shortlist_manifest.json"
 SOURCE_REGISTER_FILENAME = "source_register.csv"
 PROVENANCE_FILENAME = "DATA_PROVENANCE.md"
