@@ -1,0 +1,127 @@
+# Criteria weights for the S1-10 baseline suitability model
+# (pipeline/scoring/, the `scoring` stage).
+#
+# WEIGHTS ARE USER INPUTS, NOT CODE. The Constitution requires it: "Criteria
+# weights are user inputs, never hard-coded constants." Nothing in
+# pipeline/scoring/ contains a weight literal — this file is the only place
+# the model's priorities are expressed. Retune by editing it, or pass another
+# file with:
+#
+#   python -m pipeline --only scoring --scoring-weights path/to/my_weights.yaml
+#
+# The model is a weighted multi-criteria decision analysis (MCDA), not a
+# machine-learning model. For every ELIGIBLE cell (S1-07 `eligible = True`):
+#
+#   norm_i  = (v_i - min_i) / (max_i - min_i)            direction higher_is_better
+#   norm_i  = 1 - (v_i - min_i) / (max_i - min_i)        direction lower_is_better
+#   contrib_i = weight_i * norm_i / SUM(weights applied to that cell)
+#   score     = SUM_i contrib_i                          (in [0, 1])
+#
+#   min_i / max_i are computed from the ELIGIBLE cell population on each run
+#   (never hard-coded), so the scale adapts to the candidate set actually
+#   being compared. Boolean criteria use their definitional {0, 1} domain.
+#   Excluded cells get a NULL score and no rank — ineligible land is never
+#   ranked as if it were developable.
+#
+# Every criterion's contribution is written to the scored table as
+# `contrib_{feature}`, and the contributions sum back to the score. That is
+# the explainability contract: "A recommendation the user cannot interrogate
+# is not a recommendation — it is an assertion."
+#
+# WEIGHT SCALE: weights are relative, not absolute. The score divides by the
+# sum of the applied weights, so doubling every weight changes nothing. The
+# defaults below sum to 1.00 only for readability.
+#
+# These six defaults and their values mirror the S1-10 ticket
+# (Sprint-1-Tasks/S1-10-Baseline-Suitability-Model.md) and are quoted in
+# DATA/data-specification/sprint1_data_specification.md section 4.5 and in
+# pipeline/integration/confidence_weights.yaml, which reuses them to weight
+# the S1-09 confidence score. Changing a weight here does NOT change the
+# confidence layer; the two files are independent by design.
+
+version: "1.0"
+
+# --- Optional confidence discount -------------------------------------------
+# When enabled, a cell's score and every one of its contributions are
+# multiplied by the factor for its S1-09 `data_confidence` value, so a
+# poorly-evidenced cell cannot outrank a well-evidenced one on equal
+# features. Disabled by default: on the current data every ELIGIBLE cell is
+# `high` confidence (see the run's method report), so a discount would be an
+# identical multiplier on every scored cell — it would change every score
+# and change no ranking, which is misleading precision rather than
+# information. Enable it once the confidence layer separates the eligible
+# population.
+#
+# The factors below apply to the S1-09 vocabulary (high / medium / low).
+confidence_discount: false
+confidence_factors:
+  high: 1.0     # full weight — no documented evidence gap
+  medium: 0.9   # mild haircut — evidence present but coarser or older
+  low: 0.8      # material haircut — thin evidence; do not rank as if solid
+
+# --- Criteria ---------------------------------------------------------------
+# Each entry needs: feature (a real column of the integrated feature table),
+# weight (non-negative number), direction (higher_is_better|lower_is_better)
+# and a non-empty rationale. The stage halts before writing anything if a
+# direction is invalid, a weight is negative or non-numeric, the weights sum
+# to zero, or a feature is not a column of the integrated table.
+criteria:
+  - feature: wind_speed
+    weight: 0.35
+    direction: higher_is_better
+    rationale: >-
+      Primary resource indicator. Energy yield scales roughly with the cube of
+      wind speed, so it dominates project viability more than any other
+      screening variable and carries the largest single weight. Source: GWA
+      100 m mean wind speed (spec 4.1.1), an INPUT feature only — the model
+      never predicts wind from wind-derived features (no circular modelling).
+
+  - feature: dist_transmission_km
+    weight: 0.20
+    direction: lower_is_better
+    rationale: >-
+      Connection cost is a major capex component and scales with line length,
+      so distance to the nearest >=132 kV line is the second-strongest
+      discriminator between otherwise similar cells. Source: spec 4.3.1,
+      centroid distance computed in EPSG:3577.
+
+  - feature: demand_proxy
+    weight: 0.15
+    direction: higher_is_better
+    rationale: >-
+      Proximity to electrical demand improves offtake prospects and reduces
+      transmission losses. Weighted below the physical grid distances because
+      the MVP proxy is a NEM-region annual mean allocated uniformly to every
+      cell (spec 4.2.3), so it discriminates between regions rather than
+      between neighbouring cells.
+
+  - feature: dist_substation_km
+    weight: 0.10
+    direction: lower_is_better
+    rationale: >-
+      Substation proximity reduces interconnection complexity and works
+      scope. Weighted at half the transmission-line criterion because it is
+      partly collinear with it — a cell near a substation is usually near a
+      line — and double-counting the same effect would inflate it. Source:
+      spec 4.3.2.
+
+  - feature: slope_deg
+    weight: 0.10
+    direction: lower_is_better
+    rationale: >-
+      Flatter terrain lowers civil works, access-road and crane-pad cost and
+      widens turbine-siting options within a cell. A continuous penalty here
+      complements the S1-07 hard exclusion above 15 degrees: cells that pass
+      the gate are still separated by how steep they are. Source: derived
+      Horn slope from SRTM (spec 4.4.6).
+
+  - feature: inside_rez
+    weight: 0.10
+    direction: higher_is_better
+    rationale: >-
+      Cells inside a declared NSW Renewable Energy Zone benefit from
+      coordinated network planning, committed transmission investment and an
+      established access regime. Boolean, so it maps to its definitional
+      {False -> 0.0, True -> 1.0} domain. Weighted modestly because it is a
+      policy signal rather than a physical measurement, and REZ boundaries
+      change between planning cycles. Source: spec 4.3.3.

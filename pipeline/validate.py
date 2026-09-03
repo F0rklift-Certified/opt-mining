@@ -7,9 +7,17 @@ These checks validate wind farm siting against geographic layers:
 - Wind farms have acceptable slope
 - Land-mask assessment: NE vs ABS coastline on the analysis grid
 
+It also holds the cross-domain checks that compare one stage's output against
+another's:
+- scoring (S1-10) vs the analysis grid and the integrated table
+- shortlist (S1-11) vs the Scored_Table and the analysis grid
+
 Domain-specific validation lives in each subpackage's own validate.py:
 - pipeline.wind.validate — GWA raster sampling, crosscheck
 - pipeline.geographic.validate — CAPAD area, DEM elevation, NLUM decode
+- pipeline.scoring.validate — score range, rank contiguity, contribution reconcile
+- pipeline.shortlist.validate — row count vs Top_N, eligible-only, ordering,
+  coordinates, CSV/GeoJSON equality, disclaimer/resolution presence
 
 Importable entry point:
     from pipeline.validate import run
@@ -131,6 +139,231 @@ def _run_cross_domain_checks(verbose: bool, max_slope: float = DEFAULT_MAX_SLOPE
                   f"{slope:.1f} deg", slope < max_slope)
 
     return checks
+
+
+# ---------------------------------------------------------------------------
+# Scoring cross-domain checks (S1-10)
+# ---------------------------------------------------------------------------
+
+
+def _run_scoring_cross_checks(verbose: bool = False) -> list[dict]:
+    """
+    Cross-domain checks on the S1-10 Scored_Table.
+
+    These live here rather than in `pipeline/scoring/validate.py` because they
+    span domains: they compare the scored table against the S1-02 analysis
+    grid and the S1-08 integrated table, which the scoring stage's own
+    validation tier does not load. Within-stage checks (score range, rank
+    contiguity, contribution reconciliation) stay in the scoring package.
+
+    Returns [] when the scored table has not been generated yet, so a partial
+    pipeline run does not fail on a stage that has not been run.
+    """
+    checks: list[dict] = []
+
+    def check(name, expected, observed, passed):
+        checks.append({"name": name, "expected": expected,
+                       "observed": observed, "passed": bool(passed)})
+
+    from .scoring import config as scoring_config
+
+    scored_path = scoring_config.SCORING_DIR / scoring_config.OUTPUT_FILENAME
+    grid_path = scoring_config.PROJECT_ROOT / "DATA" / "grid" / "nsw_analysis_grid.gpkg"
+    if not scored_path.exists():
+        return checks
+
+    import geopandas as gpd
+
+    scored = gpd.read_file(scored_path, layer=scoring_config.OUTPUT_LAYER)
+    cell_column = scoring_config.CELL_ID_COLUMN
+
+    # 1. The scored table covers exactly the analysis grid.
+    if grid_path.exists():
+        grid_ids = set(gpd.read_file(grid_path, layer="nsw_grid")[cell_column])
+        scored_ids = set(scored[cell_column])
+        missing = grid_ids - scored_ids
+        extra = scored_ids - grid_ids
+        check("Scored table cell_id set equals the analysis grid",
+              "0 missing, 0 extra",
+              f"{len(missing):,} missing, {len(extra):,} extra",
+              not missing and not extra)
+
+    # 2. Eligibility agrees with the integrated table that gated it. A cell
+    #    the exclusion layer rejected must not carry a score here.
+    integrated_path = scoring_config.INTEGRATED_PATH
+    if integrated_path.exists():
+        integrated = gpd.read_file(
+            integrated_path, layer=scoring_config.INTEGRATED_LAYER,
+            columns=[cell_column, scoring_config.ELIGIBLE_COLUMN],
+        )
+        merged = scored[[cell_column, scoring_config.SCORE_COLUMN]].merge(
+            integrated, on=cell_column, how="left", validate="one_to_one",
+        )
+        eligible = merged[scoring_config.ELIGIBLE_COLUMN].fillna(False).astype(bool)
+        has_score = merged[scoring_config.SCORE_COLUMN].notna()
+        violations = int((~eligible & has_score).sum()) + int((eligible & ~has_score).sum())
+        check("Scored cells match the S1-07 eligibility flag in the integrated table",
+              "0 mismatches",
+              f"{violations:,} mismatches "
+              f"({int(eligible.sum()):,} eligible, {int(has_score.sum()):,} scored)",
+              violations == 0)
+
+    if verbose:
+        for entry in checks:
+            print(f"    [{'PASS' if entry['passed'] else 'FAIL'}] {entry['name']}")
+    return checks
+
+
+# ---------------------------------------------------------------------------
+# Shortlist cross-domain checks (S1-11)
+# ---------------------------------------------------------------------------
+
+
+def _latest_shortlist_outputs(shortlist_config) -> tuple[Path | None, Path | None]:
+    """
+    Discover the most recent written Shortlist_CSV / Shortlist_GeoJSON pair.
+
+    The shortlist filenames are timestamped (`sprint1_shortlist_<UTCdate>.{csv,
+    geojson}`), so rather than assuming a fixed name we glob the shortlist
+    directory for the `OUTPUT_PREFIX` pattern and take the most recently
+    modified pair — the same "find the latest output" discipline the other
+    stages' validators use. Returns (None, None) when no output exists yet, so
+    a partial pipeline run does not fail on a stage that has not been run.
+    """
+    out_dir = shortlist_config.SHORTLIST_DIR
+    if not out_dir.exists():
+        return None, None
+    prefix = shortlist_config.OUTPUT_PREFIX
+    csvs = sorted(out_dir.glob(f"{prefix}_*.csv"),
+                  key=lambda p: p.stat().st_mtime, reverse=True)
+    if not csvs:
+        return None, None
+    csv_path = csvs[0]
+    geojson_path = csv_path.with_suffix(".geojson")
+    return csv_path, (geojson_path if geojson_path.exists() else None)
+
+
+def _run_shortlist_cross_checks(verbose: bool = False) -> list[dict]:
+    """
+    Cross-domain checks on the S1-11 shortlist (Requirement 12.7).
+
+    These live here rather than in `pipeline/shortlist/validate.py` because
+    they span domains: they compare the written shortlist against the S1-10
+    Scored_Table and the S1-02 Analysis_Grid, which the shortlist stage's own
+    validation tier does not load. Within-stage checks (row count vs Top_N,
+    eligible-only, ascending rank, non-null coordinates, CSV/GeoJSON equality,
+    disclaimer presence) stay in the shortlist package.
+
+    Every check reports expected vs observed vs an explicit pass/fail — no
+    silent passes. Returns [] when the shortlist has not been generated yet, so
+    a partial pipeline run does not fail on a stage that has not been run.
+
+    Checks:
+      1. shortlisted cell_id set ⊆ Scored_Table cell_id set;
+      2. shortlisted cell_id set ⊆ Analysis_Grid cell_id set;
+      3. each shortlisted cell's suitability_score AND rank equal the
+         Scored_Table values for that cell_id (no re-scoring / re-ranking);
+      4. each shortlisted cell's centroid_lat / centroid_lon equal the grid
+         values for that cell_id (coordinates consistent across stages).
+    """
+    checks: list[dict] = []
+
+    def check(name, expected, observed, passed):
+        checks.append({"name": name, "expected": expected,
+                       "observed": observed, "passed": bool(passed)})
+
+    from .shortlist import config as shortlist_config
+
+    csv_path, geojson_path = _latest_shortlist_outputs(shortlist_config)
+    if csv_path is None:
+        return checks
+
+    import pandas as pd
+
+    shortlist = pd.read_csv(csv_path)
+    cell_col = "cell_id"
+    if cell_col not in shortlist.columns:
+        check("Shortlist_CSV carries a cell_id column",
+              "cell_id present", "cell_id MISSING", False)
+        return checks
+
+    shortlisted_ids = set(shortlist[cell_col])
+
+    # --- 1 & 3. Against the Scored_Table (subset + scores/ranks unchanged). ---
+    scored_path = shortlist_config.SCORED_PATH
+    if scored_path.exists():
+        import geopandas as gpd
+
+        scored = gpd.read_file(scored_path, layer=shortlist_config.SCORED_LAYER)
+        scored_ids = set(scored[cell_col])
+        not_in_scored = shortlisted_ids - scored_ids
+        check("Shortlisted cell_id set is a subset of the Scored_Table cell_id set",
+              "0 shortlisted cells absent from the Scored_Table",
+              f"{len(not_in_scored):,} absent",
+              not not_in_scored)
+
+        # Scores/ranks match the Scored_Table for the shortlisted cells: this is
+        # a FILTERING stage, so no re-scoring and no re-ranking (1.3, 4.6).
+        merged = shortlist[[cell_col, "suitability_score", "rank"]].merge(
+            scored[[cell_col, "suitability_score", "rank"]],
+            on=cell_col, how="left", suffixes=("_shortlist", "_scored"),
+        )
+        score_mismatch = int(
+            (~_close(merged["suitability_score_shortlist"],
+                     merged["suitability_score_scored"])).sum()
+        )
+        rank_mismatch = int(
+            (merged["rank_shortlist"].astype("Int64")
+             != merged["rank_scored"].astype("Int64")).sum()
+        )
+        check("Shortlist scores and ranks equal the Scored_Table "
+              "(no re-scoring / re-ranking)",
+              "0 score mismatches, 0 rank mismatches",
+              f"{score_mismatch:,} score mismatches, {rank_mismatch:,} rank mismatches",
+              score_mismatch == 0 and rank_mismatch == 0)
+
+    # --- 2 & 4. Against the Analysis_Grid (subset + coordinates equal). ---
+    grid_path = shortlist_config.GRID_PATH
+    if grid_path.exists():
+        import geopandas as gpd
+
+        grid = gpd.read_file(grid_path, layer=shortlist_config.GRID_LAYER)
+        grid_ids = set(grid[cell_col])
+        not_in_grid = shortlisted_ids - grid_ids
+        check("Shortlisted cell_id set is a subset of the Analysis_Grid cell_id set",
+              "0 shortlisted cells absent from the grid",
+              f"{len(not_in_grid):,} absent",
+              not not_in_grid)
+
+        coords = shortlist[[cell_col, "centroid_lat", "centroid_lon"]].merge(
+            grid[[cell_col, "centroid_lat", "centroid_lon"]],
+            on=cell_col, how="left", suffixes=("_shortlist", "_grid"),
+        )
+        coord_mismatch = int(
+            (
+                ~_close(coords["centroid_lat_shortlist"], coords["centroid_lat_grid"])
+                | ~_close(coords["centroid_lon_shortlist"], coords["centroid_lon_grid"])
+            ).sum()
+        )
+        check("Shortlist coordinates equal the Analysis_Grid values for each cell_id",
+              "0 coordinate mismatches",
+              f"{coord_mismatch:,} coordinate mismatches",
+              coord_mismatch == 0)
+
+    if verbose:
+        for entry in checks:
+            print(f"    [{'PASS' if entry['passed'] else 'FAIL'}] {entry['name']}")
+    return checks
+
+
+def _close(a, b, tol: float = 1e-9):
+    """
+    Element-wise closeness for the cross-domain numeric comparisons, treating
+    two nulls as equal and null-vs-value as unequal, so a missing join value is
+    reported as a mismatch (a FAIL) rather than silently passing.
+    """
+    both_null = a.isna() & b.isna()
+    return both_null | ((a - b).abs() <= tol)
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +502,20 @@ def run(
     passed = sum(1 for c in checks if c["passed"])
     print(f"    {passed}/{len(checks)} checks passed")
     results["cross_domain_checks"] = checks
+
+    scoring_checks = _run_scoring_cross_checks(verbose)
+    if scoring_checks:
+        scoring_passed = sum(1 for c in scoring_checks if c["passed"])
+        print(f"    Scoring (S1-10) cross-checks: "
+              f"{scoring_passed}/{len(scoring_checks)} passed")
+    results["scoring_cross_checks"] = scoring_checks
+
+    shortlist_checks = _run_shortlist_cross_checks(verbose)
+    if shortlist_checks:
+        shortlist_passed = sum(1 for c in shortlist_checks if c["passed"])
+        print(f"    Shortlist (S1-11) cross-checks: "
+              f"{shortlist_passed}/{len(shortlist_checks)} passed")
+    results["shortlist_cross_checks"] = shortlist_checks
 
     if not skip_land_sea:
         print("  [2/2] Land-mask assessment...")

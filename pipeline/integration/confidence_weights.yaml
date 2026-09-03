@@ -1,0 +1,163 @@
+# Confidence weights for the S1-09 data-quality layer
+# (pipeline/integration/confidence.py, applied inside the `integration` stage).
+#
+# Weights, factors and thresholds are DATA, not code: confidence.py evaluates
+# this file generically and has no built-in notion of "wind" or "demand".
+# Retune by editing this file or pass another with
+#   python -m pipeline --only integration --confidence-weights path/to/file.yaml
+#
+# Score per cell (see DATA/integration/metadata/confidence_method.md):
+#
+#   s_f   = avail_f * resolution_f * limitation_f * flag_f      (per scored feature f)
+#   score = soft * SUM_f( weight_f * s_f ) / SUM_f( weight_f )
+#
+#   avail_f      1 when the feature value is present, 0 when null
+#   resolution_f 1.0 = source native resolution is at or finer than the 0.05 deg
+#                (~5 km) analysis cell (exact nesting or many pixels per cell);
+#                0.5 = the value is allocated/interpolated from a unit COARSER
+#                than the cell (ticket S1-09 scale)
+#   limitation_f known-limitation factor from the S1-01 data specification
+#                (DATA/data-specification/sprint1_data_specification.md):
+#                1.00 no documented limitation affecting the cell value
+#                0.95 minor caveats that do not bias the cell value
+#                0.90 known systematic bias or stale vintage at cell scale
+#                0.75 value must be labelled "estimated" (spec section 4.2)
+#                0.50 severe (reserved; unused by default)
+#   flag_f       factor from the upstream layer's own confidence flag, applied
+#                ONLY to that layer's listed features and ONLY when the value is
+#                present (a null already contributes 0 through avail_f)
+#   soft         product of soft-flag factors matched in S1-07's data_flags
+#
+# The score is rounded to 3 decimals before the thresholds are applied.
+# Weights mirror Sprint-1-Tasks/S1-10-Baseline-Suitability-Model.md for the six
+# S1-10 criteria; the four remaining scored columns get 0.05 each. The sum is
+# 1.20; the score normalises by the sum, so it need not be 1.
+
+version: "1.0"
+
+thresholds:
+  high: 0.8      # score >= 0.8 -> high
+  medium: 0.5    # score >= 0.5 -> medium; otherwise low
+
+features:
+  wind_speed:
+    weight: 0.35
+    resolution: 1.0
+    resolution_basis: "spec 3 / 4.1.1 - 0.0025 deg native pixels, exact 20x20 nesting per cell"
+    limitation: 0.95
+    limitation_basis: "spec 4.1.1 - modelled ERA5 2008-2017 ten-year mean; no interannual variability; ocean pixels carry values"
+    note: "Missing wind speed"
+
+  demand_proxy:
+    weight: 0.15
+    resolution: 0.5
+    resolution_basis: "spec 4.2 - one NEM-region annual mean allocated UNIFORMLY to every cell (region is far coarser than the cell)"
+    limitation: 0.75
+    limitation_basis: "spec 4.2 / 4.2.1 - single year 2025-26, must be labelled 'estimated'; spec 6 temporal gap vs wind 2008-2017"
+    note: "Missing demand proxy"
+
+  dist_transmission_km:
+    weight: 0.20
+    resolution: 1.0
+    resolution_basis: "spec 4.3.1 - exact vector lines; centroid distance in EPSG:3577"
+    limitation: 0.95
+    limitation_basis: "spec 4.3.1 - screening-level; Euclidean not network distance; proximity is not spare capacity; source dates mostly missing"
+    note: "Missing transmission-line distance"
+
+  dist_substation_km:
+    weight: 0.10
+    resolution: 1.0
+    resolution_basis: "spec 4.3.2 - exact vector points; centroid distance in EPSG:3577"
+    limitation: 0.95
+    limitation_basis: "spec 4.3.2 - screening-level; 48 substations lack voltage; source dates mostly missing"
+    note: "Missing substation distance"
+
+  dist_connection_km:
+    weight: 0.05
+    resolution: 1.0
+    resolution_basis: "spec 4.3.3 - would be an exact point distance; null for every cell in the 2026 snapshot (AEMO KCI has no coordinates)"
+    limitation: 0.95
+    limitation_basis: "spec 4.3 / 4.3.3 - same screening caveats as the GA distances; the factor only applies once the source is geocoded"
+    note: "Missing connection-point distance"
+
+  inside_rez:
+    weight: 0.10
+    resolution: 1.0
+    resolution_basis: "spec 4.3.3 - exact polygon intersection with the cell"
+    limitation: 0.95
+    limitation_basis: "sprint1_out_of_scope.md - REZ is a planning designation used as a context overlay, not a measured attribute"
+    note: "Missing REZ membership"
+
+  elevation_m:
+    weight: 0.05
+    resolution: 1.0
+    resolution_basis: "spec 4.4.5 - ~90 m pixels, ~3,600 per cell (finer than the cell)"
+    limitation: 0.90
+    limitation_basis: "spec 4.4.5 - single epoch (Feb 2000); NoData = 0 conflates with sea level"
+    note: "Missing elevation"
+
+  slope_deg:
+    weight: 0.10
+    resolution: 1.0
+    resolution_basis: "spec 4.4.6 - ~90 m pixels, mean of ~3,600 per cell"
+    limitation: 0.90
+    limitation_basis: "spec 4.4.6 - GL3-derived slope is ~1.31 deg lower than GL1 at the same footprint; inherits SRTM noise"
+    note: "Missing slope"
+
+  land_use:
+    weight: 0.05
+    resolution: 1.0
+    resolution_basis: "spec 4.4.3 - 250 m pixels, ~400 per cell (finer than the cell; modal class)"
+    limitation: 0.90
+    limitation_basis: "spec 4.4.3 - 2020-21 vintage (5+ years old); 250 m blurs linear features; nearest-neighbour warp from EPSG:3577"
+    note: "Missing land use"
+
+  protected_area:
+    weight: 0.05
+    resolution: 1.0
+    resolution_basis: "spec 4.4.2 - vector polygons; ~50 m generalisation, far finer than the 5 km cell"
+    limitation: 0.95
+    limitation_basis: "spec 4.4.2 - biennial edition: reserves gazetted 2025-26 may be missing"
+    note: "Missing protected-area flag"
+
+# Per-layer upstream flags. Each factor multiplies ONLY the layer's listed
+# features, and only when the feature value is present. `features` mirrors
+# what the upstream rule actually consults; `factors` must cover the layer's
+# whole vocabulary; a note is required for every factor below 1.
+flag_factors:
+  wind:                               # column wind_confidence
+    features: [wind_speed]
+    factors: {valid: 1.0, no_data: 0.0}   # no_data never coincides with a value (wind/features.py); trust the flag if it ever does
+    notes: {no_data: "Wind flag no_data with a value present"}
+
+  geographic:                         # column geo_confidence
+    # Scope = the rasters the S1-06 flag consults (elevation, slope, NLUM).
+    # protected_area comes from CAPAD (full NSW) and is NOT governed by this flag.
+    features: [elevation_m, slope_deg, land_use]
+    factors: {high: 1.0, low: 0.5}
+    notes: {low: "Geographic rasters partly covered (geo_confidence low)"}
+
+  infrastructure:                     # column infra_confidence
+    features: [dist_transmission_km, dist_substation_km, dist_connection_km, inside_rez]
+    # S1-05 sets `low` iff any of its four required features is null. In the
+    # 2026 snapshot that is an artefact of dist_connection_km being null
+    # everywhere (AEMO KCI has no coordinates, spec 4.3.3). The missingness is
+    # already counted through avail_f and the flag carries no information
+    # beyond it, so its factor is 1.0 rather than a second penalty.
+    factors: {high: 1.0, low: 1.0}
+    notes: {}
+
+  demand:                             # column demand_confidence
+    features: [demand_proxy]
+    factors: {high: 1.0, medium: 0.75, low: 0.5}
+    notes:
+      medium: "Demand region assigned by boundary overlap"
+      low: "Demand flag low with a value present"
+
+# Substring matches against S1-07's data_flags ('; '-joined). `factor`
+# multiplies the WHOLE score. The urban flag concerns the urban_area exclusion
+# input, not any scored feature, so it is note-only (factor 1.0) by default.
+soft_flags:
+  - match: "Urban-centre data unavailable"
+    factor: 1.0
+    note: "Urban-centre coverage unconfirmed (outside ABS UCL window)"

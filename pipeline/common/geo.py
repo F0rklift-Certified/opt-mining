@@ -8,13 +8,14 @@ NLUM land use) are read with rasterio, windowed over /vsicurl/ or /vsizip/
 so national files are never downloaded in full.
 
 This module also contains generic utilities (atomic writes, banners,
-human_bytes) shared across all domain subpackages.
+human_bytes, sha256_file) shared across all domain subpackages.
 
 Licence: see DATA/geographic/DATA_PROVENANCE.md
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from datetime import datetime, timezone
@@ -43,6 +44,19 @@ def human_bytes(n: int) -> str:
             return f"{step:.1f} {unit}"
         step /= 1000
     return f"{step:.1f} GB"
+
+
+def sha256_file(path: Path) -> str:
+    """
+    SHA-256 hex digest of a file, read in 1 MiB chunks so multi-megabyte
+    GeoPackages never have to be loaded into memory whole. Raises
+    FileNotFoundError for a missing path.
+    """
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 # ---------------------------------------------------------------------------

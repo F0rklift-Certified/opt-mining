@@ -2,7 +2,7 @@
 CLI entry point for the data pipeline.
 
 Runs domain subpackages sequentially:
-  wind → geographic → infrastructure → demand → cross-domain validate
+  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → integration → scoring → shortlist → validate → sanity
 
 Usage:
     python -m pipeline                          # run all stages
@@ -10,6 +10,8 @@ Usage:
     python -m pipeline --only wind.probe        # run a single stage
     python -m pipeline --skip wind              # skip a domain
     python -m pipeline --skip-validate          # skip cross-domain checks
+    python -m pipeline --only scoring --scoring-weights w.yaml   # rescore with custom weights
+    python -m pipeline --only sanity            # run the terminal sanity check
     python -m pipeline --verbose                # detailed logging
     python -m pipeline --bbox 150.0,-31.5,152.0,-29.5 --area-name my-area
 """
@@ -69,8 +71,35 @@ def _get_runner(stage: str):
     elif stage == "grid":
         from .grid.generate import run
         return run
+    elif stage == "wind.features":
+        from .wind.features import run
+        return run
+    elif stage == "demand.feature":
+        from .demand.feature import run
+        return run
+    elif stage == "infrastructure.features":
+        from .infrastructure.features import run
+        return run
+    elif stage == "geographic.features":
+        from .geographic.features import run
+        return run
+    elif stage == "exclusions":
+        from .exclusions.apply import run
+        return run
+    elif stage == "integration":
+        from .integration.merge import run
+        return run
+    elif stage == "scoring":
+        from .scoring.run import run
+        return run
+    elif stage == "shortlist":
+        from .shortlist.run import run
+        return run
     elif stage == "validate":
         from .validate import run
+        return run
+    elif stage == "sanity":
+        from .sanity.run import run
         return run
     else:
         raise ValueError(f"Unknown stage: {stage}")
@@ -81,6 +110,36 @@ def _get_runner(stage: str):
 # ---------------------------------------------------------------------------
 
 
+def _projected_crs_arg(value: str) -> str:
+    """Argparse validator for CRS values used in metre-based distances."""
+    from pyproj import CRS
+
+    try:
+        crs = CRS.from_user_input(value)
+    except Exception as exc:
+        raise argparse.ArgumentTypeError(f"Invalid CRS {value!r}: {exc}") from exc
+    if not crs.is_projected:
+        raise argparse.ArgumentTypeError(
+            f"--infra-features-crs must be projected for metre distances (got {value!r})"
+        )
+    return value
+
+
+def _spot_cells_arg(value: str) -> int:
+    """Argparse validator for --sanity-spot-cells (inclusive range 5-10)."""
+    try:
+        n = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"--sanity-spot-cells must be an integer (got {value!r})"
+        ) from exc
+    if not (5 <= n <= 10):
+        raise argparse.ArgumentTypeError(
+            f"--sanity-spot-cells must be within the inclusive range 5-10 (got {n})"
+        )
+    return n
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
@@ -88,13 +147,21 @@ def parse_args() -> argparse.Namespace:
         description=(
             "Opt-Mining Data Pipeline — Wind, Geographic, Infrastructure & Demand.\n\n"
             "Runs domain subpackages sequentially:\n"
-            "  wind → geographic → infrastructure → demand → cross-domain validate"
+            "  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → integration → scoring → shortlist → cross-domain validate → sanity"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
             "  python -m pipeline\n"
             "  python -m pipeline --only wind\n"
+            "  python -m pipeline --only integration\n"
+            "  python -m pipeline --only integration --confidence-weights my_weights.yaml\n"
+            "  python -m pipeline --only scoring\n"
+            "  python -m pipeline --only scoring --scoring-weights my_weights.yaml\n"
+            "  python -m pipeline --only shortlist\n"
+            "  python -m pipeline --only shortlist --shortlist-top-n 50\n"
+            "  python -m pipeline --only sanity\n"
+            "  python -m pipeline --only sanity --sanity-spot-cells 10\n"
             "  python -m pipeline --only wind.probe\n"
             "  python -m pipeline --skip infrastructure\n"
             "  python -m pipeline --skip-validate\n"
@@ -126,7 +193,8 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Run only the specified domain or stage. "
-            "Examples: 'wind', 'geographic.derive', 'demand', 'validate'"
+            "Examples: 'wind', 'geographic.derive', 'demand', 'infrastructure.features', "
+            "'integration', 'validate'"
         ),
     )
     parser.add_argument(
@@ -167,6 +235,13 @@ def parse_args() -> argparse.Namespace:
             "(default: all 5 — NSW1,QLD1,SA1,TAS1,VIC1)"
         ),
     )
+    parser.add_argument(
+        "--allocation-method",
+        type=str,
+        default="uniform",
+        choices=["uniform"],
+        help="Demand allocation method for demand.feature (default: uniform)",
+    )
 
     # Wind options
     parser.add_argument(
@@ -205,6 +280,12 @@ def parse_args() -> argparse.Namespace:
         help="State filter for infrastructure inspection (default: NSW)",
     )
     parser.add_argument(
+        "--infra-features-crs",
+        type=_projected_crs_arg,
+        default="EPSG:3577",
+        help="Projected CRS for infrastructure distances (default: EPSG:3577)",
+    )
+    parser.add_argument(
         "--fuel-type",
         type=str,
         default="wind",
@@ -230,6 +311,89 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Maximum allowable slope in degrees for wind farm siting checks "
             "(default: 15.0)"
+        ),
+    )
+
+    # Exclusion layer options
+    parser.add_argument(
+        "--exclusion-rules",
+        type=str,
+        default=None,
+        help=(
+            "Path to a custom exclusion rules YAML for the 'exclusions' stage "
+            "(default: pipeline/exclusions/exclusion_rules.yaml)"
+        ),
+    )
+    parser.add_argument(
+        "--confidence-weights",
+        type=str,
+        default=None,
+        help=(
+            "Path to a custom confidence weights YAML for the 'integration' stage "
+            "(S1-09; default: pipeline/integration/confidence_weights.yaml)"
+        ),
+    )
+
+    # Scoring options (S1-10)
+    parser.add_argument(
+        "--scoring-weights",
+        type=str,
+        default=None,
+        help=(
+            "Path to a custom criteria weights YAML for the 'scoring' stage "
+            "(S1-10; default: pipeline/scoring/scoring_weights.yaml). Criteria "
+            "weights are user inputs — edit this file to change the model's "
+            "priorities."
+        ),
+    )
+    parser.add_argument(
+        "--confidence-discount",
+        dest="confidence_discount",
+        action="store_true",
+        default=None,
+        help=(
+            "Enable the S1-10 confidence discount, multiplying each score and its "
+            "contributions by the factor for that cell's confidence (overrides the "
+            "weights file)."
+        ),
+    )
+    parser.add_argument(
+        "--no-confidence-discount",
+        dest="confidence_discount",
+        action="store_false",
+        help="Disable the S1-10 confidence discount (overrides the weights file).",
+    )
+
+    # Shortlist options (S1-11)
+    parser.add_argument(
+        "--shortlist-top-n",
+        type=int,
+        default=20,
+        help=(
+            "Number of top-ranked Eligible_Cells to include in the 'shortlist' "
+            "stage output (S1-11; default: 20). Selection is by the existing "
+            "ascending S1-10 rank; must be a positive integer."
+        ),
+    )
+
+    # Sanity options (S1-12)
+    parser.add_argument(
+        "--sanity-spot-cells",
+        type=_spot_cells_arg,
+        default=8,
+        help=(
+            "Number of Eligible_Cells to spot-check in the 'sanity' stage "
+            "(S1-12; default: 8). Must be within the inclusive range 5-10."
+        ),
+    )
+    parser.add_argument(
+        "--wind-generators",
+        type=str,
+        default=None,
+        help=(
+            "Path override for the GA Wind_Generators dataset used by the "
+            "'sanity' stage (S1-12; default: "
+            "DATA/infrastructure/generators/ga_wind_generators_2026_nsw.geojson)."
         ),
     )
 
@@ -322,6 +486,28 @@ def _build_kwargs(stage: str, args: argparse.Namespace, bbox: tuple) -> dict:
     if stage == "validate":
         kwargs["skip_land_sea"] = args.skip_land_sea
         kwargs["max_slope"] = args.max_slope
+
+    if stage == "demand.feature":
+        kwargs["allocation_method"] = args.allocation_method
+    if stage == "infrastructure.features":
+        kwargs["state"] = args.state
+        kwargs["computation_crs"] = args.infra_features_crs
+    if stage == "exclusions":
+        if args.exclusion_rules:
+            kwargs["rules_path"] = Path(args.exclusion_rules)
+    if stage == "integration" and args.confidence_weights:
+        kwargs["weights_path"] = Path(args.confidence_weights)
+    if stage == "scoring":
+        if args.scoring_weights:
+            kwargs["weights_path"] = Path(args.scoring_weights)
+        if args.confidence_discount is not None:
+            kwargs["confidence_discount"] = args.confidence_discount
+    if stage == "shortlist":
+        kwargs["top_n"] = args.shortlist_top_n
+    if stage == "sanity":
+        kwargs["spot_cells"] = args.sanity_spot_cells
+        if args.wind_generators:
+            kwargs["wind_generators_path"] = Path(args.wind_generators)
 
     return kwargs
 

@@ -10,14 +10,18 @@ python -m pipeline
 
 # Run only one domain
 python -m pipeline --only wind
-python -m pipeline --only geographic
+python -m pipeline --only geographic   # resolves 6 geographic stages: probe, download,
+                                       # inspect, derive, validate, features — with
+                                       # features running last against a pre-existing grid
 python -m pipeline --only infrastructure
 python -m pipeline --only demand
 python -m pipeline --only grid
+python -m pipeline --only demand.feature --allocation-method uniform
 
 # Run a single stage
 python -m pipeline --only wind.probe
 python -m pipeline --only geographic.derive
+python -m pipeline --only infrastructure.features --infra-features-crs EPSG:3577
 
 # Skip domains or stages
 python -m pipeline --skip demand --skip infrastructure
@@ -38,6 +42,32 @@ python -m pipeline --only demand --start-date 2024-01-01 --end-date 2024-12-31 -
 # Grid generation (standalone)
 python -m pipeline.grid
 python -m pipeline.grid --verbose
+
+# Exclusion layer (standalone, S1-07 — requires the grid to exist already)
+python -m pipeline --only exclusions
+python -m pipeline --only exclusions --exclusion-rules path/to/custom_rules.yaml
+
+# Integrated NSW Feature Table (S1-08 — requires the grid, the four feature
+# layers and the exclusion layer to exist already; joins them by cell_id and
+# appends the S1-09 data-confidence columns)
+python -m pipeline --only integration
+python -m pipeline --only integration --confidence-weights path/to/my_weights.yaml
+python -m pipeline --only scoring
+python -m pipeline --only scoring --scoring-weights path/to/my_weights.yaml
+
+# Ranked shortlist (S1-11 — requires the S1-10 Scored_Table and the grid to
+# exist already; selects the top-N eligible cells by their existing rank)
+python -m pipeline --only shortlist
+python -m pipeline --only shortlist --shortlist-top-n 50
+
+# Validation sanity check (S1-12 — the TERMINAL stage; a preliminary-screening
+# plausibility check of the pipeline outputs against known reality. Requires the
+# S1-11 shortlist, the S1-10 Scored_Table, the S1-08 integrated table, the GA
+# wind generators and the grid to exist already. DISTINCT from the structural
+# 'validate' step; it never re-scores, re-ranks or adjusts the model.)
+python -m pipeline --only sanity
+python -m pipeline --only sanity --sanity-spot-cells 10
+python -m pipeline --only sanity --wind-generators path/to/ga_wind_generators.geojson
 
 # Validation: stricter slope threshold
 python -m pipeline --max-slope 12
@@ -94,18 +124,44 @@ pipeline/
 │   ├── config.py           # GA endpoint, expected files, filters
 │   ├── helpers.py          # GeoJSON load/filter/stats
 │   ├── download.py         # Stage: presence check of pre-downloaded files
-│   └── inspect.py          # Stage: substations, power lines, generators
+│   ├── inspect.py          # Stage: substations, power lines, generators
+│   └── features.py         # Stage (S1-05): per-cell infrastructure features
 ├── integration/
 │   ├── __init__.py
-│   └── analyse.py          # Task 5 evidence: grid geometry, CRS alignment
-└── demand/
-    ├── __init__.py
-    ├── __main__.py          # Demand-specific CLI
-    ├── config.py            # AEMO URLs, date defaults
-    ├── download.py          # Stage: fetch AEMO demand ZIPs
-    ├── validate.py          # Stage: quality gate
-    ├── inspect.py           # Stage: statistical summary
-    └── aggregate.py         # Stage: annual mean demand per NEM region
+│   ├── analyse.py          # Task 5 evidence: grid geometry, CRS alignment (unregistered)
+│   ├── config.py           # Input paths composed from each domain's config; output names
+│   ├── merge.py            # Stage (S1-08): left-join every layer -> Integrated Feature Table
+│   ├── confidence.py       # S1-09: per-cell data_confidence / confidence_score / confidence_notes
+│   └── confidence_weights.yaml  # S1-09 weights, resolution/limitation factors, flag factors, thresholds
+├── scoring/
+│   ├── __init__.py
+│   ├── config.py           # Paths, vocabularies, tolerances (composed from upstream configs)
+│   ├── scoring_weights.yaml  # S1-10 criteria weights, directions and rationales — USER INPUT
+│   ├── weights.py          # Weights loader + validator (fails before any write)
+│   ├── load.py             # Reads the S1-08 integrated table (the sole feature input)
+│   ├── normalise.py        # Directional min-max from the eligible population only
+│   ├── score.py            # Stage (S1-10): the PURE weighted-MCDA scoring function
+│   ├── rank.py             # Descending by score, ties by ascending cell_id
+│   ├── write.py            # Scored_Table assembly + atomic GeoPackage/CSV writers
+│   ├── report.py           # Method report, validation report, derived-product provenance
+│   ├── validate.py         # No-silent-passes checks over the scored table
+│   └── run.py              # Stage entry point: run(verbose=False, ...) -> dict
+├── demand/
+│   ├── __init__.py
+│   ├── __main__.py          # Demand-specific CLI
+│   ├── config.py            # AEMO URLs, date defaults
+│   ├── download.py          # Stage: fetch AEMO demand ZIPs
+│   ├── validate.py          # Stage: quality gate
+│   ├── inspect.py           # Stage: statistical summary
+│   ├── aggregate.py         # Stage: annual mean demand per NEM region
+│   └── feature.py           # Stage (S1-04): per-cell demand proxy
+└── exclusions/
+    ├── __init__.py           # Scope note: reads raw sources directly (see below)
+    ├── config.py             # Paths, output schema, delimiters
+    ├── rules.py              # Pure rule engine: load_rules(), evaluate_cell()
+    ├── raster_stats.py       # Reusable cell-centre-mask zonal-mean helper
+    ├── exclusion_rules.yaml  # Default configurable exclusion rules (S1-07)
+    └── apply.py              # Stage: builds the Eligibility_Table + report
 ```
 
 ## Stage Execution Order
@@ -118,8 +174,68 @@ wind.probe → wind.download → wind.inspect → wind.validate → wind.analyse
 → infrastructure.download → infrastructure.inspect
 → demand
 → grid (common analysis cell generation)
+→ wind.features (S1-03 per-cell wind feature table — consumes the grid)
+→ geographic.features (per-cell geographic feature table on the common grid, S1-06)
+→ infrastructure.features (per-cell infrastructure features)
+→ demand.feature (per-cell demand proxy)
+→ exclusions (S1-07 exclusion layer — eligibility per cell)
+→ integration (S1-08 Integrated Feature Table — joins every feature layer + exclusions by cell_id; S1-09 appends the composite data confidence)
+→ scoring (S1-10 baseline suitability model — weighted MCDA over the integrated table; scores, ranks and explains every eligible cell)
+→ shortlist (S1-11 preliminary ranked shortlist — selects the top-N eligible cells by their existing S1-10 rank; the Sprint 1 headline output)
 → validate (cross-domain integration checks)
+→ sanity (S1-12 plausibility sanity check — TERMINAL; validates the pipeline outputs against known reality, distinct from the structural `validate` step above)
 ```
+
+`wind.features` is registered after `grid` (not inline with the other
+`wind.*` stages) because it consumes `DATA/grid/nsw_analysis_grid.gpkg`.
+Note that `--only wind` therefore runs `wind.features` last, against a
+pre-existing grid file on disk — regenerate it first with `--only grid`
+if absent. Its source raster is the NSW-wide GWA clip, regenerated with:
+
+```bash
+python -m pipeline --only wind.download \
+  --bbox 141.01125,-37.51125,153.66125,-28.16125 --area-name nsw --heights 100
+```
+
+(That bbox is the exact grid extent, snapped to the GWA lattice so each
+analysis cell is a clean 20×20 native-pixel block.)
+
+Note: `geographic.features` is registered in `config.STAGES` after `grid` (not inline with the other `geographic.*` stages) because it CONSUMES the grid — the grid producer must run before this consumer.
+
+Note: `integration` (S1-08) runs after `exclusions` and before `validate` because it consumes every feature table and the Eligibility_Table. It joins whatever is on disk and halts — naming the stage to run — if any input is absent, so `python -m pipeline` (all stages) is the single command from raw data to the integrated table, and `--only integration` re-joins already-generated layers. The S1-09 confidence layer runs inside the same stage, between the join and validation, from `pipeline/integration/confidence_weights.yaml`.
+
+Note: `scoring` (S1-10) runs after `integration` and before `validate` because the integrated feature table is its sole input. It is a transparent, deterministic **weighted multi-criteria decision analysis (MCDA)** — not a machine-learning model:
+
+```
+norm_i    = (v_i - min_i) / (max_i - min_i)          direction higher_is_better
+norm_i    = 1 - (v_i - min_i) / (max_i - min_i)      direction lower_is_better
+contrib_i = weight_i * norm_i / W_cell
+score     = SUM_i contrib_i                          -> [0, 1]
+```
+
+- **Criteria weights are user inputs**, loaded at runtime from `pipeline/scoring/scoring_weights.yaml` (or `--scoring-weights PATH`). No weight literal appears anywhere in `pipeline/scoring/`; edit the YAML to change the model's priorities. Each criterion carries a weight, a direction (`higher_is_better` / `lower_is_better`) and a written rationale.
+- **Normalisation** is linear min-max, with bounds computed from the **eligible cell population on each run** — never hard-coded. Boolean criteria use their definitional `{False -> 0.0, True -> 1.0}` domain. A criterion that is constant over the eligible population is filled with a documented constant rather than dividing by zero, and is flagged as constant in the method report.
+- **Only eligible cells are scored.** Cells the S1-07 exclusion layer rejected receive a null score, a null rank and null contributions, and take no part in the normalisation bounds or the ranking — ineligible land is never ranked as if it were developable.
+- **Explainability:** every criterion's additive contribution to every score is written to the table as `contrib_{feature}`, and the contributions are verified to sum back to the score on every run. `rank` 1 is the best cell; ties break by ascending `cell_id`.
+- **Confidence** is carried through from the S1-09 composite flag unchanged, never recomputed or fabricated. The optional confidence discount (`--confidence-discount`) multiplies both the score and its contributions by the cell's factor, so they stay reconcilable.
+- **Not circular:** `wind_speed` is an input criterion only, never a prediction target.
+
+Note: `shortlist` (S1-11) runs after `scoring` and before `validate` because the S1-10 Scored_Table is its sole score input. It is a **filtering and formatting** stage, not a modelling stage — it performs no re-scoring and no re-ranking:
+
+- **Selection is by the existing S1-10 `rank`.** The stage takes the top-N Eligible_Cells (non-null `suitability_score` **and** non-null `rank`) ordered by ascending `rank` (rank 1 first), so the shortlist ordering is identical to S1-10 through ties and gaps — ranks are never re-assigned.
+- **Top_N is a runtime value, not a frozen decision.** It defaults to 20 and is set with `--shortlist-top-n N` (or a pipeline-config value); the CLI value wins over the config value, which wins over the default. Top_N must be a positive integer or the stage halts before writing anything. Top_N over the eligible count includes every Eligible_Cell with no padding; zero eligible cells still emits headered, disclaimer-carrying empty outputs.
+- **Coordinates are joined from the grid.** Each shortlisted cell's `centroid_lat`/`centroid_lon` are left-joined from the Analysis_Grid on `cell_id` in EPSG:4326 and carried unchanged; an unmatched `cell_id` halts the stage rather than emitting a fabricated or null coordinate. No reprojection occurs in this stage.
+- **Two consistent exports.** A Shortlist_CSV and a Shortlist_GeoJSON (EPSG:4326, one feature per cell, centroid Point geometry by default) carry the same `cell_id` set in the same rank order, plus a Summary_Report of descriptive statistics over the eligible population and the top sites.
+- **Preliminary screening only.** Every output and its metadata carry the Preliminary_Disclaimer — the shortlist is a preliminary screening output at the ~5 km (0.05 degree) Analysis_Resolution, indicating where to look next; it is **not** a site approval, an engineering assessment, or a final recommendation.
+
+Note: `sanity` (S1-12) is the **terminal** stage; it runs last, after `validate`. It is a **preliminary-screening plausibility sanity check** that asks whether the pipeline's outputs make sense against known reality — it is **distinct from the structural `pipeline/validate.py` step**, which checks internal data-integrity contracts (row counts, schema, CRS, key coverage). The `sanity` stage instead runs four reality checks over the pipeline outputs, read-only:
+
+- **Known Wind Farm Comparison.** Each GA wind generator is located to its Analysis_Grid cell (point-in-polygon in EPSG:3577, the transform logged) and its `suitability_score`, `rank` and percentile over the eligible population are reported, with the count/proportion in the upper quartile — the expectation is that most operating farms score highly.
+- **Exclusion Validation.** Named urban centres (Sydney, Newcastle, Wollongong), national parks (Blue Mountains, Kosciuszko) and offshore areas are asserted excluded, each reported as an explicit expected-versus-observed pass/fail.
+- **Feature-Value Spot-Checks.** A deterministic set of 5–10 eligible cells spanning the score range is tabulated with each cell's feature values and the source to verify each against, leaving a discrepancy field for a human reviewer.
+- **Score-Distribution Plausibility.** The score distribution over eligible cells (min/max/mean/std/quartiles), a degenerate-clustering pass/fail, the geographic diversity of the top cells and the wind-versus-score correlation are reported.
+- **Never adjusts the model.** All inputs are read-only; the stage never re-scores, re-ranks or re-weights. Surprising results are documented honestly and, where systematic, logged as Sprint 2 issues rather than patched. Every check reports expected versus observed with an explicit pass/fail ("no silent passes").
+- **Preliminary screening only.** The Validation_Report (`outputs/sprint1_validation_report.md`) and any Results_Sidecar carry the Preliminary_Disclaimer — this is a plausibility sanity check at the ~5 km (0.05 degree) Analysis_Resolution, **not** a formal accuracy assessment and **not** a site approval.
 
 ## CLI Options
 
@@ -134,14 +250,34 @@ wind.probe → wind.download → wind.inspect → wind.validate → wind.analyse
 --start-date DATE     Demand data start (default: 2025-07-01)
 --end-date DATE       Demand data end (default: 2026-06-30)
 --regions IDS         Comma-separated NEM region IDs for demand (default: all 5)
+--allocation-method M Demand allocation for demand.feature (MVP: uniform)
+--infra-features-crs CRS Projected CRS for infrastructure distances (default: EPSG:3577)
 --heights METRES      Comma-separated hub heights for wind-speed downloads (default: 50,100,150)
 --turbine-class CLS   Comma-separated IEC classes for capacity-factor (default: IEC2)
 --agg-factor N        Native pixels per analysis cell side (default: 20 = ~5 km)
 --max-slope DEGREES   Maximum slope for wind farm siting checks (default: 15.0)
 --prototype-path PATH Path to OptMining prototype for crosscheck
 --skip-land-sea       Skip the land/sea remote check in validate
+--exclusion-rules PATH Custom exclusion rules YAML for the 'exclusions' stage
+                       (default: pipeline/exclusions/exclusion_rules.yaml)
+--confidence-weights PATH Custom confidence weights YAML for the 'integration' stage (S1-09)
+                       (default: pipeline/integration/confidence_weights.yaml)
+--scoring-weights PATH Custom criteria weights YAML for the 'scoring' stage (S1-10)
+                       (default: pipeline/scoring/scoring_weights.yaml)
+--confidence-discount  Enable the S1-10 confidence discount (overrides the weights file)
+--no-confidence-discount Disable the S1-10 confidence discount (overrides the weights file)
+--shortlist-top-n N   Number of top-ranked eligible cells for the 'shortlist' stage (S1-11)
+                       (default 20; selection is by ascending S1-10 rank; must be a positive integer)
+--sanity-spot-cells N Number of eligible cells to spot-check in the 'sanity' stage (S1-12)
+                       (default 8; must be within the inclusive range 5-10)
+--wind-generators PATH Path override for the GA Wind_Generators dataset used by the 'sanity' stage
+                       (S1-12; default DATA/infrastructure/generators/ga_wind_generators_2026_nsw.geojson)
 --verbose             Detailed logging
 ```
+
+**`--only geographic` and the feature builder.** Because `geographic.features` is registered in `config.STAGES` after `grid`, `--only geographic` resolves all six geographic stages in `STAGES` order — `geographic.probe, geographic.download, geographic.inspect, geographic.derive, geographic.validate, geographic.features` — with `features` running last. Note that `--only geographic` runs `geographic.features` **without** first running `grid`, so it depends on a previously-generated grid file (`DATA/grid/nsw_analysis_grid.gpkg`) already existing on disk; the stage fails loudly with a clear error if the grid is absent. Run `python -m pipeline --only grid` first (or a full run) if the grid has not yet been generated.
+
+**`--only integration`.** The stage's inputs are the fixed products of `grid`, `wind.features`, `geographic.features`, `infrastructure.features`, `demand.feature` and `exclusions` (paths composed in `pipeline/integration/config.py` from each domain's config). It never reprojects or back-fills; a missing input, an undeclared or non-EPSG:4326 CRS, or a duplicate `cell_id` halts the stage with an error naming the offending layer. Its only flag is `--confidence-weights PATH` (S1-09): the confidence config is loaded and validated before any input is read, so a missing or malformed YAML fails the stage before it writes anything; weights, resolution/limitation factors, per-layer flag factors and the high/medium thresholds are all data in that file.
 
 ### Parameter Details
 
@@ -173,6 +309,49 @@ grid_run(verbose=True)
 
 # Grid: get the GeoDataFrame directly (no I/O)
 gdf = generate_grid()
+
+# Exclusion layer (S1-07): apply the configurable rules and write the Eligibility_Table
+from pipeline.exclusions.apply import run as exclusions_run
+exclusions_run(verbose=True)
+
+# Integrated Feature Table (S1-08 + S1-09): left-join every layer + exclusions on
+# cell_id, then append the composite data confidence
+from pipeline.integration.merge import run as integration_run
+summary = integration_run(verbose=True)   # summary["validation"] holds every check
+summary["confidence"]["counts"]            # {"high": ..., "medium": ..., "low": ...}
+
+# Confidence layer on its own (pure; no I/O)
+from pipeline.integration.confidence import assess, load_weights
+weights = load_weights("pipeline/integration/confidence_weights.yaml")
+columns = assess(integrated_table, weights)   # data_confidence, confidence_score, confidence_notes
+```
+
+The S1-10 scoring stage, and its pure scoring function on any in-memory frame:
+
+```python
+from pipeline.scoring.run import run as scoring_run
+summary = scoring_run(verbose=True)           # summary["validation"] holds every check
+
+# The scoring computation itself is pure — a DataFrame and a WeightsConfig in,
+# a scored DataFrame out, with no file I/O — so it can be swapped for a
+# different model without touching the loading or writing layers.
+from pipeline.scoring.score import score_and_rank
+from pipeline.scoring.weights import load_weights as load_criteria_weights
+weights = load_criteria_weights("pipeline/scoring/scoring_weights.yaml")
+scored = score_and_rank(feature_frame, weights)
+```
+
+The S1-11 shortlist stage, and its pure selection core on any in-memory frame:
+
+```python
+from pipeline.shortlist.run import run as shortlist_run
+summary = shortlist_run(verbose=True, top_n=20)   # returns the CSV/GeoJSON/report paths
+
+# Selection is pure — a scored DataFrame and a Top_N in, the shortlisted
+# DataFrame out, no file I/O — so it is independently testable and never
+# re-scores or re-ranks (it selects by the existing S1-10 `rank`).
+from pipeline.shortlist.select import select_shortlist
+shortlist = select_shortlist(scored_frame, top_n=20)
 ```
 
 ## Data Outputs
@@ -184,8 +363,16 @@ DATA/
 ├── wind-resource/          # GWA raster clips + metadata
 ├── geographic/             # Boundaries, elevation, land use, protected areas
 ├── infrastructure/         # GA power lines, substations, generators
-└── electricity-demand/     # AEMO demand data
+├── electricity-demand/     # AEMO demand data
+├── grid/                   # Common analysis cell grid (S1-02)
+├── exclusions/             # Eligibility_Table + method report (S1-07)
+├── integration/            # Integrated NSW Feature Table (S1-08) with data confidence (S1-09) + Task 5 analysis
+├── scoring/                # Baseline suitability score, rank and per-criterion contributions (S1-10)
+├── shortlist/              # Preliminary ranked shortlist — top-N eligible cells (CSV + GeoJSON) + summary (S1-11)
+└── sanity/                 # S1-12 sanity-check Results_Sidecar + provenance (the report itself is written to outputs/)
 ```
+
+The S1-12 sanity check writes its human-readable Validation_Report outside the `DATA/` tree, to `outputs/sprint1_validation_report.md`.
 
 ## Expected Outputs
 
@@ -200,6 +387,11 @@ A successful full pipeline run produces the following file tree under `DATA/`:
 | `gwa_v4_wind-speed_150m_new-england-rez.tif` | download | Mean wind speed at 150 m hub height |
 | `gwa_v4_power-density_100m_new-england-rez.tif` | download | Power density at 100 m (W/m²) |
 | `gwa_v4_capacity-factor_IEC2_new-england-rez.tif` | download | Capacity factor for IEC Class II turbine |
+| `gwa_v4_wind-speed_100m_nsw.tif` | download | Mean wind speed at 100 m, NSW-wide grid-extent clip (S1-03 source) |
+| `gwa_v4_power-density_100m_nsw.tif` | download | Power density at 100 m, NSW-wide clip |
+| `gwa_v4_capacity-factor_IEC2_nsw.tif` | download | IEC Class II capacity factor, NSW-wide clip |
+| `features/gwa_v4_wind-feature_2025_nsw.gpkg` | wind.features | Per-cell wind feature table (S1-03): cell_id, wind_speed_100m, units, data_source, confidence_flag |
+| `metadata/wind_feature_method.md` | wind.features | Method report: variable justification, aggregation rule, stats, validation checks |
 | `DATA_PROVENANCE.md` | download | Human-readable provenance table |
 | `metadata/layer_availability.md` | probe | GWA layer reachability report |
 | `metadata/download_manifest.json` | download | SHA-256 hashes, byte counts, timestamps |
@@ -228,6 +420,8 @@ A successful full pipeline run produces the following file tree under `DATA/`:
 | `protected/dcceew_capad-terrestrial_2024_nsw.geojson` | download | CAPAD protected areas (full NSW) |
 | `urban/abs_ucl_2021_new-england-rez.geojson` | download | Urban centre/locality boundaries |
 | `derived/nem_regions_asgs2021_national.geojson` | derive | NEM region geometries (dissolved from state boundaries) |
+| `features/optmining_geographic-features_2024_nsw.gpkg` | geographic.features | Per-cell geographic feature table on the common analysis grid (GeoPackage, EPSG:4326): `cell_id`, `elevation_m`, `slope_deg`, `land_use`, `protected_area`, `protected_area_name`, `tri`, `confidence_flag` (S1-06) |
+| `metadata/geographic_features_method.md` | geographic.features | Method report: zonal-statistics method, coverage (New England REZ / Glen-Innes-only TRI vs full NSW grid), confidence counts, CRS transformations, runtime |
 | `DATA_PROVENANCE.md` | download | Human-readable provenance table |
 | `metadata/source_register.csv` | probe | Catalogue of all probed data sources |
 | `metadata/download_manifest.json` | download | SHA-256 hashes, byte counts, timestamps |
@@ -237,18 +431,25 @@ A successful full pipeline run produces the following file tree under `DATA/`:
 
 ### Infrastructure (`DATA/infrastructure/`)
 
-| File | Stage | Description |
-|------|-------|-------------|
-| `transmission-lines/ga_power_lines_2026_australia.geojson` | download | National transmission network (GA) |
-| `transmission-lines/ga_power_lines_2026_nsw.geojson` | download | NSW transmission lines (state-filtered) |
-| `substations/ga_substations_2026_australia.geojson` | download | National substations (GA) |
-| `substations/ga_substations_2026_nsw.geojson` | download | NSW substations (state-filtered) |
-| `generators/ga_powerstations_2026_australia.geojson` | download | National power stations (GA) |
-| `generators/ga_wind_generators_2026_australia.geojson` | download | Wind generators (national) |
-| `generators/ga_wind_generators_2026_nsw.geojson` | download | Wind generators (NSW) |
-| `connection-points/aemo_kci_2026.xlsx` | download | AEMO key connection information |
-| `renewable-energy-zones/aemo_indicative_rez_boundaries_2026.kmz` | download | AEMO indicative REZ boundaries |
-| `metadata/*_inspection.md` | inspect | Feature counts, schema summaries, spatial extent |
+Infrastructure data is pre-downloaded, so the `download` stage is a presence check rather than a fetch. The files it **requires** are exactly the seven listed in `EXPECTED_FILES` (`pipeline/infrastructure/config.py`); a missing one fails the stage. National GA layers are the raw inputs that the NSW-filtered layers are derived from, and the AEMO REZ KMZ is a reference/comparison layer — neither is a required input to `infrastructure.features`.
+
+| File | Stage | Required? | Description |
+|------|-------|-----------|-------------|
+| `transmission-lines/ga_power_lines_2026_nsw.geojson` | download | ✅ required | NSW transmission lines (state-filtered); distance source for `infrastructure.features` |
+| `transmission-lines/ga_power_lines_2026_australia.geojson` | download | raw input | National transmission network (GA); source the NSW file is filtered from |
+| `transmission-lines/ga_power_lines_2026_part_00{1,2}.geojson` | download | raw input | Paginated GA download parts merged into the national file |
+| `substations/ga_substations_2026_nsw.geojson` | download | ✅ required | NSW substations (state-filtered); distance source for `infrastructure.features` |
+| `substations/ga_substations_2026_australia.geojson` | download | raw input | National substations (GA); source the NSW file is filtered from |
+| `generators/ga_powerstations_2026_australia.geojson` | download | ✅ required | National power stations (GA); generator distance source |
+| `generators/ga_wind_generators_2026_nsw.geojson` | download | reference | NSW wind generators; ground-truth for the S1-12 `sanity` stage (`--wind-generators` default) |
+| `generators/ga_wind_generators_2026_australia.geojson` | download | reference | National wind generators (GA) |
+| `connection-points/aemo_kci_2026.xlsx` | download | ✅ required | AEMO key connection information (read via `openpyxl`) |
+| `renewable-energy-zones/energyco-nsw/energyco_new_england_rez_boundary.zip` | download | ✅ required | EnergyCo New England REZ boundary; REZ-membership source |
+| `renewable-energy-zones/energyco-nsw/energyco_central_west_orana_rez_boundary.zip` | download | ✅ required | EnergyCo Central-West Orana REZ boundary |
+| `renewable-energy-zones/energyco-nsw/energyco_hunter_central_coast_rez_boundary.zip` | download | ✅ required | EnergyCo Hunter-Central Coast REZ boundary |
+| `renewable-energy-zones/aemo_indicative_rez_boundaries_2026.kmz` | download | reference | AEMO indicative/ISP REZ boundaries; national comparison only, not used by `infrastructure.features` |
+| `metadata/*_inspection.md` | inspect | — | Feature counts, schema summaries, spatial extent |
+| `optmining_infra-features_2026_nsw.gpkg` | infrastructure.features | output | Per-cell infrastructure distances and REZ membership; distances use EPSG:3577 from cell centroids, REZ membership from the three EnergyCo boundaries |
 
 ### Electricity Demand (`DATA/electricity-demand/`)
 
@@ -258,6 +459,7 @@ A successful full pipeline run produces the following file tree under `DATA/`:
 | `demand_annual_summary.csv` | aggregate | Annual mean demand by NEM region (MW) |
 | `demand_annual_summary.meta.json` | aggregate | Metadata for the summary (date range, row count) |
 | `inspection_summary.txt` | inspect | Statistical summary of demand data |
+| `aemo_demand-proxy_2026_nsw.gpkg` | demand.feature | Per-cell demand proxy on the common grid (EPSG:4326) |
 
 ### Grid (`DATA/grid/`)
 
@@ -267,6 +469,61 @@ A successful full pipeline run produces the following file tree under `DATA/`:
 | `nsw_analysis_grid_metadata.json` | grid | Grid metadata (CRS, origin, cell count, area stats) |
 | `decision_analysis_cell.md` | — | Architecture decision document (Option A selection) |
 
+### Exclusion Layer (`DATA/exclusions/`) — S1-07
+
+| File | Stage | Description |
+|------|-------|-------------|
+| `optmining_exclusions_2024_nsw.gpkg` | exclusions | Eligibility_Table: one row per grid `cell_id` with `eligible`, `exclusion_reason`, `triggered_rules`, the raw per-cell fields the rules evaluated (`protected_area`, `protected_area_name`, `slope_deg`, `urban_area`, `wind_speed_100m_ms`), and a non-exclusionary `data_flags` column (GeoPackage, EPSG:4326) |
+| `metadata/exclusion_summary.md` | exclusions | Method report: exclusion summary stats (total/eligible/excluded, by-reason breakdown), the data-source coverage caveat, and the rule configuration used for that run |
+
+**Scope note:** S1-06 (geographic features) and S1-03 (wind features) are now implemented and registered in `config.STAGES` (`geographic.features`, `wind.features`). However, this stage still reads the raw CAPAD, slope, ABS urban-centre and GWA wind-speed sources directly and recomputes the per-cell fields the rules need, rather than joining the S1-03/S1-06 Feature_Tables on `cell_id`. Migrating to that join is outstanding follow-up (see `pipeline/exclusions/__init__.py`). This matters functionally: the GWA wind-speed source read here covers only the New England REZ window, so ~45,711 of the 47,311 cells are excluded today with reason "Missing wind data" even though the NSW-wide `wind.features` table has a value for every cell. Until the migration lands, that exclusion count reflects the raw-source coverage read by this stage, not the true wind-data availability.
+
+### Integrated NSW Feature Table (`DATA/integration/`) — S1-08 + S1-09
+
+| File | Stage | Description |
+|------|-------|-------------|
+| `optmining_integrated-features_2026_nsw.gpkg` | integration | One row per grid `cell_id` (47,311), EPSG:4326, layer `integrated_features`: `cell_id, centroid_lat, centroid_lon, area_km2, wind_speed, wind_confidence, demand_proxy, source_region, demand_confidence, dist_transmission_km, dist_substation_km, dist_connection_km, inside_rez, rez_name, infra_confidence, elevation_m, slope_deg, tri, land_use, protected_area, protected_area_name, geo_confidence, eligible, exclusion_reason, triggered_rules, data_flags, n_missing_features, data_confidence, confidence_score, confidence_notes, geometry` (the last three are the S1-09 confidence layer) |
+| `optmining_integrated-features_2026_nsw.csv` | integration | The same table without geometry — the deterministic artefact (byte-identical across reruns with unchanged inputs; the GeoPackage's hash drifts with its internal `last_change` timestamp) |
+| `metadata/integration_method.md` | integration | Method report: join order, reproducibility (UTC timestamp, git commit), input SHA-256s, column map with units, null accounting, `n_missing_features` histogram, eligible/excluded counts, runtime |
+| `metadata/merge_validation.md` | integration | Every validation check with expected vs observed values and PASS / FAIL / WARN |
+| `metadata/confidence_method.md` | integration | S1-09 methodology: formula, per-feature weights with resolution and limitation factors and their data-spec bases, per-layer flag factors, soft flags, thresholds, what is deliberately not an input, config SHA-256 |
+| `metadata/confidence_summary.md` | integration | S1-09 data-quality summary: counts and shares per level, score histogram, distinct score profiles, ranked reasons (all cells and eligible cells), eligibility cross-tab, lattice neighbour agreement, 1°×1° blocks, bounding boxes |
+| `metadata/integration_manifest.json` | integration | `derived_features` record: output hashes and sizes, git commit, the six inputs with SHA-256 |
+| `DATA_PROVENANCE.md` | integration | Generated derived-layer block (BEGIN/END markers) beneath the handwritten header |
+| `integration_analysis.md` | — | Task 5 cross-domain analysis (Sprint 0, `pipeline.integration.analyse`) |
+
+**Scope note:** the table carries the per-layer flags (`wind_confidence`, `demand_confidence`, `infra_confidence`, `geo_confidence`), an objective `n_missing_features` count (nulls among the ten scored feature columns) and, from S1-09, the composite `data_confidence` / `confidence_score` / `confidence_notes`. The composite is a weighted sum over the ten scored features of availability × resolution factor × known-limitation factor × upstream-flag factor, normalised by the weight sum, with thresholds high ≥ 0.8 and medium ≥ 0.5 (`pipeline/integration/confidence_weights.yaml`; formula and bases in `metadata/confidence_method.md`). On the committed data the distribution is high 1,600 / medium 45,711 / low 0 with five distinct scores: the 1,600 New-England-REZ-window cells (which include every eligible cell) score 0.830 and the rest of the state 0.633–0.699, because the geographic rasters and the connection-point distance are the missing evidence while the heavily weighted wind and GA distances are present statewide. The maximum attainable score under the defaults is 0.870. Confidence never excludes a cell; excluded cells are retained with `eligible = False`. The WARN cross-layer checks compare S1-07's own raster recomputation with the geographic and wind layers; on the committed data they report the known divergence that S1-07 samples the New-England-REZ wind clip while `wind.features` covers all of NSW (45,711 cells where only one side is null), plus 73 boundary cells whose means differ by more than 0.01 m/s.
+
+### Baseline Suitability Score (`DATA/scoring/`) — S1-10
+
+| File | Stage | Description |
+|------|-------|-------------|
+| `optmining_suitability-score_2026_nsw.gpkg` | scoring | One row per grid `cell_id` (47,311), EPSG:4326, layer `suitability_score`: `cell_id, centroid_lat, centroid_lon, suitability_score, rank, confidence, contrib_wind_speed, contrib_dist_transmission_km, contrib_demand_proxy, contrib_dist_substation_km, contrib_slope_deg, contrib_inside_rez, geometry`. One `contrib_{feature}` column per configured criterion, so the schema follows the weights file |
+| `optmining_suitability-score_2026_nsw.csv` | scoring | The same table without geometry — the deterministic artefact (byte-identical across reruns with unchanged inputs) |
+| `metadata/scoring_method.md` | scoring | Method report: the formula, every criterion with its weight, direction and rationale, the per-criterion normalisation bounds computed on that run, constant-criterion flags, the confidence-discount setting and factor map, eligible/excluded/confidence counts, the contribution reconciliation rule, documented deviations, input SHA-256s, git commit and runtime |
+| `metadata/scoring_validation.md` | scoring | Every validation check with expected vs observed values and PASS / FAIL — no silent passes |
+| `metadata/scoring_manifest.json` | scoring | `derived_features` record: output hashes and sizes, git commit, the integrated-table input, and the `weights_config_id` (SHA-256 of the weights file that produced the scores) |
+| `metadata/source_register.csv` | scoring | Source-register row marking the scored table a derived product |
+| `DATA_PROVENANCE.md` | scoring | Generated derived-layer block (BEGIN/END markers) recording inputs, weights, method and hashes |
+
+**Scope note:** the score is a weighted MCDA over criteria normalised to [0, 1] from the **eligible** cell population, not a fitted or learned model — no parameter in it comes from anywhere but the weights YAML and the run's own data. On the committed data 1,233 of 47,311 cells are eligible and scored (scores 0.218–0.932, mean 0.646) and 46,078 carry a null score and no rank. Two properties of the current data are worth knowing before reading a shortlist. First, `demand_proxy` is **constant** across every eligible cell (the MVP proxy allocates one NEM-region value uniformly), so it adds a flat 0.15 to every score and cannot discriminate between cells — the ranking is effectively driven by the other five criteria, and the method report flags this on every run. Second, every eligible cell is `high` confidence, so the optional confidence discount would be an identical multiplier on every scored cell; it is disabled by default for that reason. Excluded cells are retained with a null score rather than dropped, so the table still joins one-to-one to the grid.
+
+### Ranked Shortlist (`DATA/shortlist/`) — S1-11
+
+Filenames are timestamped per run: `<UTCdate>` is the UTC Run_Timestamp date (`YYYYMMDD`), reused across both output filenames and the metadata; the region slug is `nsw`. If a resolved name already exists, a finer-grained UTC time component is appended by a documented deterministic rule (recorded in the Summary_Report) rather than silently overwriting.
+
+| File | Stage | Description |
+|------|-------|-------------|
+| `sprint1_shortlist_<UTCdate>.csv` | shortlist | Shortlist_CSV: the top-N eligible cells in ascending S1-10 `rank` order, columns `rank, cell_id, suitability_score, confidence, centroid_lat, centroid_lon` (plus any available optional context columns, e.g. `rez`); headers emitted even when the shortlist is empty |
+| `sprint1_shortlist_<UTCdate>.geojson` | shortlist | Shortlist_GeoJSON (EPSG:4326, stated explicitly): one feature per shortlisted cell carrying the same columns as feature properties, geometry the cell centroid Point by default (cell polygon is the documented alternative); the same `cell_id` set in the same rank order as the CSV; carries the Preliminary_Disclaimer and Analysis_Resolution as file-level metadata |
+| `metadata/shortlist_summary.md` | shortlist | Summary_Report (banner-stamped): the effective Top_N and eligible-vs-included counts, the score distribution over eligible cells (min/max/mean/std), the geographic spread (lat/lon ranges) and confidence distribution of the top sites, total/eligible/scored counts, the geometry choice, any optional-context definitions, any name-collision outcome, and the Preliminary_Disclaimer and Analysis_Resolution statement |
+| `metadata/shortlist_metadata.json` | shortlist | Metadata sidecar: `pipeline_version`, UTC `run_timestamp`, `effective_top_n`, `n_shortlisted`, `scored_table_id` (Scored_Table path + SHA-256), geometry, and the Preliminary_Disclaimer and Analysis_Resolution statement — so the CSV's disclaimer travels with the tabular output |
+| `metadata/shortlist_manifest.json` | shortlist | `derived_features` record: output SHA-256 hashes and byte counts, UTC Run_Timestamp, and generation params (Scored_Table and Analysis_Grid inputs, effective Top_N) |
+| `metadata/source_register.csv` | shortlist | Source-register row marking the shortlist outputs derived products |
+| `DATA_PROVENANCE.md` | shortlist | Generated derived-product row recording the Scored_Table and Analysis_Grid inputs, the effective Top_N and the UTC Run_Timestamp |
+
+**Scope note:** the shortlist is a **preliminary screening output at the ~5 km (0.05 degree) Analysis_Resolution — not a site approval, an engineering assessment, or a final recommendation.** It is a filtering-and-formatting stage: it selects the top-N Eligible_Cells by their existing S1-10 `rank` and never re-scores or re-ranks, so the shortlist ordering matches S1-10 exactly. `centroid_lat`/`centroid_lon` are joined from the Analysis_Grid on `cell_id` in EPSG:4326 and carried unchanged; an unmatched `cell_id` halts the stage. Top_N is a **runtime** value (`--shortlist-top-n`, default 20), not a frozen decision (Q1–Q7), so widening or narrowing the shortlist never changes the analysis. On the committed data the S1-10 Scored_Table has 1,233 eligible cells, so a default run returns the 20 highest-ranked of those.
+
 ### Cross-Domain Validation (`DATA/geographic/metadata/`)
 
 | File | Stage | Description |
@@ -274,6 +531,20 @@ A successful full pipeline run produces the following file tree under `DATA/`:
 | `landmask_assessment.md` | validate | Quantifies coastal leakage between mask sources |
 
 The `validate` (cross-domain) stage does not produce additional files; it writes pass/fail results to stdout. The geographic and wind domain validation reports (listed above) capture siting constraint checks (slope, protected areas, land mask).
+
+### Validation Report (`outputs/` + `DATA/sanity/`) — S1-12
+
+The `sanity` stage is the **terminal** stage and a preliminary-screening plausibility sanity check — **distinct from the structural `validate` step above**. Its human-readable report is written to `outputs/` (outside the `DATA/` tree); its optional machine-readable sidecar and provenance live under `DATA/sanity/`.
+
+| File | Stage | Description |
+|------|-------|-------------|
+| `outputs/sprint1_validation_report.md` | sanity | Validation_Report (banner-stamped): run metadata (run date, pipeline version, total/eligible cell counts) + the Preliminary_Disclaimer and ~5 km Analysis_Resolution statement, then the six sections — 1. Known Wind Farm Comparison, 2. Exclusion Validation, 3. Feature Value Spot-Checks, 4. Score Distribution, 5. Issues for Sprint 2, 6. Conclusion; each automated check reports expected vs observed with an explicit pass/fail |
+| `DATA/sanity/optmining_validation-results_2026_nsw.json` | sanity | Optional Results_Sidecar: the structured automated results (including the Known_Wind_Farm_Comparison table), written atomically and labelled a derived product |
+| `DATA/sanity/metadata/sanity_manifest.json` | sanity | `derived_products` record: report/sidecar SHA-256 hashes and byte counts, UTC Run_Timestamp, and the five inputs (Shortlist, Scored_Table, Integrated Feature Table, GA Wind_Generators, Analysis_Grid) |
+| `DATA/sanity/metadata/source_register.csv` | sanity | Source-register row marking the Validation_Report (and any sidecar) derived products |
+| `DATA/sanity/DATA_PROVENANCE.md` | sanity | Generated derived-product row recording the five inputs and the UTC Run_Timestamp |
+
+**Scope note:** the `sanity` stage reads all inputs **read-only** — it never re-scores, re-ranks, re-weights or otherwise adjusts the model to make a check pass. It locates wind farms and landmarks to their grid cells by a point-in-polygon join performed in EPSG:3577 (the transform logged in the report), computes percentile/distribution statistics over the eligible cell population only, and records surprising results honestly as anomalies or Sprint 2 issues rather than suppressing them. Spot_Check_Cells count (`--sanity-spot-cells`, default 8, range 5–10) and the Wind_Generators path (`--wind-generators`) are runtime values, not frozen decisions (Q1–Q7). This is a plausibility screen at the ~5 km (0.05 degree) resolution — **not** a formal accuracy assessment and **not** a site approval.
 
 ## Data Sources
 
@@ -311,6 +582,8 @@ Validation is structured in two tiers:
 | Wind | `pipeline.wind.validate` | GWA raster sampling at known wind farm locations; percentile ranking; crosscheck windowed clips against independent downloads |
 | Geographic | `pipeline.geographic.validate` | CAPAD area (Kosciuszko NP extent); DEM spot-elevation (Armidale, Glen Innes); NLUM class decode completeness; ABS state area cross-check |
 | Demand | `pipeline.demand.validate` | Duplicate detection; 30-min timestamp continuity; regional completeness (5 NEM regions); non-null numeric demand values |
+| Exclusions | `pipeline.exclusions.apply.validate` | Row count == grid cell count; exact `cell_id` set match; required output columns present; `eligible`/`exclusion_reason` consistency; eligible + excluded == total |
+| Integration | `pipeline.integration.merge.validate` | Per-input CRS == EPSG:4326; per layer: `cell_id` set match, row count and null counts unchanged after the left join; final row count == grid; `cell_id` unique and in grid order; geometry identical to grid; column order; `eligible` boolean + `eligible`/`exclusion_reason` consistency; `n_missing_features` recount; confidence vocabularies; S1-09: confidence columns present, `confidence_score` in [0, 1] with no nulls, `data_confidence` vocabulary and consistency with the thresholds, non-empty `confidence_notes`, full recount via `confidence.assess()`; WARN cross-layer consistency vs S1-07; GeoPackage/CSV read-back |
 
 **Cross-domain integration** (`pipeline.validate`):
 
@@ -337,6 +610,16 @@ Validation stages produce Markdown reports in the relevant `metadata/` directory
 
 ## Dependencies
 
+**Supported Python: 3.13 only. Do not use Python 3.14.** The project
+standardises on Python 3.13 — the single interpreter CI tests — so the
+supported version and the verified version are the same. On CPython 3.14.x the
+S1-02 grid builder (`pipeline/grid/generate.py`) produces degenerate zero-area
+cells — every analysis cell collapses to a point, breaking the grid and every
+feature layer that joins to it. The same source, `numpy==2.2.6` and
+`shapely==2.1.2` build a correct 47,311-cell grid on Python 3.13, so the
+fault is in the 3.14 interpreter, not this code. `pyproject.toml`
+(`requires-python = ">=3.13,<3.14"`) enforces this for pip.
+
 ```
 pandas>=2.2
 requests>=2.32
@@ -346,6 +629,7 @@ geopandas>=1.1
 shapely>=2.1
 pyogrio>=0.13
 pyproj>=3.7
+pyyaml>=6.0
 ```
 
 See `requirements.txt` for pinned versions. GeoPandas and its spatial stack were introduced at S1-02 (grid generation) and are used by all downstream feature-layer tasks (S1-03–S1-08).

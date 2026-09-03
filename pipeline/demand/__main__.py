@@ -2,12 +2,12 @@
 CLI entry point for the electricity demand pipeline.
 
 Usage:
-    python -m pipelines.demand                          # run all stages
-    python -m pipelines.demand --only download          # run a single stage
-    python -m pipelines.demand --skip-download          # skip one stage
-    python -m pipelines.demand --skip-download --skip-inspect  # skip multiple
-    python -m pipelines.demand --verbose                # detailed logging
-    python -m pipelines.demand --start-date 2023-07-01 --end-date 2026-06-30
+    python -m pipeline.demand                           # run all stages
+    python -m pipeline.demand --only download           # run a single stage
+    python -m pipeline.demand --skip-download           # skip one stage
+    python -m pipeline.demand --skip-download --skip-inspect  # skip multiple
+    python -m pipeline.demand --verbose                 # detailed logging
+    python -m pipeline.demand --start-date 2023-07-01 --end-date 2026-06-30
 """
 
 import argparse
@@ -22,7 +22,7 @@ from . import config
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        prog="python -m pipelines.demand",
+        prog="python -m pipeline.demand",
         description=(
             "AEMO NEM Operational Demand Pipeline.\n\n"
             "Downloads, validates, inspects and aggregates half-hourly demand\n"
@@ -31,9 +31,9 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  python -m pipelines.demand\n"
-            "  python -m pipelines.demand --only aggregate\n"
-            "  python -m pipelines.demand --skip-download --start-date 2023-07-01\n"
+            "  python -m pipeline.demand\n"
+            "  python -m pipeline.demand --only aggregate\n"
+            "  python -m pipeline.demand --skip-download --start-date 2023-07-01\n"
         ),
     )
 

@@ -5,12 +5,12 @@ Reads the consolidated half-hourly CSV and produces a clean output CSV
 with annual statistics suitable for downstream use (Task 5 spatial allocation).
 
 Importable entry point:
-    from pipelines.demand.aggregate import run
+    from pipeline.demand.aggregate import run
     agg_csv, meta_path = run(csv_path=Path(...), output_dir=Path(...),
                              start_date="2025-07-01", end_date="2026-06-30")
 
 Standalone usage:
-    python -m pipelines.demand.aggregate path/to/file.csv
+    python -m pipeline.demand.aggregate path/to/file.csv
 
 Output:
     demand_annual_summary.csv — one row per NEM region with:
@@ -160,7 +160,7 @@ def run(
         "source": "https://nemweb.com.au/Reports/Archive/Operational_Demand/ACTUAL_DAILY/",
         "publisher": "Australian Energy Market Operator (AEMO)",
         "licence": "AEMO public data — free to use with attribution",
-        "pipeline": "pipelines.demand (aggregate stage)",
+        "pipeline": "pipeline.demand (aggregate stage)",
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "input_file": csv_path.name,
         "temporal_range": {"start": actual_min, "end": actual_max},
