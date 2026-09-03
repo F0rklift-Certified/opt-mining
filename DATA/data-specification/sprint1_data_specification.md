@@ -1,8 +1,8 @@
 # Sprint 1 Data Specification
 
-**Version:** 1.1
-**Date:** 2026-08-31 (baseline frozen 2026-08-27)
-**Status:** FROZEN — Sprint 1 baseline (v1.1 amendment via §8 "Adding a New Dataset")
+**Version:** 1.2
+**Date:** 2026-09-03 (baseline frozen 2026-08-27)
+**Status:** FROZEN — Sprint 1 baseline (v1.1 and v1.2 amendments via §8 "Adding a New Dataset")
 **Blocks:** S1-02, S1-03, S1-04, S1-05, S1-06
 
 ---
@@ -499,6 +499,33 @@ This criterion determines whether a cell is physically and legally suitable for 
 
 ---
 
+### 4.5 Integrated Feature Table (Derived — S1-08)
+
+Added via the §8 "Adding a New Dataset" process (v1.2). **Documented gap:** S1-09 (confidence),
+S1-10 (scoring) and S1-11 (shortlist) need one per-cell table holding every feature layer and the
+exclusion outcome keyed to the grid `cell_id`; no such dataset existed. **Integration assessment:**
+same grid (§3), same storage CRS (EPSG:4326) asserted on every input — no reprojection, no
+resampling, no back-filling; every join is one-to-one and the row count is asserted after each.
+
+| Field | Value |
+|-------|-------|
+| **Dataset name** | Integrated NSW Feature Table — every per-cell layer left-joined onto the common analysis grid |
+| **Source** | **DERIVED** by `pipeline/integration/merge.py` (the `integration` stage, S1-08) from the grid (§3) and the wind (§4.1.5), geographic (§4.4.8) and infrastructure (§4.3.3) feature tables, the S1-04 demand-proxy table (`DATA/electricity-demand/aemo_demand-proxy_2026_nsw.gpkg`) and the S1-07 Eligibility_Table (`DATA/exclusions/optmining_exclusions_2024_nsw.gpkg`) |
+| **File in repository** | `DATA/integration/optmining_integrated-features_2026_nsw.gpkg` (GeoPackage, layer `integrated_features`, one row per grid `cell_id`) and `DATA/integration/optmining_integrated-features_2026_nsw.csv` (same table without geometry; the deterministic artefact) |
+| **Variable(s) — per-cell columns** | `cell_id`, `centroid_lat`, `centroid_lon`, `area_km2` (grid); `wind_speed` (← `wind_speed_100m`, m/s), `wind_confidence` (`valid`/`no_data`); `demand_proxy` (0–1), `source_region`, `demand_confidence` (`high`/`medium`/`low`); `dist_transmission_km`, `dist_substation_km`, `dist_connection_km` (km, EPSG:3577 centroid distances), `inside_rez` (bool), `rez_name`, `infra_confidence` (`high`/`low`); `elevation_m`, `slope_deg`, `tri`, `land_use`, `protected_area` (bool), `protected_area_name`, `geo_confidence` (`high`/`low`); `eligible` (bool), `exclusion_reason`, `triggered_rules`, `data_flags` (S1-07, as-is); `n_missing_features` (int, nulls among the ten scored feature columns); geometry |
+| **Units** | Retained from each source and tabulated per column (with the source column) in `metadata/integration_method.md` §4 |
+| **CRS** | EPSG:4326 (storage; geometry copied byte-for-byte from the grid, asserted identical). Every input's CRS is asserted equal to EPSG:4326 and the stage halts otherwise — nothing is reprojected here (§5). |
+| **Method** | Sequential **left joins on `cell_id`** from the grid (wind → geographic → infrastructure → demand → exclusions), each validated one-to-one with the row count asserted unchanged; excluded cells **retained** with `eligible = False`; per-column null counts asserted identical to upstream ("no NaN inflation"). Column names follow the S1-08 ticket; constant upstream columns and S1-07's own recomputed raster fields are dropped (the latter compared in non-fatal WARN checks). |
+| **Coverage** | All 47,311 analysis cells (one row each). Nulls are inherited, never filled: on the 2026-09-03 run `dist_connection_km` is null everywhere (§4.3.3 limitation), geographic variables are null outside the New England REZ window (§4.4.8), `demand_proxy` is null outside every NEM region; `n_missing_features` records this per cell (histogram in the method report). |
+| **Confidence** | `data_confidence` is **not** derived here — that is S1-09's job. The four upstream confidence flags are carried under per-layer names plus `n_missing_features`, so S1-09 can compose a confidence without re-reading the sources. |
+| **Vintage token** | `2026` — the newest upstream vintage merged (infrastructure and demand 2026; wind 2025; geographic and exclusions 2024). Each input's own vintage, SHA-256 and row count are recorded in the method report and manifest. |
+| **Role in model** | The boundary between the integration layer and the scoring layer (Constitution): sole input to S1-09 (confidence), S1-10 (baseline suitability model — only `eligible` cells are scored) and S1-11 (ranked shortlist, which takes `centroid_lat`/`centroid_lon` from here). |
+| **Pipeline step** | `integration` stage (`pipeline/integration/merge.py`), registered in `config.STAGES` after `exclusions` and before `validate`; `python -m pipeline` runs raw → integrated table, `python -m pipeline --only integration` re-joins existing layers |
+| **Provenance** | SHA-256 of both outputs and of all six inputs, byte counts, UTC timestamp and git commit in `metadata/integration_manifest.json` (`derived_features`); method report `metadata/integration_method.md`; every validation check in `metadata/merge_validation.md`; generated derived-layer block in `DATA/integration/DATA_PROVENANCE.md`. Fully regenerable; the CSV is byte-identical across reruns with unchanged inputs. |
+| **Known limitations** | (1) Inherits every upstream limitation and coverage gap; most cells are `low` confidence in the geographic and infrastructure layers. (2) The S1-07 exclusion layer samples the New-England-REZ wind clip while §4.1.5 covers all of NSW, so 45,711 cells are excluded as "Missing wind data" although `wind_speed` is populated for every cell; the WARN cross-layer check documents this (and 73 boundary cells whose wind means differ by > 0.01 m/s) until S1-07 consumes the feature tables. (3) No composite confidence (deferred to S1-09). |
+
+---
+
 ## 5. CRS Alignment Strategy
 
 **Project-wide rule:** EPSG:4326 for storage, EPSG:3577 for distance/area computation. Enforce with runtime `assert_crs` checks at every function boundary that crosses a CRS. Mismatches raise immediately rather than producing silently wrong distances.
@@ -582,6 +609,7 @@ Summary of how each dataset flows through the pipeline to produce the four scori
 | Derived Slope (§4.4.6) | `geographic.derive` → feature builder | Cell-level mean slope (°) + P90 slope (°) | 4 — Continuous penalty |
 | ABS STE + NEM Regions (§4.4.7) | `geographic.download` + `geographic.derive` → grid builder | NEM region assignment per cell | 2 — Region join |
 | Geographic Feature Table (§4.4.8) | CAPAD (§4.4.2) + NLUM (§4.4.3) + SRTM GL3 (§4.4.5) + Derived Slope (§4.4.6) + Derived TRI → `geographic.features` (S1-06) | Per-cell `elevation_m`, `slope_deg`, `tri`, `land_use`, `protected_area` (+ names), `confidence_flag` | 4 — Suitability (S1-07) + Exclusion (S1-08) |
+| Integrated Feature Table (§4.5) | Wind (§4.1.5) + Geographic (§4.4.8) + Infrastructure (§4.3.3) + S1-04 demand proxy + S1-07 Eligibility_Table → `integration` (S1-08) | One row per grid cell: every per-cell feature, per-layer confidence flags, `eligible`/`exclusion_reason`, `n_missing_features` (GeoPackage + CSV) | All criteria — input to S1-09 confidence, S1-10 scoring, S1-11 shortlist |
 
 ---
 
@@ -600,6 +628,8 @@ No new dataset may be added to this specification without:
 5. **Team review** — At least one team member reviews the addition
 
 **Applied — Geographic Feature Table (§4.4.8), v1.1:** The per-cell Geographic & Environmental Feature Table was added under this process. (1) *Gap:* S1-06 requires a per-cell feature layer keyed to the grid `cell_id` to feed the S1-07 suitability model and S1-08 exclusion layer — no such output existed. (2) *Metadata:* full §4-format entry at §4.4.8. (3) *Integration:* stored EPSG:4326, computed EPSG:3577 (§5), keyed byte-for-byte to the grid `cell_id` (§3); it is a DERIVED product regenerable from its sources. (4) *Version bump:* 1.0 → 1.1 (below). Note this is a **new derived output**, not a change to a frozen parameter — the stage *implements* frozen decisions Q3 (slope = mean for scoring) and Q6 (any-CAPAD-intersection boolean exclusion) exactly as recorded in §2, so the "Modifying a Frozen Parameter" process below is **not** triggered and no §2/README dual edit is made.
+
+**Applied — Integrated Feature Table (§4.5), v1.2:** The Integrated NSW Feature Table was added under this process. (1) *Gap:* S1-09, S1-10 and S1-11 need one per-cell table holding every feature layer and the exclusion outcome keyed to the grid `cell_id` — no such dataset existed. (2) *Metadata:* full §4-format entry at §4.5. (3) *Integration:* every input is asserted to be stored in EPSG:4326 and keyed byte-for-byte to the grid `cell_id` (§3); the stage reprojects, resamples and back-fills nothing, joins one-to-one with the row count asserted after each join, and is a DERIVED product regenerable from its six inputs with a byte-identical CSV. (4) *Version bump:* 1.1 → 1.2 (below). This is a **new derived output**, not a change to a frozen parameter: no §2 decision is touched, so the "Modifying a Frozen Parameter" process below is **not** triggered and no §2/README dual edit is made. `data_confidence` is deliberately deferred to S1-09.
 
 ### Modifying a Frozen Parameter
 
@@ -637,3 +667,4 @@ Datasets may be moved to the out-of-scope document (`sprint1_out_of_scope.md`) w
 | 1.0 | 2026-08-27 | Initial release — Sprint 1 baseline. All team decisions frozen. |
 | 1.1 | 2026-08-27 | Added §4.4.8 Geographic & Environmental Feature Table (derived, S1-06) and its §7 pipeline-mapping row via the §8 "Adding a New Dataset" process. Frozen decisions Q3 and Q6 are implemented (not changed); §2 unmodified. |
 | 1.1 | 2026-08-31 | S1-03: added §4.1.5 wind Feature_Table (derived dataset, per §8 "Adding a New Dataset"); GWA clips extended to the NSW grid extent per the §8 prerequisite (wind-speed 100 m, power-density 100 m, CF IEC2); `WIND_FEATURE_SOURCE` deviates from the S1-03 design.md's New-England-REZ filename to the NSW clip; vintage token `2025` per the download manifest (design draft said `2023`). No frozen parameter (Q1–Q7) changed. |
+| 1.2 | 2026-09-03 | S1-08: added §4.5 Integrated Feature Table (derived dataset, per §8 "Adding a New Dataset") and its §7 pipeline-mapping row. Column names follow the S1-08 ticket (`wind_speed` ← `wind_speed_100m`); `data_confidence` deferred to S1-09 (per-layer confidence flags + `n_missing_features` carried instead); S1-07's recomputed raster fields compared in WARN checks, not carried. No frozen parameter (Q1–Q7) changed. |

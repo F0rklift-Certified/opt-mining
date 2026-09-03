@@ -47,6 +47,10 @@ python -m pipeline.grid --verbose
 python -m pipeline --only exclusions
 python -m pipeline --only exclusions --exclusion-rules path/to/custom_rules.yaml
 
+# Integrated NSW Feature Table (S1-08 — requires the grid, the four feature
+# layers and the exclusion layer to exist already; joins them by cell_id)
+python -m pipeline --only integration
+
 # Validation: stricter slope threshold
 python -m pipeline --max-slope 12
 
@@ -106,7 +110,9 @@ pipeline/
 │   └── features.py         # Stage (S1-05): per-cell infrastructure features
 ├── integration/
 │   ├── __init__.py
-│   └── analyse.py          # Task 5 evidence: grid geometry, CRS alignment
+│   ├── analyse.py          # Task 5 evidence: grid geometry, CRS alignment (unregistered)
+│   ├── config.py           # Input paths composed from each domain's config; output names
+│   └── merge.py            # Stage (S1-08): left-join every layer -> Integrated Feature Table
 ├── demand/
 │   ├── __init__.py
 │   ├── __main__.py          # Demand-specific CLI
@@ -140,6 +146,7 @@ wind.probe → wind.download → wind.inspect → wind.validate → wind.analyse
 → infrastructure.features (per-cell infrastructure features)
 → demand.feature (per-cell demand proxy)
 → exclusions (S1-07 exclusion layer — eligibility per cell)
+→ integration (S1-08 Integrated Feature Table — joins every feature layer + exclusions by cell_id)
 → validate (cross-domain integration checks)
 ```
 
@@ -158,6 +165,8 @@ python -m pipeline --only wind.download \
 analysis cell is a clean 20×20 native-pixel block.)
 
 Note: `geographic.features` is registered in `config.STAGES` after `grid` (not inline with the other `geographic.*` stages) because it CONSUMES the grid — the grid producer must run before this consumer.
+
+Note: `integration` (S1-08) runs after `exclusions` and before `validate` because it consumes every feature table and the Eligibility_Table. It joins whatever is on disk and halts — naming the stage to run — if any input is absent, so `python -m pipeline` (all stages) is the single command from raw data to the integrated table, and `--only integration` re-joins already-generated layers.
 
 ## CLI Options
 
@@ -186,6 +195,8 @@ Note: `geographic.features` is registered in `config.STAGES` after `grid` (not i
 ```
 
 **`--only geographic` and the feature builder.** Because `geographic.features` is registered in `config.STAGES` after `grid`, `--only geographic` resolves all six geographic stages in `STAGES` order — `geographic.probe, geographic.download, geographic.inspect, geographic.derive, geographic.validate, geographic.features` — with `features` running last. Note that `--only geographic` runs `geographic.features` **without** first running `grid`, so it depends on a previously-generated grid file (`DATA/grid/nsw_analysis_grid.gpkg`) already existing on disk; the stage fails loudly with a clear error if the grid is absent. Run `python -m pipeline --only grid` first (or a full run) if the grid has not yet been generated.
+
+**`--only integration`.** The S1-08 stage has no flags of its own: its inputs are the fixed products of `grid`, `wind.features`, `geographic.features`, `infrastructure.features`, `demand.feature` and `exclusions` (paths composed in `pipeline/integration/config.py` from each domain's config). It never reprojects or back-fills; a missing input, an undeclared or non-EPSG:4326 CRS, or a duplicate `cell_id` halts the stage with an error naming the offending layer.
 
 ### Parameter Details
 
@@ -221,6 +232,10 @@ gdf = generate_grid()
 # Exclusion layer (S1-07): apply the configurable rules and write the Eligibility_Table
 from pipeline.exclusions.apply import run as exclusions_run
 exclusions_run(verbose=True)
+
+# Integrated Feature Table (S1-08): left-join every layer + exclusions on cell_id
+from pipeline.integration.merge import run as integration_run
+summary = integration_run(verbose=True)   # summary["validation"] holds every check
 ```
 
 ## Data Outputs
@@ -234,7 +249,8 @@ DATA/
 ├── infrastructure/         # GA power lines, substations, generators
 ├── electricity-demand/     # AEMO demand data
 ├── grid/                   # Common analysis cell grid (S1-02)
-└── exclusions/             # Eligibility_Table + method report (S1-07)
+├── exclusions/             # Eligibility_Table + method report (S1-07)
+└── integration/            # Integrated NSW Feature Table (S1-08) + Task 5 analysis
 ```
 
 ## Expected Outputs
@@ -335,6 +351,20 @@ A successful full pipeline run produces the following file tree under `DATA/`:
 
 **Scope note:** this stage is blocked by S1-06 (geographic features) and depends on S1-03 (wind features), neither of which is implemented in code yet — only design-documented under `Sprint-1-Tasks/`. It therefore reads the raw CAPAD, slope, ABS urban-centre and GWA wind-speed sources directly instead of joining a Feature_Table. See `pipeline/exclusions/__init__.py` for the full rationale and the migration note for when S1-06/S1-03 land. Because the wind-speed, slope and urban sources currently cover only the New England REZ window (not the full NSW grid), the large majority of the 47,311-cell grid is excluded today with reason "Missing wind data" — this reflects real, documented Sprint 1 data coverage, not a bug.
 
+### Integrated NSW Feature Table (`DATA/integration/`) — S1-08
+
+| File | Stage | Description |
+|------|-------|-------------|
+| `optmining_integrated-features_2026_nsw.gpkg` | integration | One row per grid `cell_id` (47,311), EPSG:4326, layer `integrated_features`: `cell_id, centroid_lat, centroid_lon, area_km2, wind_speed, wind_confidence, demand_proxy, source_region, demand_confidence, dist_transmission_km, dist_substation_km, dist_connection_km, inside_rez, rez_name, infra_confidence, elevation_m, slope_deg, tri, land_use, protected_area, protected_area_name, geo_confidence, eligible, exclusion_reason, triggered_rules, data_flags, n_missing_features, geometry` |
+| `optmining_integrated-features_2026_nsw.csv` | integration | The same table without geometry — the deterministic artefact (byte-identical across reruns with unchanged inputs; the GeoPackage's hash drifts with its internal `last_change` timestamp) |
+| `metadata/integration_method.md` | integration | Method report: join order, reproducibility (UTC timestamp, git commit), input SHA-256s, column map with units, null accounting, `n_missing_features` histogram, eligible/excluded counts, runtime |
+| `metadata/merge_validation.md` | integration | Every validation check with expected vs observed values and PASS / FAIL / WARN |
+| `metadata/integration_manifest.json` | integration | `derived_features` record: output hashes and sizes, git commit, the six inputs with SHA-256 |
+| `DATA_PROVENANCE.md` | integration | Generated derived-layer block (BEGIN/END markers) beneath the handwritten header |
+| `integration_analysis.md` | — | Task 5 cross-domain analysis (Sprint 0, `pipeline.integration.analyse`) |
+
+**Scope note:** the ticket's `data_confidence` column is deliberately **not** emitted — deriving a composite confidence is S1-09's job. The table carries the per-layer flags (`wind_confidence`, `demand_confidence`, `infra_confidence`, `geo_confidence`) and an objective `n_missing_features` count (nulls among the ten scored feature columns) for S1-09 to build on. Excluded cells are retained with `eligible = False`. The WARN cross-layer checks compare S1-07's own raster recomputation with the geographic and wind layers; on the committed data they report the known divergence that S1-07 samples the New-England-REZ wind clip while `wind.features` covers all of NSW (45,711 cells where only one side is null), plus 73 boundary cells whose means differ by more than 0.01 m/s.
+
 ### Cross-Domain Validation (`DATA/geographic/metadata/`)
 
 | File | Stage | Description |
@@ -380,6 +410,7 @@ Validation is structured in two tiers:
 | Geographic | `pipeline.geographic.validate` | CAPAD area (Kosciuszko NP extent); DEM spot-elevation (Armidale, Glen Innes); NLUM class decode completeness; ABS state area cross-check |
 | Demand | `pipeline.demand.validate` | Duplicate detection; 30-min timestamp continuity; regional completeness (5 NEM regions); non-null numeric demand values |
 | Exclusions | `pipeline.exclusions.apply.validate` | Row count == grid cell count; exact `cell_id` set match; required output columns present; `eligible`/`exclusion_reason` consistency; eligible + excluded == total |
+| Integration | `pipeline.integration.merge.validate` | Per-input CRS == EPSG:4326; per layer: `cell_id` set match, row count and null counts unchanged after the left join; final row count == grid; `cell_id` unique and in grid order; geometry identical to grid; column order; `eligible` boolean + `eligible`/`exclusion_reason` consistency; `n_missing_features` recount; confidence vocabularies; WARN cross-layer consistency vs S1-07; GeoPackage/CSV read-back |
 
 **Cross-domain integration** (`pipeline.validate`):
 
