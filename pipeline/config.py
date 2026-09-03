@@ -52,6 +52,7 @@ STAGES = [
     "infrastructure.inspect",
     "demand",
     "grid",  # common analysis cell (S1-02) — must run before feature layers
+    "wind.features",  # S1-03 feature-builder — CONSUMES grid, so scheduled after it
     "validate",  # cross-domain integration checks
 ]
 

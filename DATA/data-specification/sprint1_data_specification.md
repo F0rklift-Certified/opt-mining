@@ -1,8 +1,8 @@
 # Sprint 1 Data Specification
 
-**Version:** 1.0
-**Date:** 2026-08-27
-**Status:** FROZEN — Sprint 1 baseline
+**Version:** 1.1
+**Date:** 2026-08-31 (baseline frozen 2026-08-27)
+**Status:** FROZEN — Sprint 1 baseline (v1.1 amendment via §8 "Adding a New Dataset")
 **Blocks:** S1-02, S1-03, S1-04, S1-05, S1-06
 
 ---
@@ -90,7 +90,7 @@ All wind resource layers are from the **Global Wind Atlas v4** (GWA 4.0), publis
 | Field | Value |
 |-------|-------|
 | **Dataset name** | Global Wind Atlas v4 — Mean Wind Speed at 100 m |
-| **File in repository** | `DATA/wind-resource/gwa_v4_wind-speed_100m_new-england-rez.tif` (study window clip) |
+| **File in repository** | `DATA/wind-resource/gwa_v4_wind-speed_100m_new-england-rez.tif` (study window clip); `DATA/wind-resource/gwa_v4_wind-speed_100m_nsw.tif` (NSW grid-extent clip, S1-03 — lattice-snapped to bbox 141.01125, −37.51125, 153.66125, −28.16125 so each analysis cell is a clean 20×20 native-pixel block) |
 | **Remote source file** | `AUS_wind-speed_100m.tif` (618 MB, full Australia) |
 | **Variable(s)** | Mean wind speed at 100 m hub height (single band, float32) |
 | **Units** | m/s |
@@ -150,6 +150,29 @@ All wind resource layers are from the **Global Wind Atlas v4** (GWA 4.0), publis
 | **Pipeline step** | `pipeline/wind/download.py` → Sprint 1 sensitivity analysis |
 | **Aggregation** | Mean of 400 native pixels per cell |
 | **Known limitations** | Same as §4.1.1. Additionally: capacity factor layers do not exist at 150 m — this layer cannot be cross-referenced with CF for consistency. Useful for comparison only. |
+
+---
+
+#### 4.1.5 Wind Feature Table (derived, S1-03)
+
+Added via the §8 "Adding a New Dataset" process (v1.1). **Documented gap:** S1-08's
+integrated NSW feature table requires a per-cell wind feature keyed to the S1-02 analysis
+grid; no per-cell wind dataset existed. **Integration assessment:** same grid, same storage
+CRS (EPSG:4326), exact 20×20 native-pixel alignment — no reprojection or resampling.
+
+| Field | Value |
+|-------|-------|
+| **Dataset name** | Per-cell wind feature table (derived from §4.1.1) |
+| **File in repository** | `DATA/wind-resource/features/gwa_v4_wind-feature_2025_nsw.gpkg` (GeoPackage, layer `wind_features`) |
+| **Derived from** | `DATA/wind-resource/gwa_v4_wind-speed_100m_nsw.tif` (§4.1.1 NSW clip) + `DATA/grid/nsw_analysis_grid.gpkg` (§3) |
+| **Variable(s)** | `cell_id`, `wind_speed_100m` (mean of the cell's 20×20 native pixels), `units`, `data_source`, `confidence_flag` (`valid`/`no_data`), geometry |
+| **Units** | m/s |
+| **Coverage** | All 47,311 analysis cells (one row each). GWA carries real values over ocean, so offshore cells hold valid wind speeds — land-masking is deferred to S1-06/S1-07 per the grid decision document, and validity is expressed per cell via `confidence_flag`, never by dropping rows. |
+| **Vintage token** | `2025` — GWA 4.0 published June 2025 (download-manifest `Last-Modified` 2025-06-12). The S1-03 design draft's `2023` token failed this check and was corrected. |
+| **Role in model** | **Primary scoring input** — Criterion 1 (Wind Resource Potential), implementing frozen decisions Q1 (mean) and Q2 (100 m). Power density (§4.1.2) remains available as an additional Criterion 1 input for later sprints. |
+| **Pipeline step** | `wind.features` stage (`pipeline/wind/features.py`), registered after `grid` |
+| **Provenance** | SHA-256 + byte count + UTC timestamp in `metadata/download_manifest.json` (`derived_features`); method report `metadata/wind_feature_method.md`; derived-layer section in `DATA_PROVENANCE.md`. Fully regenerable. |
+| **Known limitations** | Inherits §4.1.1's limitations (10-year mean, no interannual variability, ocean pixels valid). Cells with zero valid pixels are flagged `no_data` with a null value — never back-filled. |
 
 ### 4.2 Electricity Demand
 
@@ -507,7 +530,7 @@ Summary of how each dataset flows through the pipeline to produce the four scori
 
 | Dataset (§ ref) | Pipeline Stage | Output | Criterion |
 |-----------------|---------------|--------|-----------|
-| GWA Wind Speed 100 m (§4.1.1) | `wind.download` → feature builder | Cell-level mean wind speed (m/s) | 1 — Wind Resource |
+| GWA Wind Speed 100 m (§4.1.1) | `wind.download` → `wind.features` (S1-03) | Per-cell wind feature table (§4.1.5): mean wind speed (m/s) + confidence flag | 1 — Wind Resource |
 | GWA Power Density 100 m (§4.1.2) | `wind.download` → feature builder | Cell-level mean power density (W/m²) | 1 — Wind Resource |
 | GWA Capacity Factor IEC2 (§4.1.3) | `wind.download` → explanation layer | Cell-level mean CF (ratio) | 1 — Explanation only |
 | GWA Wind Speed 150 m (§4.1.4) | `wind.download` → sensitivity analysis | Cell-level mean wind speed 150 m (m/s) | 1 — Sensitivity only |
@@ -561,7 +584,7 @@ Datasets may be moved to the out-of-scope document (`sprint1_out_of_scope.md`) w
 | Action | Dataset | Owner | Status |
 |--------|---------|-------|--------|
 | Download ABS Census 2021 SA2 ERP (population counts) | §4.2.2 | Sprint 1 | NOT YET ACQUIRED |
-| Extend GWA windowed reads from study window to NSW bbox | §4.1.1–§4.1.4 | Sprint 1 | Approach proven at study-window scale |
+| Extend GWA windowed reads from study window to NSW bbox | §4.1.1–§4.1.4 | Sprint 1 | **DONE for §4.1.1–§4.1.3** (S1-03, 2026-08-31 — lattice-snapped NSW clips committed); §4.1.4 (150 m) still study-window only |
 | Extend SRTM GL3 + slope derivation to NSW bbox | §4.4.5–§4.4.6 | Sprint 1 | Approach proven at study-window scale |
 | Extend NLUM clip to NSW bbox | §4.4.3 | Sprint 1 | Approach proven at study-window scale |
 | Extend AEMO demand to 3 years (robustness) | §4.2.1 | Sprint 1 (optional) | 1 year downloaded; extendable |
@@ -573,3 +596,4 @@ Datasets may be moved to the out-of-scope document (`sprint1_out_of_scope.md`) w
 | Version | Date | Change |
 |---------|------|--------|
 | 1.0 | 2026-08-27 | Initial release — Sprint 1 baseline. All team decisions frozen. |
+| 1.1 | 2026-08-31 | S1-03: added §4.1.5 wind Feature_Table (derived dataset, per §8 "Adding a New Dataset"); GWA clips extended to the NSW grid extent per the §8 prerequisite (wind-speed 100 m, power-density 100 m, CF IEC2); `WIND_FEATURE_SOURCE` deviates from the S1-03 design.md's New-England-REZ filename to the NSW clip; vintage token `2025` per the download manifest (design draft said `2023`). No frozen parameter (Q1–Q7) changed. |
