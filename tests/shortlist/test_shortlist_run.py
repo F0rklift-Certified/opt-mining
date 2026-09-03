@@ -196,7 +196,14 @@ class TestInvalidTopNHaltsBeforeWrite:
     # any output and returns an error identifying the invalid value, leaving no
     # partial output on disk).
     # Validates: Requirements 3.5
-    @settings(max_examples=150, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    # deadline=None: this exercises run() end-to-end, whose first-call timing on
+    # a shared CI runner varies enough to trip Hypothesis' per-example deadline
+    # (a FlakyFailure), matching the sibling run()-driven property tests here.
+    @settings(
+        max_examples=150,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
     @given(
         bad_top_n=st.one_of(
             st.integers(max_value=0),  # zero and negatives
