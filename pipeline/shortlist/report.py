@@ -44,6 +44,9 @@ Design reference: design.md §10 "Disclaimer & metadata".
 
 from __future__ import annotations
 
+import csv
+import io
+import json
 import subprocess
 from pathlib import Path
 
@@ -443,3 +446,250 @@ def write_metadata_sidecar(
 # task 10.2 and appended below this line. It reuses _rel, pipeline_version and
 # scored_table_id above.
 # ---------------------------------------------------------------------------
+
+PROVENANCE_BEGIN = "<!-- BEGIN shortlist.run derived layer (generated) -->"
+PROVENANCE_END = "<!-- END shortlist.run derived layer (generated) -->"
+
+
+def _input_fingerprint(name: str, path: Path | str, layer: str | None) -> dict:
+    """
+    Fingerprint one upstream input for the manifest and DATA_PROVENANCE.md row:
+    its project-relative path, the layer read, its SHA-256 digest and byte
+    count. Mirrors the ``info`` dict ``integration.merge.read_layer`` records,
+    so a reviewer can confirm the exact Scored_Table and Analysis_Grid the
+    shortlist was drawn from (Requirement 11.1).
+    """
+    path = Path(path)
+    return {
+        "name": name,
+        "path": _rel(path),
+        "layer": layer,
+        "sha256": sha256_file(path),
+        "bytes": path.stat().st_size,
+    }
+
+
+def record_provenance(
+    *,
+    csv_path: Path | str,
+    geojson_path: Path | str,
+    scored_path: Path | str,
+    grid_path: Path | str,
+    effective_top_n: int,
+    n_shortlisted: int,
+    run_timestamp: str,
+    pipeline_version: str,
+    manifest_path: Path | str,
+    provenance_path: Path | str,
+    register_path: Path | str,
+    scored_layer: str | None = None,
+    grid_layer: str | None = None,
+) -> dict:
+    """
+    Record the shortlist outputs as DERIVED products in all three provenance
+    artefacts, mirroring ``integration.merge.record_provenance`` and
+    ``scoring.report.record_provenance`` (Requirement 11.1–11.3).
+
+    The stage emits TWO headline outputs — the Shortlist_CSV and the
+    Shortlist_GeoJSON — from a single run. They are recorded together as ONE
+    derived-product record (they share inputs, Top_N and Run_Timestamp), so
+    the manifest, ``DATA_PROVENANCE.md`` and the ``source_register`` never
+    disagree about which run produced which pair.
+
+    Writes, all via ``common.geo`` atomic writers:
+
+      * ``shortlist_manifest.json`` — a manifest record keyed by the pair of
+        output files (so a rerun REPLACES rather than appends), carrying the
+        SHA-256 digest and byte count of each output, the UTC Run_Timestamp,
+        the Pipeline_Version, and the generation params: the Scored_Table and
+        Analysis_Grid inputs (path + layer + SHA-256 + bytes) and the effective
+        Top_N (11.1, 11.3).
+      * ``DATA/shortlist/DATA_PROVENANCE.md`` — a generated block spliced
+        between BEGIN/END markers (handwritten text above is never touched),
+        explicitly labelling the outputs a **derived product**, listing the
+        two inputs, the effective Top_N and the UTC Run_Timestamp (11.1, 11.2,
+        11.3).
+      * ``source_register.csv`` — one row (same column vocabulary as the other
+        stages' source registers), replaced on rerun by ``dataset_id`` (11.3).
+
+    Parameters
+    ----------
+    csv_path, geojson_path:
+        The two written shortlist outputs (the timestamped/versioned names
+        from ``naming.resolve_output_paths``), fingerprinted into the record.
+    scored_path, grid_path:
+        The Scored_Table and Analysis_Grid inputs, fingerprinted (path + layer
+        + SHA-256 + bytes) as the generation inputs (Requirement 11.1).
+    scored_layer, grid_layer:
+        The layers read from each input (``config.SCORED_LAYER`` /
+        ``config.GRID_LAYER``), recorded alongside the path.
+    effective_top_n:
+        The resolved effective Top_N recorded as a generation param
+        (Requirement 11.1).
+    n_shortlisted:
+        The number of cells actually included, recorded for context (the
+        clamped-vs-requested count).
+    run_timestamp:
+        The single UTC Run_Timestamp for the run (Requirement 11.1) — the same
+        value threaded into the filenames and the metadata sidecar.
+    pipeline_version:
+        The Pipeline_Version recorded alongside the timestamp.
+    manifest_path, provenance_path, register_path:
+        Destinations (``run()`` passes
+        ``config.SHORTLIST_META_DIR / config.MANIFEST_FILENAME``,
+        ``config.SHORTLIST_DIR / config.PROVENANCE_FILENAME`` and
+        ``config.SHORTLIST_META_DIR / config.SOURCE_REGISTER_FILENAME``).
+
+    Returns
+    -------
+    dict
+        The manifest record, so ``run()`` can report its provenance paths.
+    """
+    inputs = [
+        _input_fingerprint("scored_table", scored_path, scored_layer),
+        _input_fingerprint("analysis_grid", grid_path, grid_layer),
+    ]
+
+    record = {
+        "csv_file": _rel(csv_path),
+        "geojson_file": _rel(geojson_path),
+        "stage": config.STAGE_NAME,
+        "product_type": "derived",
+        "run_timestamp": run_timestamp,
+        "pipeline_version": pipeline_version,
+        "sha256_csv": sha256_file(Path(csv_path)),
+        "sha256_geojson": sha256_file(Path(geojson_path)),
+        "bytes_csv": Path(csv_path).stat().st_size,
+        "bytes_geojson": Path(geojson_path).stat().st_size,
+        # Generation params (Requirement 11.1): the two inputs + the effective
+        # Top_N. n_shortlisted records how many were actually included (Top_N
+        # is clamped, never padded).
+        "effective_top_n": int(effective_top_n),
+        "n_shortlisted": int(n_shortlisted),
+        "inputs": inputs,
+    }
+
+    # --- manifest (read-merge-write, keyed by the output pair so a rerun
+    #     replaces rather than appends) ---
+    manifest_path = Path(manifest_path)
+    manifest = (
+        json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest_path.exists()
+        else {}
+    )
+    derived = [
+        r for r in manifest.get("derived_features", [])
+        if r.get("csv_file") != record["csv_file"]
+    ]
+    derived.append(record)
+    manifest["derived_features"] = derived
+    atomic_write_json(manifest_path, manifest)
+
+    # --- DATA_PROVENANCE.md generated block (11.1, 11.2, 11.3) ---
+    inputs_md = "\n".join(
+        f"  - {i['name']}: `{i['path']}`"
+        + (f" (layer `{i['layer']}`" if i["layer"] else " (")
+        + f", SHA-256 `{i['sha256']}`)"
+        for i in inputs
+    )
+    section = (
+        f"{PROVENANCE_BEGIN}\n"
+        f"## Derived layer — Preliminary Ranked Shortlist (S1-11)\n\n"
+        f"- **DERIVED PRODUCT — not custodial source data.** A preliminary "
+        f"screening selection, fully regenerable from the inputs below; it "
+        f"contains no data of its own.\n"
+        f"- **CSV:** `{record['csv_file']}` (the tabular shortlist)\n"
+        f"- **GeoJSON:** `{record['geojson_file']}` (EPSG:4326, one feature per "
+        f"shortlisted cell)\n"
+        f"- **Derived from:**\n{inputs_md}\n"
+        f"- **Method:** the top {record['effective_top_n']} Eligible_Cells by the "
+        f"S1-10 `rank` (no re-scoring, no re-ranking); `centroid_lat`/"
+        f"`centroid_lon` joined from the Analysis_Grid on `cell_id`; no "
+        f"reprojection (EPSG:4326 throughout).\n"
+        f"- **Effective Top_N:** {record['effective_top_n']} "
+        f"(included {record['n_shortlisted']:,} cells — clamped to the eligible "
+        f"population, never padded)\n"
+        f"- **SHA-256 (CSV):** `{record['sha256_csv']}`\n"
+        f"- **SHA-256 (GeoJSON):** `{record['sha256_geojson']}`\n"
+        f"- **Regenerable:** yes — `python -m pipeline --only {config.STAGE_NAME}` "
+        f"(after `scoring`).\n"
+        f"- **Run timestamp (UTC):** {run_timestamp}\n"
+        f"- **Pipeline version:** `{pipeline_version}`\n"
+        f"{PROVENANCE_END}\n"
+    )
+    provenance_path = Path(provenance_path)
+    text = provenance_path.read_text(encoding="utf-8") if provenance_path.exists() else ""
+    if PROVENANCE_BEGIN in text and PROVENANCE_END in text:
+        head, rest = text.split(PROVENANCE_BEGIN, 1)
+        _, tail = rest.split(PROVENANCE_END, 1)
+        text = head + section.rstrip("\n") + tail
+    else:
+        header = (
+            "# Data Provenance — Shortlist (S1-11)\n\n"
+            "Everything in `DATA/shortlist/` is a DERIVED product generated by "
+            "the `shortlist` stage. Nothing here is custodial source data; the "
+            "generated block below is rewritten on every run.\n\n"
+        )
+        text = (text.rstrip("\n") + "\n\n" + section) if text else (header + section)
+    atomic_write_text(provenance_path, text)
+
+    # --- source_register entry (11.3) ---
+    _write_source_register(register_path, record, inputs, run_timestamp)
+    return record
+
+
+def _write_source_register(
+    register_path: Path | str,
+    record: dict,
+    inputs: list[dict],
+    run_timestamp: str,
+) -> None:
+    """
+    Append/replace this product's row in the shortlist source register (CSV,
+    the same column vocabulary as the other stages' registers, e.g.
+    ``pipeline/scoring/report._write_source_register`` and
+    ``DATA/geographic/metadata/source_register.csv``). Keyed by ``dataset_id``
+    so a rerun replaces the row rather than appending a duplicate (11.3).
+    """
+    scored = next((i for i in inputs if i["name"] == "scored_table"), {})
+    row = {
+        "dataset_id": "optmining_shortlist",
+        "category": "derived-shortlist",
+        "custodian": "Opt-Mining (DERIVED — not custodial data)",
+        "endpoint": scored.get("path", ""),
+        "access_method": f"generated by pipeline stage `{config.STAGE_NAME}`",
+        "format": "CSV + GeoJSON (EPSG:4326)",
+        "native_crs": config.STORAGE_CRS,
+        "licence": "derived from the licensed inputs listed in each source layer's register",
+        "vintage": config.REGION_SLUG,
+        "size_or_count": (
+            f"{record['n_shortlisted']:,} rows (effective Top_N "
+            f"{record['effective_top_n']})"
+        ),
+        "intended_use": (
+            "Preliminary ranked shortlist (S1-11) — a screening starting point, "
+            "not a site approval; input to S1-12 mapping/reporting"
+        ),
+        "notes": (
+            f"derived product; CSV `{record['csv_file']}`, GeoJSON "
+            f"`{record['geojson_file']}`; effective_top_n "
+            f"{record['effective_top_n']}; generated {run_timestamp}"
+        ),
+    }
+    register_path = Path(register_path)
+    existing: list[dict] = []
+    if register_path.exists():
+        try:
+            existing = list(csv.DictReader(io.StringIO(
+                register_path.read_text(encoding="utf-8"))))
+        except Exception:  # noqa: BLE001 — a corrupt register is rewritten, not fatal
+            existing = []
+    rows = [r for r in existing if r.get("dataset_id") != row["dataset_id"]]
+    rows.append(row)
+
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=list(row), lineterminator="\n")
+    writer.writeheader()
+    for entry in rows:
+        writer.writerow({k: entry.get(k, "") for k in row})
+    atomic_write_text(register_path, buffer.getvalue())
