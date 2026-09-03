@@ -59,9 +59,10 @@ STAGES = [
     "exclusions",  # S1-07 exclusion layer — consumes grid + geographic/wind sources
     "integration",  # S1-08 integrated feature table — CONSUMES every feature layer + exclusions
     "scoring",  # S1-10 baseline suitability model — CONSUMES the integrated table, so scheduled after it
+    "shortlist",  # S1-11 ranked shortlist — CONSUMES the scoring Scored_Table, so scheduled after scoring
     "validate",  # cross-domain integration checks
 ]
 
 # --- Domain list ---
 DOMAINS = ["wind", "geographic", "infrastructure", "demand", "grid", "exclusions",
-           "integration", "scoring"]
+           "integration", "scoring", "shortlist"]
