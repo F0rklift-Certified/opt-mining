@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
 
+import numpy as np
+import pandas as pd
 import yaml
 
 from . import config
@@ -317,3 +319,141 @@ def load_weights(path: Path) -> Weights:
     except yaml.YAMLError as exc:
         raise ConfidenceConfigError(f"{path} is not valid YAML: {exc}") from exc
     return parse_weights(raw, path=path, sha256=sha256_file(path))
+
+
+# ---------------------------------------------------------------------------
+# Scoring — pure functions over the integrated table
+# ---------------------------------------------------------------------------
+
+LEVEL_HIGH, LEVEL_MEDIUM, LEVEL_LOW = config.DATA_CONFIDENCE_LEVELS
+
+
+def required_columns(weights: Weights) -> tuple[str, ...]:
+    """Columns assess() reads: the scored features, the flag columns, data_flags."""
+    columns = list(config.SCORED_FEATURE_COLUMNS) + [rule.column for rule in weights.flags]
+    if weights.soft_flags:
+        columns.append("data_flags")
+    return tuple(dict.fromkeys(columns))
+
+
+def _check_columns(table: pd.DataFrame, weights: Weights) -> None:
+    missing = [c for c in required_columns(weights) if c not in table.columns]
+    if missing:
+        raise ValueError(
+            f"integrated table lacks column(s) {missing} required for the confidence layer"
+        )
+
+
+def _flag_state(table: pd.DataFrame, rule: FlagRule) -> tuple[np.ndarray, np.ndarray]:
+    """Per-row (factor, known): factor is 0 for a null or out-of-vocabulary flag."""
+    values = table[rule.column]
+    known = values.isin(list(rule.factors)).to_numpy()
+    factor = values.map(rule.factors).to_numpy(dtype=float)
+    return np.where(known, factor, 0.0), known
+
+
+def _soft_state(table: pd.DataFrame, weights: Weights) -> tuple[np.ndarray, list[np.ndarray]]:
+    """Per-row product of matched soft-flag factors, plus one hit mask per soft flag."""
+    n = len(table)
+    soft = np.ones(n)
+    hits: list[np.ndarray] = []
+    if weights.soft_flags and "data_flags" in table.columns:
+        flags = table["data_flags"].fillna("").astype(str)
+        for soft_flag in weights.soft_flags:
+            hit = flags.str.contains(soft_flag.match, regex=False).to_numpy()
+            soft = np.where(hit, soft * soft_flag.factor, soft)
+            hits.append(hit)
+    else:
+        hits = [np.zeros(n, dtype=bool) for _ in weights.soft_flags]
+    return soft, hits
+
+
+def _components(table: pd.DataFrame, weights: Weights):
+    """present (n×F bool), per-feature w·r·l (F), flag multipliers (n×F), soft (n)."""
+    features = list(config.SCORED_FEATURE_COLUMNS)
+    index = {name: i for i, name in enumerate(features)}
+    present = table[features].notna().to_numpy()
+    base = np.array([f.weight * f.factor for f in weights.features])
+    multipliers = np.ones((len(table), len(features)))
+    for rule in weights.flags:
+        factor, _ = _flag_state(table, rule)
+        for feature in rule.features:
+            multipliers[:, index[feature]] = factor
+    soft, _ = _soft_state(table, weights)
+    return present, base, multipliers, soft
+
+
+def score_raw(table: pd.DataFrame, weights: Weights) -> np.ndarray:
+    """Unrounded confidence score per row (used directly by the property tests)."""
+    _check_columns(table, weights)
+    present, base, multipliers, soft = _components(table, weights)
+    return soft * (present.astype(float) * multipliers * base).sum(axis=1) / weights.weight_sum
+
+
+def categorise(scores, thresholds: Thresholds) -> np.ndarray:
+    """high if score >= high, medium if score >= medium, else low (inclusive bounds)."""
+    values = np.asarray(scores, dtype=float)
+    return np.select(
+        [values >= thresholds.high, values >= thresholds.medium],
+        [LEVEL_HIGH, LEVEL_MEDIUM],
+        default=LEVEL_LOW,
+    )
+
+
+def assess(table: pd.DataFrame, weights: Weights) -> pd.DataFrame:
+    """
+    Compute data_confidence / confidence_score / confidence_notes for every row.
+
+    Pure: never mutates `table`; the result is index-aligned to it. Raises
+    ValueError only when a required column is absent — data values (nulls,
+    out-of-vocabulary flags) are handled conservatively (factor 0 + a note),
+    never by raising, because this runs before validate().
+
+    Notes are '; '-joined in a fixed order that does not depend on the YAML's
+    key order: missing-feature notes (SCORED_FEATURE_COLUMNS order), then
+    flag notes (layer order) only when the factor is < 1 and a scoped feature
+    is present, then soft-flag notes; '—' when there is nothing to say.
+    """
+    _check_columns(table, weights)
+    n = len(table)
+    features = list(config.SCORED_FEATURE_COLUMNS)
+    index = {name: i for i, name in enumerate(features)}
+    present, base, multipliers, soft = _components(table, weights)
+
+    note_sources: list[tuple[np.ndarray, np.ndarray]] = []  # (row mask, per-row text)
+    for feature in weights.features:
+        missing = ~present[:, index[feature.name]]
+        note_sources.append((missing, np.full(n, feature.note, dtype=object)))
+    for rule in weights.flags:
+        factor, known = _flag_state(table, rule)
+        scoped_present = present[:, [index[f] for f in rule.features]].any(axis=1)
+        texts = table[rule.column].map(rule.notes)
+        note_sources.append((
+            known & (factor < 1) & scoped_present & texts.notna().to_numpy(),
+            texts.to_numpy(dtype=object),
+        ))
+        note_sources.append((
+            ~known & scoped_present,
+            np.full(n, f"{rule.column} outside vocabulary", dtype=object),
+        ))
+    _, hits = _soft_state(table, weights)
+    for soft_flag, hit in zip(weights.soft_flags, hits):
+        note_sources.append((hit, np.full(n, soft_flag.note, dtype=object)))
+
+    raw = soft * (present.astype(float) * multipliers * base).sum(axis=1) / weights.weight_sum
+    score = np.round(raw, config.CONFIDENCE_SCORE_DECIMALS)
+    level = categorise(score, weights.thresholds)
+
+    notes = []
+    for row in range(n):
+        parts = [str(text[row]) for mask, text in note_sources if mask[row]]
+        notes.append(config.CONFIDENCE_NOTE_DELIMITER.join(parts) if parts else config.CONFIDENCE_NO_NOTES)
+
+    return pd.DataFrame(
+        {
+            "data_confidence": level.astype(object),
+            "confidence_score": score.astype("float64"),
+            "confidence_notes": notes,
+        },
+        index=table.index,
+    )

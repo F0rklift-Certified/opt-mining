@@ -28,9 +28,12 @@ SCORED = (
 )
 
 
+_DEFAULT_RAW = yaml.safe_load(icfg.DEFAULT_CONFIDENCE_WEIGHTS_PATH.read_text(encoding="utf-8"))
+
+
 def _default_raw() -> dict:
     """Deep copy of the packaged YAML as a dict, for mutation in fault tests."""
-    return copy.deepcopy(yaml.safe_load(icfg.DEFAULT_CONFIDENCE_WEIGHTS_PATH.read_text(encoding="utf-8")))
+    return copy.deepcopy(_DEFAULT_RAW)
 
 
 def _write(tmp_path: Path, obj, name="weights.yaml") -> Path:
@@ -272,3 +275,279 @@ class TestLoadWeights:
         path = _write(tmp_path, _default_raw())
         w = load_weights(path)
         assert w.path == path and w.sha256 == sha256_file(path)
+
+
+# ---------------------------------------------------------------------------
+# assess() — score, category, notes
+# ---------------------------------------------------------------------------
+
+CELL_IDS = ["CELL_CLEAN", "CELL_PROTECTED", "CELL_STEEP", "CELL_NO_GEO", "CELL_NO_NEM", "CELL_PLAIN"]
+URBAN_FLAG = "Urban-centre data unavailable outside New England REZ coverage (urban_area defaults to False, not confirmed)"
+
+
+def six_cells() -> pd.DataFrame:
+    """The S1-08 synthetic cells as they appear in the integrated table."""
+    return pd.DataFrame({
+        "cell_id": CELL_IDS,
+        "centroid_lat": [-30.0] * 6,
+        "centroid_lon": [150.95 + 0.05 * i for i in range(6)],
+        "wind_speed": [7.5, 8.1, 6.9, 7.0, 5.5, 8.4],
+        "wind_confidence": ["valid"] * 6,
+        "demand_proxy": [1.0, 1.0, 1.0, 1.0, np.nan, 1.0],
+        "demand_confidence": ["high", "high", "medium", "high", "low", "high"],
+        "dist_transmission_km": [4.2, 19.7, 5.6, 40.0, 60.5, 12.0],
+        "dist_substation_km": [11.3, 26.4, 8.9, 55.0, 70.2, 15.5],
+        "dist_connection_km": pd.Series([np.nan] * 6, dtype="float64"),
+        "inside_rez": [True, False, False, False, False, False],
+        "infra_confidence": ["low"] * 6,
+        "elevation_m": [650.0, 720.0, 900.0, np.nan, 300.0, 410.0],
+        "slope_deg": [3.0, 4.5, 20.0, np.nan, 2.0, 1.5],
+        "land_use": ["3.2.0 Grazing modified pastures", "1.1.0 Nature conservation",
+                     "3.2.0 Grazing modified pastures", None, "3.3.0 Cropping",
+                     "3.2.0 Grazing modified pastures"],
+        "protected_area": [False, True, False, False, False, False],
+        "geo_confidence": ["high", "high", "high", "low", "high", "high"],
+        "eligible": [True, False, False, False, True, True],
+        "data_flags": [None, None, None, URBAN_FLAG, None, None],
+    })
+
+
+EXPECTED_SCORES = [0.830, 0.830, 0.818, 0.680, 0.783, 0.830]
+EXPECTED_LEVELS = ["high", "high", "high", "medium", "medium", "high"]
+EXPECTED_NOTES = [
+    "Missing connection-point distance",
+    "Missing connection-point distance",
+    "Missing connection-point distance; Demand region assigned by boundary overlap",
+    "Missing connection-point distance; Missing elevation; Missing slope; Missing land use; "
+    "Urban-centre coverage unconfirmed (outside ABS UCL window)",
+    "Missing demand proxy; Missing connection-point distance",
+    "Missing connection-point distance",
+]
+
+
+@pytest.fixture
+def weights():
+    from pipeline.integration.confidence import load_weights
+
+    return load_weights(icfg.DEFAULT_CONFIDENCE_WEIGHTS_PATH)
+
+
+class TestAssess:
+    def test_six_cells_exact(self, weights):
+        from pipeline.integration.confidence import assess
+
+        out = assess(six_cells(), weights)
+        assert list(out.columns) == list(icfg.CONFIDENCE_COLUMNS)
+        assert out["confidence_score"].tolist() == EXPECTED_SCORES
+        assert out["data_confidence"].tolist() == EXPECTED_LEVELS
+        assert out["confidence_notes"].tolist() == EXPECTED_NOTES
+        assert out["confidence_score"].dtype == "float64"
+
+    def test_index_aligned_and_input_not_mutated(self, weights):
+        from pipeline.integration.confidence import assess
+
+        table = six_cells()
+        table.index = [10, 20, 30, 40, 50, 60]
+        before = table.copy(deep=True)
+        out = assess(table, weights)
+        assert list(out.index) == [10, 20, 30, 40, 50, 60]
+        pd.testing.assert_frame_equal(table, before)
+
+    def test_missing_column_raises(self, weights):
+        from pipeline.integration.confidence import assess
+
+        with pytest.raises(ValueError, match="geo_confidence"):
+            assess(six_cells().drop(columns=["geo_confidence"]), weights)
+
+    def test_no_notes_when_everything_present(self, weights):
+        from pipeline.integration.confidence import assess
+
+        table = six_cells()
+        table.loc[0, "dist_connection_km"] = 3.0
+        out = assess(table, weights)
+        assert out.loc[0, "confidence_notes"] == icfg.CONFIDENCE_NO_NOTES
+        assert out.loc[0, "confidence_score"] == pytest.approx(round(weights.max_attainable, 3))
+        assert out.loc[0, "data_confidence"] == "high"
+
+    @pytest.mark.parametrize("bad", [None, "unknown"])
+    def test_null_or_unknown_flag_zeroes_present_features_and_notes(self, weights, bad):
+        from pipeline.integration.confidence import assess
+
+        table = six_cells()
+        table.loc[0, "wind_confidence"] = bad
+        out = assess(table, weights)
+        assert out.loc[0, "confidence_score"] == 0.553   # (0.99625 - 0.3325) / 1.2
+        assert out.loc[0, "data_confidence"] == "medium"
+        assert out.loc[0, "confidence_notes"] == (
+            "Missing connection-point distance; wind_confidence outside vocabulary"
+        )
+
+    def test_bad_flag_with_feature_absent_adds_no_note(self, weights):
+        from pipeline.integration.confidence import assess
+
+        table = six_cells()
+        table.loc[4, "demand_confidence"] = None   # CELL_NO_NEM: demand_proxy is null anyway
+        out = assess(table, weights)
+        assert out.loc[4, "confidence_notes"] == EXPECTED_NOTES[4]
+        assert out.loc[4, "confidence_score"] == EXPECTED_SCORES[4]
+
+    def test_soft_flag_factor_scales_whole_score(self):
+        from pipeline.integration.confidence import assess
+
+        raw = _default_raw()
+        raw["soft_flags"][0]["factor"] = 0.9
+        out = assess(six_cells(), _parse(raw))
+        assert out.loc[3, "confidence_score"] == 0.612   # 0.68021 * 0.9
+        assert out.loc[0, "confidence_score"] == 0.830   # unaffected
+
+    def test_flag_note_only_when_factor_below_one(self):
+        from pipeline.integration.confidence import assess
+
+        raw = _default_raw()
+        raw["flag_factors"]["demand"]["factors"]["medium"] = 1.0
+        out = assess(six_cells(), _parse(raw))
+        assert out.loc[2, "confidence_notes"] == "Missing connection-point distance"
+        assert out.loc[2, "confidence_score"] == 0.830
+
+    def test_geo_low_halves_present_geo_features_only(self, weights):
+        from pipeline.integration.confidence import assess
+
+        table = six_cells()
+        table.loc[3, ["elevation_m", "slope_deg"]] = [500.0, 2.0]   # land_use still null, geo low
+        out = assess(table, weights)
+        # 0.81625 + 0.5*(0.045 + 0.09) = 0.88375 -> /1.2
+        assert out.loc[3, "confidence_score"] == 0.736
+        assert out.loc[3, "confidence_notes"] == (
+            "Missing connection-point distance; Missing land use; "
+            "Geographic rasters partly covered (geo_confidence low); "
+            "Urban-centre coverage unconfirmed (outside ABS UCL window)"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Property-based tests
+# ---------------------------------------------------------------------------
+
+hypothesis = pytest.importorskip("hypothesis")
+from hypothesis import given, settings, strategies as st  # noqa: E402
+
+LEVEL_RANK = {"low": 0, "medium": 1, "high": 2}
+_opt_float = st.one_of(st.none(), st.floats(min_value=0, max_value=100, allow_nan=False))
+_opt_bool = st.one_of(st.none(), st.booleans())
+_opt_text = st.one_of(st.none(), st.sampled_from(["a", "b"]))
+
+
+@st.composite
+def random_table(draw, n=None):
+    n = n if n is not None else draw(st.integers(min_value=1, max_value=8))
+    rows = {"cell_id": [f"C{i}" for i in range(n)]}
+    for col in SCORED:
+        if col in ("inside_rez", "protected_area"):
+            rows[col] = pd.array(draw(st.lists(_opt_bool, min_size=n, max_size=n)), dtype="boolean")
+        elif col == "land_use":
+            rows[col] = draw(st.lists(_opt_text, min_size=n, max_size=n))
+        else:
+            rows[col] = pd.Series(draw(st.lists(_opt_float, min_size=n, max_size=n)), dtype="float64")
+    for layer, (column, vocab) in icfg.CONFIDENCE_FLAG_COLUMNS.items():
+        rows[column] = draw(st.lists(st.sampled_from(list(vocab) + [None, "bogus"]), min_size=n, max_size=n))
+    rows["data_flags"] = draw(st.lists(st.sampled_from([None, URBAN_FLAG, "other"]), min_size=n, max_size=n))
+    rows["eligible"] = draw(st.lists(st.booleans(), min_size=n, max_size=n))
+    return pd.DataFrame(rows)
+
+
+@st.composite
+def random_weights(draw):
+    raw = _default_raw()
+    for name in SCORED:
+        raw["features"][name]["weight"] = draw(st.floats(min_value=0.01, max_value=1, allow_nan=False))
+        raw["features"][name]["resolution"] = draw(st.floats(min_value=0.05, max_value=1, allow_nan=False))
+        raw["features"][name]["limitation"] = draw(st.floats(min_value=0.05, max_value=1, allow_nan=False))
+    for layer, spec in raw["flag_factors"].items():
+        for value in list(spec["factors"]):
+            spec["factors"][value] = draw(st.floats(min_value=0, max_value=1, allow_nan=False))
+            spec.setdefault("notes", {})[value] = f"{layer} {value} note"
+    raw["soft_flags"][0]["factor"] = draw(st.floats(min_value=0.05, max_value=1, allow_nan=False))
+    medium = draw(st.floats(min_value=0, max_value=0.98, allow_nan=False))
+    high = draw(st.floats(min_value=medium + 0.01, max_value=1, allow_nan=False))
+    raw["thresholds"] = {"high": high, "medium": medium}
+    return _parse(raw)
+
+
+class TestProperties:
+    # Feature: s1-09-data-quality-and-confidence, Property 1: the raw and
+    # rounded scores always lie in [0, 1], for any table and any valid config.
+    @settings(max_examples=100, deadline=None)
+    @given(table=random_table(), w=random_weights())
+    def test_property_1_score_in_unit_interval(self, table, w):
+        from pipeline.integration.confidence import assess, score_raw
+
+        raw = score_raw(table, w)
+        assert np.all((raw >= 0) & (raw <= 1))
+        out = assess(table, w)
+        assert out["confidence_score"].between(0, 1).all()
+        assert out["confidence_score"].notna().all()
+
+    # Feature: s1-09-data-quality-and-confidence, Property 2: nulling any one
+    # present scored value never increases the raw score nor raises the level.
+    @settings(max_examples=100, deadline=None)
+    @given(table=random_table(), w=random_weights(), data=st.data())
+    def test_property_2_nulling_a_feature_is_monotone(self, table, w, data):
+        from pipeline.integration.confidence import assess, score_raw
+
+        row = data.draw(st.integers(min_value=0, max_value=len(table) - 1))
+        col = data.draw(st.sampled_from(list(SCORED)))
+        before_raw = score_raw(table, w)[row]
+        before_level = assess(table, w).loc[row, "data_confidence"]
+        nulled = table.copy()
+        nulled.loc[row, col] = None if col in ("inside_rez", "protected_area", "land_use") else np.nan
+        assert score_raw(nulled, w)[row] <= before_raw + 1e-12
+        after_level = assess(nulled, w).loc[row, "data_confidence"]
+        assert LEVEL_RANK[after_level] <= LEVEL_RANK[before_level]
+
+    # Feature: s1-09-data-quality-and-confidence, Property 3: categorise()
+    # matches the threshold definition, including the inclusive boundaries.
+    @settings(max_examples=100, deadline=None)
+    @given(scores=st.lists(st.floats(min_value=0, max_value=1, allow_nan=False), min_size=1, max_size=20),
+           w=random_weights())
+    def test_property_3_categories_match_thresholds(self, scores, w):
+        from pipeline.integration.confidence import categorise
+
+        t = w.thresholds
+        expected = ["high" if s >= t.high else "medium" if s >= t.medium else "low" for s in scores]
+        assert list(categorise(np.array(scores), t)) == expected
+        assert list(categorise(np.array([t.high, t.medium]), t)) == ["high", "medium"]
+
+    # Feature: s1-09-data-quality-and-confidence, Property 4: scaling every
+    # weight by the same positive factor leaves the raw score unchanged.
+    @settings(max_examples=100, deadline=None)
+    @given(table=random_table(), w=random_weights(), k=st.floats(min_value=0.01, max_value=100, allow_nan=False))
+    def test_property_4_weights_scale_invariant(self, table, w, k):
+        from dataclasses import replace
+        from pipeline.integration.confidence import score_raw
+
+        scaled = replace(w, features=tuple(replace(f, weight=f.weight * k) for f in w.features))
+        np.testing.assert_allclose(score_raw(table, scaled), score_raw(table, w), rtol=0, atol=1e-9)
+
+    # Feature: s1-09-data-quality-and-confidence, Property 5: permuting the
+    # rows permutes the output identically (index-aligned, no cross-talk).
+    @settings(max_examples=100, deadline=None)
+    @given(table=random_table(n=6), w=random_weights(), perm=st.permutations(list(range(6))))
+    def test_property_5_row_permutation_invariance(self, table, w, perm):
+        from pipeline.integration.confidence import assess
+
+        reference = assess(table, w)
+        shuffled = assess(table.iloc[perm], w)
+        pd.testing.assert_frame_equal(shuffled.sort_index(), reference)
+
+    # Feature: s1-09-data-quality-and-confidence, Property 6: a feature's
+    # missing-note appears in confidence_notes iff that feature is null.
+    @settings(max_examples=100, deadline=None)
+    @given(table=random_table(), w=random_weights())
+    def test_property_6_missing_note_iff_null(self, table, w):
+        from pipeline.integration.confidence import assess
+
+        out = assess(table, w)
+        for i in range(len(table)):
+            notes = out.loc[i, "confidence_notes"].split(icfg.CONFIDENCE_NOTE_DELIMITER)
+            for f in w.features:
+                assert (f.note in notes) == bool(pd.isna(table.loc[i, f.name])), (f.name, notes)
