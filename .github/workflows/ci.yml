@@ -3,15 +3,17 @@ name: CI
 # Continuous integration for the Opt-Mining geospatial pipeline.
 #
 # Runs the pytest suite (tests/, discovered via pytest.ini) on every push and
-# pull request against the supported interpreter range.
+# pull request against the single supported interpreter.
 #
 # IMPORTANT — Python version policy:
-#   The matrix is deliberately pinned to 3.10, 3.11, 3.12 and 3.13. Python 3.14
-#   is EXCLUDED because the S1-02 grid builder (pipeline/grid/generate.py) emits
-#   degenerate zero-area cells on CPython 3.14.x, silently corrupting the grid
-#   and every feature layer that joins to it. This mirrors requires-python
-#   (">=3.10,<3.14") in pyproject.toml. Do not add 3.14 here until the upstream
-#   issue is resolved.
+#   The project standardises on Python 3.13. CI tests exactly that version so
+#   the code only claims what CI verifies; this mirrors requires-python
+#   (">=3.13,<3.14") in pyproject.toml. Python 3.14 is EXCLUDED because the
+#   S1-02 grid builder (pipeline/grid/generate.py) emits degenerate zero-area
+#   cells on CPython 3.14.x, silently corrupting the grid and every feature
+#   layer that joins to it. Do not add 3.14 here until the upstream issue is
+#   resolved. If the team later needs to support older interpreters, widen both
+#   this matrix and requires-python together.
 
 on:
   push:
@@ -31,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.13"]
 
     steps:
       - name: Check out repository
