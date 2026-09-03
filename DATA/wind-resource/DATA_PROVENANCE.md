@@ -144,6 +144,6 @@ measurement, not a yield prediction, and not a bankable resource assessment.**
 - **Derived from:** `DATA/wind-resource/gwa_v4_wind-speed_100m_nsw.tif` (GWA v4)
 - **Method:** mean of the 20×20 native GWA pixels per 0.05° analysis cell (cell-centre inclusion; NoData excluded; zero-valid cells flagged `no_data` with a null value).
 - **Regenerable:** yes — fully derived from the GWA raster and the S1-02 analysis grid via `python -m pipeline --only wind.features`.
-- **SHA-256:** `ff735ce010f90ff99d308ea32e6c375d3003133225f4168417c36b7bb42e88d6`
-- **Generated (UTC):** 2026-08-31T04:08:08+00:00
+- **SHA-256:** `d340bb4bf19c9e7211b68d3f45095fd6d3e7a5a2f3f08ba5c72778f73091fb60`
+- **Generated (UTC):** 2026-09-03T06:59:39+00:00
 <!-- END wind.features derived layer (generated) -->
