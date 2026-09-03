@@ -28,36 +28,36 @@ Modules:
 IMPORTANT — scope note, read before extending this module
 -----------------------------------------------------------
 S1-07 is blocked by S1-06 ("Build Geographic & Environmental Features") and
-depends on S1-03 ("Build the Wind Feature Layer"). Both currently exist only
-as ticket + design documentation under `Sprint-1-Tasks/S1-0{3,6}-.../` —
-`pipeline/geographic/features.py` and an equivalent wind per-cell feature
-module do not exist in this codebase, and neither stage is registered in
-`pipeline/config.py` STAGES. There is no per-cell Feature_Table to join to
-yet.
+depends on S1-03 ("Build the Wind Feature Layer"). Both are now implemented
+and registered in `pipeline/config.py` STAGES as `geographic.features`
+(`pipeline/geographic/features.py`) and `wind.features`
+(`pipeline/wind/features.py`), each producing a per-cell Feature_Table on the
+common analysis grid.
 
-Rather than block on that, `apply.py` reads the raw Sprint-0 sources
-directly (CAPAD protected areas, the derived slope raster, ABS urban
-centres, the GWA wind-speed raster) and recomputes only the specific
-per-cell values the default exclusion rules need: protected-area overlap,
-mean slope, urban overlap, and wind-data availability. This deliberately
-duplicates logic that S1-06/S1-03 are meant to own as their per-cell
-feature tables.
+However, `apply.py` has NOT yet been migrated to consume them: it still reads
+the raw Sprint-0 sources directly (CAPAD protected areas, the derived slope
+raster, ABS urban centres, the GWA wind-speed raster) and recomputes only the
+specific per-cell values the default exclusion rules need: protected-area
+overlap, mean slope, urban overlap, and wind-data availability. This
+duplicates logic that S1-06/S1-03 now own as their per-cell feature tables.
 
-When S1-06 and S1-03 are actually implemented, `apply.py`'s field-computing
-functions (`_protected_overlap`, `_urban_overlap`, the raster sampling
-calls) should be deleted and replaced with a read of their Feature_Table /
-wind feature table output, joined on `cell_id`. The rule engine (`rules.py`)
-and the output / validation / report code do not need to change — they
-operate on a generic per-cell field dict, not on how those fields were
-computed.
+OUTSTANDING FOLLOW-UP: `apply.py`'s field-computing functions
+(`_protected_overlap`, `_urban_overlap`, the raster sampling calls) should be
+deleted and replaced with a read of the `geographic.features` /
+`wind.features` outputs, joined on `cell_id`. The rule engine (`rules.py`) and
+the output / validation / report code do not need to change — they operate on
+a generic per-cell field dict, not on how those fields were computed.
 
-Also note the current source-data coverage: the slope raster, the GWA
-wind-speed raster and the ABS urban-centre extract only cover the New
-England REZ study window, not the full NSW grid (see
+Also note the coverage of the RAW sources this stage currently reads: the
+slope raster, the GWA wind-speed raster and the ABS urban-centre extract only
+cover the New England REZ study window, not the full NSW grid (see
 `DATA/geographic/DATA_PROVENANCE.md` / `DATA/wind-resource/DATA_PROVENANCE.md`).
 CAPAD (protected areas) is the one source with full-NSW coverage. This means
-the vast majority of the 47,311-cell NSW grid will be excluded today with
-reason "Missing wind data" simply because no wind data exists there yet —
-that is the honest, documented state of Sprint 1 data coverage, not a bug
-in this stage. See the generated method report's Coverage section.
+the vast majority of the 47,311-cell NSW grid is excluded today with reason
+"Missing wind data" — because this stage reads the REZ-clipped raster, NOT
+because wind data is unavailable. The NSW-wide `wind.features` table produced
+by S1-03 has a wind-speed value for every cell; once the migration above lands
+(joining that table on `cell_id` instead of sampling the raw raster), this
+exclusion count will drop accordingly. See the generated method report's
+Coverage section.
 """

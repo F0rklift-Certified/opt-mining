@@ -24,3 +24,7 @@ hypothesis==6.112.1
 
 # S1-07 — Exclusion layer: configurable rules loaded from YAML, not hard-coded
 pyyaml==6.0.2
+
+# S1-05 — Infrastructure features: AEMO KCI connection points ship as .xlsx,
+# read via pandas.read_excel which requires openpyxl as the engine.
+openpyxl==3.1.5
