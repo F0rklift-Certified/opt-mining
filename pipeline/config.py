@@ -61,8 +61,9 @@ STAGES = [
     "scoring",  # S1-10 baseline suitability model — CONSUMES the integrated table, so scheduled after it
     "shortlist",  # S1-11 ranked shortlist — CONSUMES the scoring Scored_Table, so scheduled after scoring
     "validate",  # cross-domain integration checks
+    "sanity",  # S1-12 plausibility sanity check — CONSUMES shortlist/scoring/integration + grid; TERMINAL (runs last), distinct from structural "validate"
 ]
 
 # --- Domain list ---
 DOMAINS = ["wind", "geographic", "infrastructure", "demand", "grid", "exclusions",
-           "integration", "scoring", "shortlist"]
+           "integration", "scoring", "shortlist", "sanity"]
