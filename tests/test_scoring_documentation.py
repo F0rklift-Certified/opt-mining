@@ -157,7 +157,11 @@ class TestSpecificationConsistency:
 
     def test_spec_version_and_history_are_in_step(self, spec):
         version = re.search(r"\*\*Version:\*\* ([\d.]+)", spec).group(1)
-        assert version == "1.5"
+        # The spec is amended by later stages via the §8 change-control process
+        # (e.g. S1-11 bumped it to 1.6), so the invariant is that the header
+        # version and the Change History agree — not that it equals a fixed
+        # literal. Use a lower-bound check against the S1-10 baseline (1.5).
+        assert tuple(int(p) for p in version.split(".")) >= (1, 5)
         history = spec[spec.index("## Change History"):]
         assert f"| {version} |" in history
         assert "S1-10" in history

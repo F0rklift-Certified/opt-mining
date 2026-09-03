@@ -55,6 +55,11 @@ python -m pipeline --only integration --confidence-weights path/to/my_weights.ya
 python -m pipeline --only scoring
 python -m pipeline --only scoring --scoring-weights path/to/my_weights.yaml
 
+# Ranked shortlist (S1-11 — requires the S1-10 Scored_Table and the grid to
+# exist already; selects the top-N eligible cells by their existing rank)
+python -m pipeline --only shortlist
+python -m pipeline --only shortlist --shortlist-top-n 50
+
 # Validation: stricter slope threshold
 python -m pipeline --max-slope 12
 
@@ -167,6 +172,7 @@ wind.probe → wind.download → wind.inspect → wind.validate → wind.analyse
 → exclusions (S1-07 exclusion layer — eligibility per cell)
 → integration (S1-08 Integrated Feature Table — joins every feature layer + exclusions by cell_id; S1-09 appends the composite data confidence)
 → scoring (S1-10 baseline suitability model — weighted MCDA over the integrated table; scores, ranks and explains every eligible cell)
+→ shortlist (S1-11 preliminary ranked shortlist — selects the top-N eligible cells by their existing S1-10 rank; the Sprint 1 headline output)
 → validate (cross-domain integration checks)
 ```
 
@@ -204,6 +210,14 @@ score     = SUM_i contrib_i                          -> [0, 1]
 - **Confidence** is carried through from the S1-09 composite flag unchanged, never recomputed or fabricated. The optional confidence discount (`--confidence-discount`) multiplies both the score and its contributions by the cell's factor, so they stay reconcilable.
 - **Not circular:** `wind_speed` is an input criterion only, never a prediction target.
 
+Note: `shortlist` (S1-11) runs after `scoring` and before `validate` because the S1-10 Scored_Table is its sole score input. It is a **filtering and formatting** stage, not a modelling stage — it performs no re-scoring and no re-ranking:
+
+- **Selection is by the existing S1-10 `rank`.** The stage takes the top-N Eligible_Cells (non-null `suitability_score` **and** non-null `rank`) ordered by ascending `rank` (rank 1 first), so the shortlist ordering is identical to S1-10 through ties and gaps — ranks are never re-assigned.
+- **Top_N is a runtime value, not a frozen decision.** It defaults to 20 and is set with `--shortlist-top-n N` (or a pipeline-config value); the CLI value wins over the config value, which wins over the default. Top_N must be a positive integer or the stage halts before writing anything. Top_N over the eligible count includes every Eligible_Cell with no padding; zero eligible cells still emits headered, disclaimer-carrying empty outputs.
+- **Coordinates are joined from the grid.** Each shortlisted cell's `centroid_lat`/`centroid_lon` are left-joined from the Analysis_Grid on `cell_id` in EPSG:4326 and carried unchanged; an unmatched `cell_id` halts the stage rather than emitting a fabricated or null coordinate. No reprojection occurs in this stage.
+- **Two consistent exports.** A Shortlist_CSV and a Shortlist_GeoJSON (EPSG:4326, one feature per cell, centroid Point geometry by default) carry the same `cell_id` set in the same rank order, plus a Summary_Report of descriptive statistics over the eligible population and the top sites.
+- **Preliminary screening only.** Every output and its metadata carry the Preliminary_Disclaimer — the shortlist is a preliminary screening output at the ~5 km (0.05 degree) Analysis_Resolution, indicating where to look next; it is **not** a site approval, an engineering assessment, or a final recommendation.
+
 ## CLI Options
 
 ```
@@ -233,6 +247,8 @@ score     = SUM_i contrib_i                          -> [0, 1]
                        (default: pipeline/scoring/scoring_weights.yaml)
 --confidence-discount  Enable the S1-10 confidence discount (overrides the weights file)
 --no-confidence-discount Disable the S1-10 confidence discount (overrides the weights file)
+--shortlist-top-n N   Number of top-ranked eligible cells for the 'shortlist' stage (S1-11)
+                       (default 20; selection is by ascending S1-10 rank; must be a positive integer)
 --verbose             Detailed logging
 ```
 
@@ -302,6 +318,19 @@ weights = load_criteria_weights("pipeline/scoring/scoring_weights.yaml")
 scored = score_and_rank(feature_frame, weights)
 ```
 
+The S1-11 shortlist stage, and its pure selection core on any in-memory frame:
+
+```python
+from pipeline.shortlist.run import run as shortlist_run
+summary = shortlist_run(verbose=True, top_n=20)   # returns the CSV/GeoJSON/report paths
+
+# Selection is pure — a scored DataFrame and a Top_N in, the shortlisted
+# DataFrame out, no file I/O — so it is independently testable and never
+# re-scores or re-ranks (it selects by the existing S1-10 `rank`).
+from pipeline.shortlist.select import select_shortlist
+shortlist = select_shortlist(scored_frame, top_n=20)
+```
+
 ## Data Outputs
 
 Outputs write to the existing `DATA/` layout:
@@ -315,7 +344,8 @@ DATA/
 ├── grid/                   # Common analysis cell grid (S1-02)
 ├── exclusions/             # Eligibility_Table + method report (S1-07)
 ├── integration/            # Integrated NSW Feature Table (S1-08) with data confidence (S1-09) + Task 5 analysis
-└── scoring/                # Baseline suitability score, rank and per-criterion contributions (S1-10)
+├── scoring/                # Baseline suitability score, rank and per-criterion contributions (S1-10)
+└── shortlist/              # Preliminary ranked shortlist — top-N eligible cells (CSV + GeoJSON) + summary (S1-11)
 ```
 
 ## Expected Outputs
@@ -445,6 +475,22 @@ A successful full pipeline run produces the following file tree under `DATA/`:
 | `DATA_PROVENANCE.md` | scoring | Generated derived-layer block (BEGIN/END markers) recording inputs, weights, method and hashes |
 
 **Scope note:** the score is a weighted MCDA over criteria normalised to [0, 1] from the **eligible** cell population, not a fitted or learned model — no parameter in it comes from anywhere but the weights YAML and the run's own data. On the committed data 1,233 of 47,311 cells are eligible and scored (scores 0.218–0.932, mean 0.646) and 46,078 carry a null score and no rank. Two properties of the current data are worth knowing before reading a shortlist. First, `demand_proxy` is **constant** across every eligible cell (the MVP proxy allocates one NEM-region value uniformly), so it adds a flat 0.15 to every score and cannot discriminate between cells — the ranking is effectively driven by the other five criteria, and the method report flags this on every run. Second, every eligible cell is `high` confidence, so the optional confidence discount would be an identical multiplier on every scored cell; it is disabled by default for that reason. Excluded cells are retained with a null score rather than dropped, so the table still joins one-to-one to the grid.
+
+### Ranked Shortlist (`DATA/shortlist/`) — S1-11
+
+Filenames are timestamped per run: `<UTCdate>` is the UTC Run_Timestamp date (`YYYYMMDD`), reused across both output filenames and the metadata; the region slug is `nsw`. If a resolved name already exists, a finer-grained UTC time component is appended by a documented deterministic rule (recorded in the Summary_Report) rather than silently overwriting.
+
+| File | Stage | Description |
+|------|-------|-------------|
+| `sprint1_shortlist_<UTCdate>.csv` | shortlist | Shortlist_CSV: the top-N eligible cells in ascending S1-10 `rank` order, columns `rank, cell_id, suitability_score, confidence, centroid_lat, centroid_lon` (plus any available optional context columns, e.g. `rez`); headers emitted even when the shortlist is empty |
+| `sprint1_shortlist_<UTCdate>.geojson` | shortlist | Shortlist_GeoJSON (EPSG:4326, stated explicitly): one feature per shortlisted cell carrying the same columns as feature properties, geometry the cell centroid Point by default (cell polygon is the documented alternative); the same `cell_id` set in the same rank order as the CSV; carries the Preliminary_Disclaimer and Analysis_Resolution as file-level metadata |
+| `metadata/shortlist_summary.md` | shortlist | Summary_Report (banner-stamped): the effective Top_N and eligible-vs-included counts, the score distribution over eligible cells (min/max/mean/std), the geographic spread (lat/lon ranges) and confidence distribution of the top sites, total/eligible/scored counts, the geometry choice, any optional-context definitions, any name-collision outcome, and the Preliminary_Disclaimer and Analysis_Resolution statement |
+| `metadata/shortlist_metadata.json` | shortlist | Metadata sidecar: `pipeline_version`, UTC `run_timestamp`, `effective_top_n`, `n_shortlisted`, `scored_table_id` (Scored_Table path + SHA-256), geometry, and the Preliminary_Disclaimer and Analysis_Resolution statement — so the CSV's disclaimer travels with the tabular output |
+| `metadata/shortlist_manifest.json` | shortlist | `derived_features` record: output SHA-256 hashes and byte counts, UTC Run_Timestamp, and generation params (Scored_Table and Analysis_Grid inputs, effective Top_N) |
+| `metadata/source_register.csv` | shortlist | Source-register row marking the shortlist outputs derived products |
+| `DATA_PROVENANCE.md` | shortlist | Generated derived-product row recording the Scored_Table and Analysis_Grid inputs, the effective Top_N and the UTC Run_Timestamp |
+
+**Scope note:** the shortlist is a **preliminary screening output at the ~5 km (0.05 degree) Analysis_Resolution — not a site approval, an engineering assessment, or a final recommendation.** It is a filtering-and-formatting stage: it selects the top-N Eligible_Cells by their existing S1-10 `rank` and never re-scores or re-ranks, so the shortlist ordering matches S1-10 exactly. `centroid_lat`/`centroid_lon` are joined from the Analysis_Grid on `cell_id` in EPSG:4326 and carried unchanged; an unmatched `cell_id` halts the stage. Top_N is a **runtime** value (`--shortlist-top-n`, default 20), not a frozen decision (Q1–Q7), so widening or narrowing the shortlist never changes the analysis. On the committed data the S1-10 Scored_Table has 1,233 eligible cells, so a default run returns the 20 highest-ranked of those.
 
 ### Cross-Domain Validation (`DATA/geographic/metadata/`)
 
