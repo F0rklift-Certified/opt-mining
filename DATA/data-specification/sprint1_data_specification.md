@@ -1,8 +1,8 @@
 # Sprint 1 Data Specification
 
-**Version:** 1.2
+**Version:** 1.3
 **Date:** 2026-09-03 (baseline frozen 2026-08-27)
-**Status:** FROZEN — Sprint 1 baseline (v1.1 and v1.2 amendments via §8 "Adding a New Dataset")
+**Status:** FROZEN — Sprint 1 baseline (v1.1, v1.2 and v1.3 amendments via §8 "Adding a New Dataset")
 **Blocks:** S1-02, S1-03, S1-04, S1-05, S1-06
 
 ---
@@ -229,6 +229,27 @@ The result must always be labelled "estimated demand indicator" — it is a prox
 | **Allocation method** | For each grid cell: (1) Identify NEM region membership. (2) Estimate cell population as `sum(SA2_pop × fraction_of_SA2_in_cell)`. (3) Compute `cell_demand = region_mean_MW × (cell_pop / region_total_pop)`. |
 | **Known limitations** | (1) 2021 vintage — population has shifted since census (acceptable for screening). (2) Uniform allocation within each SA2 — dense vs sparse parts of an SA2 get the same per-area allocation. (3) Industrial/commercial loads not well captured by population proxy. (4) Result must never be presented as "demand" without "estimated/proxy" qualifier. |
 | **STATUS** | **NOT YET ACQUIRED — Sprint 1 must download this dataset.** Geometry (SA2 polygons) is available from the same ABS ArcGIS service used for other ASGS layers. Population counts must be obtained from ABS Census data products (DataPacks or TableBuilder). |
+
+---
+
+#### 4.2.3 Demand Proxy Table (Derived — S1-04)
+
+Added via the §8 "Adding a New Dataset" process (v1.3). This standalone entry documents the S1-04 output in its own right; §4.5 references it only as an input to the integrated table.
+
+| Field | Value |
+|-------|-------|
+| **Dataset name** | Per-cell Demand Proxy Table — regional AEMO demand allocated to the common analysis grid |
+| **Source** | **DERIVED** by `pipeline/demand/feature.py` (the `demand.feature` stage, S1-04) from the demand aggregate (§4.2.1, via `DATA/electricity-demand/demand_annual_summary.csv`, column `MEAN_DEMAND_MW`), the derived NEM region geometry (§4.4.7, `DATA/geographic/derived/nem_regions_asgs2021_national.geojson`) and the common analysis grid (§3) |
+| **File in repository** | `DATA/electricity-demand/aemo_demand-proxy_2026_nsw.gpkg` (GeoPackage, one layer, one row per grid `cell_id`) |
+| **Variable(s) — per-cell columns** | `cell_id` (str, grid identifier, reused byte-for-byte from §3); `demand_proxy` (float, normalised 0–1 proxy indicator — **not** measured local demand); `allocation_method` (str, `uniform` in this MVP); `source_region` (str, NEM region id — `NSW1`/`QLD1`/`VIC1`, or null when the cell is outside every NEM polygon); `confidence_flag` (str, `high`/`medium`/`low`) |
+| **Units** | `demand_proxy` normalised 0–1 (dimensionless); other columns categorical/string |
+| **CRS** | EPSG:4326 (storage; geometry copied from the grid). Region allocation is computed in EPSG:3577 (§5); every transform is logged in the method report. |
+| **Allocation method** | **Uniform** regional allocation (frozen decision Q4 records population-weighting as the deferred target): `raw_cell_demand_MW = MEAN_DEMAND_MW_region / N_cells_region`, then normalised to 0–1. NSW1 represents **NSW + ACT** under the NEM convention. Choosing uniform (not the Q4 population-weighted method) is an MVP scope decision, not a change to the frozen parameter, so no §2/README dual edit is triggered. |
+| **Edge cases** | Cells outside all NEM polygons → null `demand_proxy` + `low` confidence. Boundary cells → centroid containment, then greatest-overlap with lexicographic `REGIONID` tie-break → `medium` confidence. Per-region counts on the 2026-09-03 run: NSW1 30,718; QLD1 3,624; VIC1 6,332; outside-region 6,637 (229 boundary/tie-break). Aggregate regions outside this grid (`SA1`, `TAS1`) are explicitly reported in the method report. |
+| **Role in model** | Per-cell input for the Demand criterion; consumed by S1-08 integration (`demand_proxy`, `source_region`, `demand_confidence`). |
+| **Pipeline step** | `pipeline/demand/feature.py` (`demand.feature` stage), scheduled in `config.STAGES` after `grid` (it CONSUMES the grid) and after the `demand` aggregate stage → S1-08 integration |
+| **DERIVED — not custodial data.** | Fully regenerable from §4.2.1, §4.4.7 and the grid (§3); reproducible and deterministic. Stamped by the do-not-edit method report (`DATA/electricity-demand/demand_feature_method.md`) rather than a download-manifest SHA row, consistent with the other derived products (§4.1.5, §4.4.8). |
+| **Known limitations** | (1) **Proxy, not a measurement** — AEMO regional demand ≠ local cell demand; uniform allocation does not represent local load centres or feeder constraints. (2) Cells outside all NEM regions carry null demand + `low` confidence, never a fabricated value. (3) The `2026` vintage token tracks the AEMO 2025-07-01→2026-06-30 demand window. |
 
 ### 4.3 Grid & Infrastructure Accessibility
 
@@ -526,6 +547,27 @@ resampling, no back-filling; every join is one-to-one and the row count is asser
 
 ---
 
+### 4.6 Eligibility Table (Derived — S1-07)
+
+Added via the §8 "Adding a New Dataset" process (v1.3). This standalone entry documents the S1-07 exclusion-layer output in its own right; §4.5 references it only as an input to the integrated table.
+
+| Field | Value |
+|-------|-------|
+| **Dataset name** | Per-cell Eligibility Table — hard-exclusion outcome per analysis cell |
+| **Source** | **DERIVED** by `pipeline/exclusions/apply.py` (the `exclusions` stage, S1-07) from the common analysis grid (§3) and the configurable rules in `pipeline/exclusions/exclusion_rules.yaml`. The stage currently reads raw sources directly — CAPAD (§4.4.2), the derived Horn slope raster (§4.4.6), ABS UCL urban centres (§4.4.4) and the GWA wind-speed raster (§4.1.1) — and recomputes the per-cell fields the rules evaluate. Outstanding follow-up: consume the S1-03 (§4.1.5) and S1-06 (§4.4.8) feature tables instead of recomputing (see `pipeline/exclusions/__init__.py`). |
+| **File in repository** | `DATA/exclusions/optmining_exclusions_2024_nsw.gpkg` (GeoPackage, one layer, one row per grid `cell_id`) |
+| **Variable(s) — per-cell columns** | `cell_id` (str, grid identifier); `eligible` (bool, no nulls); `exclusion_reason` (str, human-readable reason(s) `"; "`-joined, empty when eligible); `triggered_rules` (str, rule names `"; "`-joined); the raw per-cell fields the rules evaluated — `protected_area` (bool), `protected_area_name` (str), `slope_deg` (float, degrees), `urban_area` (bool), `wind_speed_100m_ms` (float, m/s); `data_flags` (str, non-exclusionary "retain and flag" notes) |
+| **Units** | `slope_deg` in degrees; `wind_speed_100m_ms` in m/s; other columns boolean/string |
+| **CRS** | EPSG:4326 (storage; geometry copied from the grid). Protected-area and urban overlap computed in EPSG:3577 (§5); raster sampling reprojects cell geometry to each raster's CRS at the read boundary; all transforms logged in the method report. |
+| **Rules (configurable, not hard-coded)** | Loaded from `exclusion_rules.yaml`; a cell may trigger several. MVP rules: protected-area overlap (CAPAD, frozen decision Q6), missing wind data, excessive slope (threshold in the rules file, default 15°), urban area. Adding/retuning a rule is a YAML edit — the rule engine (`rules.py`) does not change. |
+| **Summary (2026-09-03 run)** | 47,311 cells; eligible **1,233** (2.6%); excluded **46,078**. By reason: missing_wind_data 45,711; protected_area 6,740; urban_area 62; excessive_slope 55 (cells may count under several reasons). |
+| **Role in model** | Determines which cells are eligible for scoring; consumed by S1-08 integration (`eligible`, `exclusion_reason`, `triggered_rules`, `data_flags`) and gates S1-10 scoring (only eligible cells are scored). Exclusions are a separate, auditable stage — never hidden inside scoring code. |
+| **Pipeline step** | `pipeline/exclusions/apply.py` (`exclusions` stage), scheduled in `config.STAGES` after the feature layers and before `integration` |
+| **DERIVED — not custodial data.** | Fully regenerable from the grid (§3), the raw sources above and the rules file; reproducible and deterministic. Stamped by the do-not-edit method report (`DATA/exclusions/metadata/exclusion_summary.md`). |
+| **Known limitations** | (1) The raw wind-speed, slope and urban sources currently read cover only the New England REZ window, so most cells are excluded as "Missing wind data" — an artefact of reading the REZ-clipped raster, not of true wind-data availability (the NSW-wide §4.1.5 table has a value for every cell). This resolves when the stage migrates to joining §4.1.5/§4.4.8. (2) Exclusion is hard/binary; graded suitability penalties are S1-10. (3) The `2024` vintage token tracks the CAPAD 2024 edition, the most recent full-NSW source. |
+
+---
+
 ## 5. CRS Alignment Strategy
 
 **Project-wide rule:** EPSG:4326 for storage, EPSG:3577 for distance/area computation. Enforce with runtime `assert_crs` checks at every function boundary that crosses a CRS. Mismatches raise immediately rather than producing silently wrong distances.
@@ -598,6 +640,7 @@ Summary of how each dataset flows through the pipeline to produce the four scori
 | GWA Wind Speed 150 m (§4.1.4) | `wind.download` → sensitivity analysis | Cell-level mean wind speed 150 m (m/s) | 1 — Sensitivity only |
 | AEMO Operational Demand (§4.2.1) | `demand.download` → `demand.aggregate` | Annual mean MW per NEM region | 2 — Demand Indicator |
 | ABS SA2 ERP (§4.2.2) | Sprint 1 acquisition → demand allocation | Cell population estimate (persons) | 2 — Demand Indicator |
+| Demand Proxy Table (§4.2.3) | `demand.aggregate` + NEM Regions (§4.4.7) → `demand.feature` (S1-04) | Per-cell `demand_proxy` (0–1), `source_region`, `confidence_flag` | 2 — Demand Indicator |
 | GA Power Lines ≥132 kV (§4.3.1) | `infrastructure.download` → feature builder | Distance to nearest line (km, EPSG:3577) | 3 — Infrastructure |
 | GA Substations (§4.3.2) | `infrastructure.download` → feature builder | Distance to nearest substation (km, EPSG:3577) | 3 — Infrastructure |
 | Derived infrastructure features (§4.3.3) | `infrastructure.features` | Per-cell distance, REZ membership and confidence fields | 3 — Infrastructure |
@@ -609,6 +652,7 @@ Summary of how each dataset flows through the pipeline to produce the four scori
 | Derived Slope (§4.4.6) | `geographic.derive` → feature builder | Cell-level mean slope (°) + P90 slope (°) | 4 — Continuous penalty |
 | ABS STE + NEM Regions (§4.4.7) | `geographic.download` + `geographic.derive` → grid builder | NEM region assignment per cell | 2 — Region join |
 | Geographic Feature Table (§4.4.8) | CAPAD (§4.4.2) + NLUM (§4.4.3) + SRTM GL3 (§4.4.5) + Derived Slope (§4.4.6) + Derived TRI → `geographic.features` (S1-06) | Per-cell `elevation_m`, `slope_deg`, `tri`, `land_use`, `protected_area` (+ names), `confidence_flag` | 4 — Suitability (S1-07) + Exclusion (S1-08) |
+| Eligibility Table (§4.6) | Grid (§3) + CAPAD (§4.4.2) + Derived Slope (§4.4.6) + ABS UCL (§4.4.4) + GWA Wind Speed (§4.1.1) + rules file → `exclusions` (S1-07) | Per-cell `eligible`, `exclusion_reason`, `triggered_rules`, evaluated fields, `data_flags` | All — eligibility gate for S1-08/S1-10 |
 | Integrated Feature Table (§4.5) | Wind (§4.1.5) + Geographic (§4.4.8) + Infrastructure (§4.3.3) + S1-04 demand proxy + S1-07 Eligibility_Table → `integration` (S1-08) | One row per grid cell: every per-cell feature, per-layer confidence flags, `eligible`/`exclusion_reason`, `n_missing_features` (GeoPackage + CSV) | All criteria — input to S1-09 confidence, S1-10 scoring, S1-11 shortlist |
 
 ---
@@ -630,6 +674,8 @@ No new dataset may be added to this specification without:
 **Applied — Geographic Feature Table (§4.4.8), v1.1:** The per-cell Geographic & Environmental Feature Table was added under this process. (1) *Gap:* S1-06 requires a per-cell feature layer keyed to the grid `cell_id` to feed the S1-07 suitability model and S1-08 exclusion layer — no such output existed. (2) *Metadata:* full §4-format entry at §4.4.8. (3) *Integration:* stored EPSG:4326, computed EPSG:3577 (§5), keyed byte-for-byte to the grid `cell_id` (§3); it is a DERIVED product regenerable from its sources. (4) *Version bump:* 1.0 → 1.1 (below). Note this is a **new derived output**, not a change to a frozen parameter — the stage *implements* frozen decisions Q3 (slope = mean for scoring) and Q6 (any-CAPAD-intersection boolean exclusion) exactly as recorded in §2, so the "Modifying a Frozen Parameter" process below is **not** triggered and no §2/README dual edit is made.
 
 **Applied — Integrated Feature Table (§4.5), v1.2:** The Integrated NSW Feature Table was added under this process. (1) *Gap:* S1-09, S1-10 and S1-11 need one per-cell table holding every feature layer and the exclusion outcome keyed to the grid `cell_id` — no such dataset existed. (2) *Metadata:* full §4-format entry at §4.5. (3) *Integration:* every input is asserted to be stored in EPSG:4326 and keyed byte-for-byte to the grid `cell_id` (§3); the stage reprojects, resamples and back-fills nothing, joins one-to-one with the row count asserted after each join, and is a DERIVED product regenerable from its six inputs with a byte-identical CSV. (4) *Version bump:* 1.1 → 1.2 (below). This is a **new derived output**, not a change to a frozen parameter: no §2 decision is touched, so the "Modifying a Frozen Parameter" process below is **not** triggered and no §2/README dual edit is made. `data_confidence` is deliberately deferred to S1-09.
+
+**Applied — Demand Proxy Table (§4.2.3) & Eligibility Table (§4.6), v1.3:** The S1-04 demand-proxy table and the S1-07 Eligibility Table were given their own standalone §4 entries under this process. (1) *Gap:* both were produced by the pipeline and already merged into the §4.5 integrated table (as inputs), but neither had its own §4 dataset detail section — a documentation gap flagged in the S1-08 completion notes. (2) *Metadata:* full §4-format entries at §4.2.3 and §4.6, plus §7 pipeline-mapping rows. (3) *Integration:* both are stored EPSG:4326, computed EPSG:3577 where distances/overlaps are involved (§5), keyed byte-for-byte to the grid `cell_id` (§3), and are DERIVED products regenerable from their sources. (4) *Version bump:* 1.2 → 1.3 (below). These are **documentation entries for existing derived outputs**, not new datasets or changes to any frozen parameter (Q1–Q7): §2 is unmodified and no §2/README dual edit is triggered.
 
 ### Modifying a Frozen Parameter
 
@@ -668,3 +714,4 @@ Datasets may be moved to the out-of-scope document (`sprint1_out_of_scope.md`) w
 | 1.1 | 2026-08-27 | Added §4.4.8 Geographic & Environmental Feature Table (derived, S1-06) and its §7 pipeline-mapping row via the §8 "Adding a New Dataset" process. Frozen decisions Q3 and Q6 are implemented (not changed); §2 unmodified. |
 | 1.1 | 2026-08-31 | S1-03: added §4.1.5 wind Feature_Table (derived dataset, per §8 "Adding a New Dataset"); GWA clips extended to the NSW grid extent per the §8 prerequisite (wind-speed 100 m, power-density 100 m, CF IEC2); `WIND_FEATURE_SOURCE` deviates from the S1-03 design.md's New-England-REZ filename to the NSW clip; vintage token `2025` per the download manifest (design draft said `2023`). No frozen parameter (Q1–Q7) changed. |
 | 1.2 | 2026-09-03 | S1-08: added §4.5 Integrated Feature Table (derived dataset, per §8 "Adding a New Dataset") and its §7 pipeline-mapping row. Column names follow the S1-08 ticket (`wind_speed` ← `wind_speed_100m`); `data_confidence` deferred to S1-09 (per-layer confidence flags + `n_missing_features` carried instead); S1-07's recomputed raster fields compared in WARN checks, not carried. No frozen parameter (Q1–Q7) changed. |
+| 1.3 | 2026-09-03 | Added standalone §4 entries for two already-merged derived outputs that previously lacked their own dataset sections: §4.2.3 Demand Proxy Table (S1-04) and §4.6 Eligibility Table (S1-07), plus their §7 pipeline-mapping rows. Documentation-only (closes a gap flagged in the S1-08 completion notes); no new datasets, no frozen parameter (Q1–Q7) changed. |
