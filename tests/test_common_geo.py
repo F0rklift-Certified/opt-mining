@@ -8,7 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from pipeline.common.geo import atomic_write_text, atomic_write_json, human_bytes, banner, utc_now
+from pipeline.common.geo import (
+    atomic_write_text, atomic_write_json, banner, human_bytes, sha256_file, utc_now,
+)
 
 
 class TestHumanBytes:
@@ -99,3 +101,25 @@ class TestUtcNow:
         ts = utc_now()
         assert "T" in ts
         assert "+" in ts or "Z" in ts or ts.endswith("+00:00")
+
+
+class TestSha256File:
+    """sha256_file hashes a file's bytes (chunked, so large files are safe)."""
+
+    def test_known_digest(self, tmp_path):
+        path = tmp_path / "abc.bin"
+        path.write_bytes(b"abc")
+        assert sha256_file(path) == (
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        )
+
+    def test_matches_hashlib_over_chunk_boundary(self, tmp_path):
+        import hashlib
+        data = bytes(range(256)) * 8194  # ~2 MiB: spans the 1 MiB read chunks
+        path = tmp_path / "big.bin"
+        path.write_bytes(data)
+        assert sha256_file(path) == hashlib.sha256(data).hexdigest()
+
+    def test_missing_file_raises(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            sha256_file(tmp_path / "missing.bin")
