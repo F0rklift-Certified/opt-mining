@@ -6,12 +6,12 @@ and current directories, extracts the CSVs, and concatenates them into a
 single consolidated file.
 
 Importable entry point:
-    from pipelines.demand.download import run
+    from pipeline.demand.download import run
     csv_path = run(start_date="2025-07-01", end_date="2026-06-30",
                    output_dir=Path(...), raw_dir=Path(...))
 
 Standalone usage:
-    python -m pipelines.demand.download --start-date 2025-07-01 --end-date 2026-06-30
+    python -m pipeline.demand.download --start-date 2025-07-01 --end-date 2026-06-30
 
 Source: https://nemweb.com.au/Reports/Archive/Operational_Demand/ACTUAL_DAILY/
 Licence: AEMO public data — free to use with attribution.

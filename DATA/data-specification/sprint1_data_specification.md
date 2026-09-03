@@ -176,11 +176,11 @@ CRS (EPSG:4326), exact 20×20 native-pixel alignment — no reprojection or resa
 
 ### 4.2 Electricity Demand
 
-The demand criterion uses population-weighted allocation to distribute regional demand figures to grid cells. Two datasets are required: the demand time series (AEMO) and the spatial population distribution (ABS).
+The demand criterion uses the uniform-allocation MVP in S1-04 to distribute regional demand figures to grid cells. The population-weighted approach recorded in frozen decision Q4 is deferred until a later change-controlled release.
 
-**Allocation formula:** `cell_demand = region_annual_mean_MW × (cell_population / region_total_population)`
+**MVP allocation formula:** `cell_demand = region_annual_mean_MW / N_cells_in_region`
 
-The result must always be labelled "estimated demand indicator" — it is a proxy, not actual local consumption.
+The result must always be labelled "estimated demand indicator" — it is a proxy, not actual local consumption. A future population-weighted upgrade would use ABS Census 2021 ERP at SA2 level and require the §8 change-control process.
 
 ---
 

@@ -14,6 +14,7 @@ python -m pipeline --only geographic
 python -m pipeline --only infrastructure
 python -m pipeline --only demand
 python -m pipeline --only grid
+python -m pipeline --only demand.feature --allocation-method uniform
 
 # Run a single stage
 python -m pipeline --only wind.probe
@@ -105,7 +106,8 @@ pipeline/
     ├── download.py          # Stage: fetch AEMO demand ZIPs
     ├── validate.py          # Stage: quality gate
     ├── inspect.py           # Stage: statistical summary
-    └── aggregate.py         # Stage: annual mean demand per NEM region
+    ├── aggregate.py         # Stage: annual mean demand per NEM region
+    └── feature.py           # Stage (S1-04): per-cell demand proxy
 ```
 
 ## Stage Execution Order
@@ -119,6 +121,7 @@ wind.probe → wind.download → wind.inspect → wind.validate → wind.analyse
 → demand
 → grid (common analysis cell generation)
 → wind.features (S1-03 per-cell wind feature table — consumes the grid)
+→ demand.feature (per-cell demand proxy)
 → validate (cross-domain integration checks)
 ```
 
@@ -149,6 +152,7 @@ analysis cell is a clean 20×20 native-pixel block.)
 --start-date DATE     Demand data start (default: 2025-07-01)
 --end-date DATE       Demand data end (default: 2026-06-30)
 --regions IDS         Comma-separated NEM region IDs for demand (default: all 5)
+--allocation-method M Demand allocation for demand.feature (MVP: uniform)
 --heights METRES      Comma-separated hub heights for wind-speed downloads (default: 50,100,150)
 --turbine-class CLS   Comma-separated IEC classes for capacity-factor (default: IEC2)
 --agg-factor N        Native pixels per analysis cell side (default: 20 = ~5 km)
@@ -278,6 +282,7 @@ A successful full pipeline run produces the following file tree under `DATA/`:
 | `demand_annual_summary.csv` | aggregate | Annual mean demand by NEM region (MW) |
 | `demand_annual_summary.meta.json` | aggregate | Metadata for the summary (date range, row count) |
 | `inspection_summary.txt` | inspect | Statistical summary of demand data |
+| `aemo_demand-proxy_2026_nsw.gpkg` | demand.feature | Per-cell demand proxy on the common grid (EPSG:4326) |
 
 ### Grid (`DATA/grid/`)
 
