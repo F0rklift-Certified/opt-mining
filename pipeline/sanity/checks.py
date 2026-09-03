@@ -21,8 +21,8 @@ is EPSG:4326. This module never converts CRS silently.
 
 Section map (checks are added incrementally by the S1-12 task plan):
   - Shared: percentile over the eligible population, anomaly records.
-  - Check 1 — Known Wind Farm Comparison (Requirement 2)  [this task]
-  - Check 2 — Exclusion Validation (Requirement 3)         [task 4.1]
+  - Check 1 — Known Wind Farm Comparison (Requirement 2)  [task 3.1]
+  - Check 2 — Exclusion Validation (Requirement 3)         [this task]
   - Check 3 — Feature-Value Spot-Checks (Requirement 4)    [task 5.1]
   - Check 4 — Score-Distribution Plausibility (Requirement 5) [task 6.1]
   - CheckOutcome no-silent-passes contract (Requirement 11) [task 9.1]
@@ -472,6 +472,360 @@ def check_known_wind_farms(
         n_upper_quartile=n_upper_quartile,
         proportion_upper_quartile=proportion,
         expectation=_UPPER_QUARTILE_EXPECTATION,
+        anomalies=anomalies,
+        transform_log=transform_log,
+    )
+
+
+# ===========================================================================
+# Check 2 — Exclusion Validation (Requirement 3)
+# ===========================================================================
+#
+# For each documented LANDMARKS entry (Sydney CBD / Newcastle / Wollongong
+# urban centres; Blue Mountains NP / Kosciuszko NP national parks): build its
+# point from the documented EPSG:4326 coordinate, locate it to its cell in the
+# single explicit CONTAINMENT_CRS (EPSG:3577, logged), and assert the cell is an
+# Excluded_Cell (ineligible / null suitability_score) or absent from the grid
+# (3.1, 3.2). Additionally assert NO offshore/ocean cell exists in the grid:
+# every grid cell must resolve to a land/eligible-population membership (i.e.
+# be present in the Integrated_Feature_Table, which is built over land cells
+# only), so a grid cell absent from that table would be an ocean-only anomaly
+# (3.3). Each assertion records the expected outcome, the observed outcome, and
+# an explicit pass/fail — NEVER a pass without an observed value (3.4). A
+# failing assertion is reported HONESTLY as an Anomaly with an investigation
+# note and is NOT suppressed to make the check pass (3.6, 8.3).
+
+
+# The Integrated_Feature_Table columns Check 2 reads (from
+# config.REQUIRED_INTEGRATED_COLUMNS): the cell key and the eligible flag.
+_INT_CELL_ID = config.REQUIRED_INTEGRATED_COLUMNS[0]  # "cell_id"
+_INT_ELIGIBLE = config.REQUIRED_INTEGRATED_COLUMNS[5]  # "eligible"
+
+# The check name recorded on every anomaly this check surfaces.
+_EXCLUSION_CHECK_NAME = "Exclusion Validation"
+
+# The kind label the offshore/ocean assertion carries in its records.
+_OFFSHORE_KIND = "offshore"
+
+
+@dataclass(frozen=True)
+class ExclusionAssertion:
+    """
+    One expected-versus-observed assertion of Check 2 (Requirements 3.4, 11.3).
+
+    Mirrors the report's assertion-record table
+    (``landmark | kind | lat | lon | cell_id | expected | observed | passed``).
+    A landmark assertion carries the documented EPSG:4326 coordinate (3.5) and
+    the ``cell_id`` it located to in the CONTAINMENT_CRS (``None`` when the point
+    is absent from the grid). The offshore/ocean assertion (``kind ==
+    "offshore"``) covers the whole grid, so its ``lat`` / ``lon`` / ``cell_id``
+    are ``None``. ``expected`` and ``observed`` are the human-readable outcomes
+    and ``passed`` is the explicit pass/fail — NEVER a pass without an observed
+    value (3.4).
+    """
+
+    landmark: str  # e.g. "Sydney CBD", or "no offshore/ocean cell" for 3.3
+    kind: str  # "urban" | "park" | "offshore"
+    lat: float | None  # documented EPSG:4326 latitude, or None (offshore)
+    lon: float | None  # documented EPSG:4326 longitude, or None (offshore)
+    cell_id: object | None  # located Containing_Cell, or None if absent (3.2)
+    expected: str  # expected outcome, e.g. "ineligible / excluded / absent"
+    observed: str  # observed eligibility / grid-membership (3.4, 11.3)
+    passed: bool  # explicit pass/fail, never a pass without an observed value
+
+
+@dataclass(frozen=True)
+class ExclusionCheckResult:
+    """
+    Structured result of Check 2 — Exclusion Validation (Requirement 3).
+
+    ``assertions`` is one :class:`ExclusionAssertion` per documented landmark
+    (in ``LANDMARKS`` order) plus the single offshore/ocean assertion over the
+    whole grid (3.1, 3.2, 3.3). ``n_passed`` / ``n_failed`` count the explicit
+    pass/fail outcomes (11.3). ``all_passed`` is the per-check flag. Every
+    failing assertion is also surfaced as a :class:`CheckAnomaly` in
+    ``anomalies`` for task 8.1's ``collect_issues`` to gather, recorded honestly
+    and never suppressed (3.6, 8.3). ``transform_log`` is the list the landmark
+    containment transforms were appended to, rendered verbatim in the report's
+    transform-log line.
+    """
+
+    assertions: list[ExclusionAssertion]
+    n_passed: int
+    n_failed: int
+    all_passed: bool
+    anomalies: list[CheckAnomaly] = field(default_factory=list)
+    transform_log: list[CrsTransform] = field(default_factory=list)
+
+
+def _landmarks_to_points(landmarks, storage_crs: str) -> gpd.GeoDataFrame:
+    """
+    Build an EPSG:4326 point frame from the documented ``LANDMARKS`` coordinates.
+
+    Each landmark's documented ``(lat, lon)`` in EPSG:4326 storage becomes a
+    point, in ``LANDMARKS`` order, so :func:`geo.locate_points_to_cells` can
+    locate it to its cell in the CONTAINMENT_CRS (3.5). PURE: constructs a new
+    frame and never touches disk.
+    """
+    from shapely.geometry import Point
+
+    geometries = [Point(lm.lon, lm.lat) for lm in landmarks]
+    return gpd.GeoDataFrame(
+        {
+            "landmark": [lm.name for lm in landmarks],
+            "kind": [lm.kind for lm in landmarks],
+            "lat": [lm.lat for lm in landmarks],
+            "lon": [lm.lon for lm in landmarks],
+        },
+        geometry=geometries,
+        crs=storage_crs,
+    )
+
+
+def check_exclusions(
+    landmarks,
+    grid: gpd.GeoDataFrame,
+    scored: pd.DataFrame,
+    integrated: pd.DataFrame,
+    containment_crs: str,
+    transform_log: list[CrsTransform],
+) -> ExclusionCheckResult:
+    """
+    Check 2 — assert documented landmarks are excluded and no ocean cell exists.
+
+    PURE. For each documented ``LANDMARKS`` entry (Sydney CBD / Newcastle /
+    Wollongong urban centres, Blue Mountains NP / Kosciuszko NP national parks):
+
+      1. Build the landmark point from its documented EPSG:4326 coordinate and
+         locate it to its cell in the single explicit ``containment_crs``
+         (EPSG:3577), appending the transform to ``transform_log`` (3.5).
+      2. Assert the Containing_Cell is an Excluded_Cell — ineligible
+         (``eligible == False`` in the Integrated_Feature_Table) OR carrying a
+         null ``suitability_score``/``rank`` in the Scored_Table — or absent
+         from the grid entirely (3.1, 3.2). A point absent from the grid PASSES:
+         a landmark outside the analysis extent is trivially not ranked.
+
+    Additionally assert NO offshore/ocean cell exists in the Analysis_Grid:
+    every grid ``cell_id`` must resolve to a land/eligible-population membership,
+    i.e. be present in the Integrated_Feature_Table (which is built over land
+    cells only). Any grid cell ABSENT from that table is an ocean-only anomaly
+    and fails the assertion (3.3).
+
+    For EVERY assertion the result records the expected outcome, the observed
+    outcome, and an explicit pass/fail; a pass is NEVER recorded without an
+    observed value (3.4). A failing assertion — an urban/protected cell observed
+    eligible, or an offshore cell found in the grid — is reported HONESTLY as a
+    :class:`CheckAnomaly` with an investigation note distinguishing a likely
+    data issue from a legitimate model result, and is NEVER suppressed to make
+    the check pass (3.6, 8.3).
+
+    Args:
+        landmarks: the documented landmark table (``config.LANDMARKS``), each a
+            named EPSG:4326 coordinate with a ``kind`` (``urban`` | ``park``).
+        grid: the Analysis_Grid cell polygons (EPSG:4326 storage), carrying
+            ``cell_id``.
+        scored: the Scored_Table with ``cell_id`` / ``suitability_score`` /
+            ``rank`` for every scored cell (eligible AND excluded).
+        integrated: the Integrated_Feature_Table with ``cell_id`` and the
+            ``eligible`` flag, built over land cells only.
+        containment_crs: the single explicit containment CRS (EPSG:3577).
+        transform_log: mutable list the containment transforms are appended to;
+            rendered verbatim in the report's transform-log line.
+
+    Returns:
+        An :class:`ExclusionCheckResult`.
+    """
+    # 1. Locate every landmark point to its Containing_Cell in the metric CRS.
+    #    The result is one row per landmark, in LANDMARKS order, with a null
+    #    cell_id for any point absent from the grid (3.2). transform_log is
+    #    appended to (3.5).
+    points = _landmarks_to_points(landmarks, config.STORAGE_CRS)
+    located = locate_points_to_cells(
+        points,
+        grid,
+        containment_crs,
+        transform_log,
+        purpose="landmark containment",
+    )
+
+    # Fast cell_id -> row lookups over the Scored_Table and the eligible flag of
+    # the Integrated_Feature_Table.
+    scored_indexed = scored.set_index(_CELL_ID)
+    integrated_eligible = (
+        integrated.set_index(_INT_CELL_ID)[_INT_ELIGIBLE]
+        if _INT_ELIGIBLE in integrated.columns
+        else None
+    )
+
+    assertions: list[ExclusionAssertion] = []
+    anomalies: list[CheckAnomaly] = []
+
+    located_cell_ids = located["cell_id"].tolist()
+    landmark_list = list(landmarks)
+
+    for landmark, cell_id in zip(landmark_list, located_cell_ids):
+        expected = "ineligible / excluded / absent from grid"
+
+        # --- Case A: the landmark falls in NO grid cell — PASS (3.2) ---
+        if cell_id is None or (isinstance(cell_id, float) and np.isnan(cell_id)):
+            observed = "absent from grid (point falls in no Analysis_Grid cell)"
+            assertions.append(
+                ExclusionAssertion(
+                    landmark=landmark.name,
+                    kind=landmark.kind,
+                    lat=landmark.lat,
+                    lon=landmark.lon,
+                    cell_id=None,
+                    expected=expected,
+                    observed=observed,
+                    passed=True,
+                )
+            )
+            continue
+
+        # --- Determine the observed eligibility of the Containing_Cell ---
+        # A cell is "eligible" (i.e. NOT excluded) if EITHER the integrated
+        # eligible flag is True OR the Scored_Table gives it a non-null
+        # score/rank. The assertion PASSES when the cell is excluded by BOTH
+        # signals (or absent from either). Observed is always recorded (3.4).
+        observed_parts: list[str] = []
+        is_eligible = False
+
+        # Scored_Table signal.
+        if cell_id in scored_indexed.index:
+            cell = scored_indexed.loc[cell_id]
+            if isinstance(cell, pd.DataFrame):
+                cell = cell.iloc[0]
+            score_null = pd.isna(cell[_SCORE])
+            rank_null = pd.isna(cell[_RANK])
+            if score_null and rank_null:
+                observed_parts.append("null suitability_score/rank in Scored_Table")
+            else:
+                observed_parts.append(
+                    f"non-null suitability_score={cell[_SCORE]!r} in Scored_Table"
+                )
+                is_eligible = True
+        else:
+            observed_parts.append("absent from Scored_Table")
+
+        # Integrated eligible-flag signal.
+        if integrated_eligible is not None and cell_id in integrated_eligible.index:
+            flag = integrated_eligible.loc[cell_id]
+            if isinstance(flag, pd.Series):
+                flag = flag.iloc[0]
+            if bool(flag):
+                observed_parts.append("eligible == True in Integrated_Feature_Table")
+                is_eligible = True
+            else:
+                observed_parts.append("eligible == False in Integrated_Feature_Table")
+        else:
+            observed_parts.append("absent from Integrated_Feature_Table")
+
+        observed = f"cell {cell_id!r}: " + "; ".join(observed_parts)
+        passed = not is_eligible
+
+        assertions.append(
+            ExclusionAssertion(
+                landmark=landmark.name,
+                kind=landmark.kind,
+                lat=landmark.lat,
+                lon=landmark.lon,
+                cell_id=cell_id,
+                expected=expected,
+                observed=observed,
+                passed=passed,
+            )
+        )
+
+        if not passed:
+            kind_word = "urban centre" if landmark.kind == "urban" else "national park"
+            anomalies.append(
+                CheckAnomaly(
+                    check=_EXCLUSION_CHECK_NAME,
+                    description=(
+                        f"Landmark '{landmark.name}' ({kind_word}) locates to cell "
+                        f"{cell_id!r}, which is observed ELIGIBLE — expected an "
+                        f"Excluded_Cell."
+                    ),
+                    kind=ANOMALY_DATA_ISSUE,
+                    investigation_note=(
+                        "Distinguish a DATA issue from a MODEL result: an urban "
+                        "centre or national park that is ranked usually means an "
+                        "exclusion layer (populated-area or protected-area) did "
+                        "not cover this cell, or the landmark coordinate is wrong. "
+                        "Investigate the exclusion inputs before any change; the "
+                        "model is never adjusted to force this cell to exclude."
+                    ),
+                )
+            )
+
+    # --- Offshore/ocean assertion over the whole grid (3.3) ---
+    # Every grid cell must resolve to a land/eligible-population membership: the
+    # Integrated_Feature_Table is built over land cells only, so any grid cell
+    # absent from it is an ocean-only anomaly. Observed is always recorded (3.4).
+    grid_cell_ids = set(grid[_CELL_ID].tolist())
+    if integrated_eligible is not None:
+        integrated_cell_ids = set(integrated_eligible.index.tolist())
+    else:
+        integrated_cell_ids = set(integrated[_INT_CELL_ID].tolist())
+    offshore_cells = sorted(grid_cell_ids - integrated_cell_ids, key=repr)
+    n_offshore = len(offshore_cells)
+    offshore_passed = n_offshore == 0
+
+    if offshore_passed:
+        offshore_observed = (
+            f"all {len(grid_cell_ids)} grid cells resolve to a "
+            f"land/eligible-population membership in the Integrated_Feature_Table"
+        )
+    else:
+        sample = offshore_cells[:5]
+        offshore_observed = (
+            f"{n_offshore} grid cell(s) absent from the Integrated_Feature_Table "
+            f"(e.g. {sample}); these have no land/eligible-population membership"
+        )
+
+    assertions.append(
+        ExclusionAssertion(
+            landmark="no offshore/ocean cell in the Analysis_Grid",
+            kind=_OFFSHORE_KIND,
+            lat=None,
+            lon=None,
+            cell_id=None,
+            expected="every grid cell resolves to a land/eligible-population membership",
+            observed=offshore_observed,
+            passed=offshore_passed,
+        )
+    )
+
+    if not offshore_passed:
+        anomalies.append(
+            CheckAnomaly(
+                check=_EXCLUSION_CHECK_NAME,
+                description=(
+                    f"{n_offshore} Analysis_Grid cell(s) are absent from the "
+                    f"Integrated_Feature_Table (e.g. {offshore_cells[:5]}), "
+                    f"indicating possible offshore/ocean cells in the grid."
+                ),
+                kind=ANOMALY_DATA_ISSUE,
+                investigation_note=(
+                    "Likely a DATA issue: the Analysis_Grid should tile land "
+                    "only. Grid cells with no membership in the "
+                    "Integrated_Feature_Table suggest an ocean/offshore cell "
+                    "leaked into the grid, or the integration stage dropped land "
+                    "cells. Investigate the grid-generation land mask and the "
+                    "integration key coverage before any change."
+                ),
+            )
+        )
+
+    n_failed = sum(1 for a in assertions if not a.passed)
+    n_passed = len(assertions) - n_failed
+
+    return ExclusionCheckResult(
+        assertions=assertions,
+        n_passed=n_passed,
+        n_failed=n_failed,
+        all_passed=n_failed == 0,
         anomalies=anomalies,
         transform_log=transform_log,
     )
