@@ -337,6 +337,14 @@ Validation stages produce Markdown reports in the relevant `metadata/` directory
 
 ## Dependencies
 
+**Supported Python: 3.10–3.13. Do not use Python 3.14.** On CPython 3.14.x the
+S1-02 grid builder (`pipeline/grid/generate.py`) produces degenerate zero-area
+cells — every analysis cell collapses to a point, breaking the grid and every
+feature layer that joins to it. The same source, `numpy==2.2.6` and
+`shapely==2.1.2` build a correct 47,311-cell grid on Python 3.12/3.13, so the
+fault is in the 3.14 interpreter, not this code. `pyproject.toml`
+(`requires-python = ">=3.10,<3.14"`) enforces this for pip.
+
 ```
 pandas>=2.2
 requests>=2.32
