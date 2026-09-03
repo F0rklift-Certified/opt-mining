@@ -129,7 +129,7 @@ The analysis grid is anchored on the GWA v4 raster origin so that every cell bou
 - NSW grid western edge: 141.01125° = 109.21125° + 12,720 × 0.0025°
 - 12,720 is an integer — confirmed alignment
 
-This alignment is validated by an automated test (`tests/test_grid.py`) that verifies every cell edge is an integer number of GWA pixels from the origin.
+This alignment is validated by an automated test (`tests/grid/test_grid.py`) that verifies every cell edge is an integer number of GWA pixels from the origin.
 
 ---
 

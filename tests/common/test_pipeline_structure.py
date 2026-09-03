@@ -246,7 +246,7 @@ class TestIntegrationImports:
         import sys
         from pathlib import Path
 
-        root = Path(__file__).resolve().parent.parent
+        root = Path(__file__).resolve().parents[2]
         code = (
             "import sys; import pipeline.integration.merge as m; "
             "import pipeline.integration.confidence as c; "
@@ -326,7 +326,7 @@ class TestScoringImports:
         import sys
         from pathlib import Path
 
-        root = Path(__file__).resolve().parent.parent
+        root = Path(__file__).resolve().parents[2]
         code = (
             "import sys; import pipeline.scoring.run as r; "
             "assert callable(r.run); "

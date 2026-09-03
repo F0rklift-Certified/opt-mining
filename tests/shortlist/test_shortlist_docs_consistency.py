@@ -41,7 +41,8 @@ import pytest
 from pipeline import config as pcfg
 from pipeline.shortlist import config as slcfg
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# This test lives in tests/shortlist/, so the repo root is two levels up.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 README = PROJECT_ROOT / "pipeline" / "README.md"
 SPEC = PROJECT_ROOT / "DATA" / "data-specification" / "sprint1_data_specification.md"
 

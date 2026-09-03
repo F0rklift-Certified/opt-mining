@@ -8,7 +8,7 @@ exceptions — the geographic and wind feature-table constants — live in
 `pipeline/geographic/features.py` and `pipeline/wind/features.py`, both of
 which import rasterio at module load; the integration stage needs no
 rasterio, so those two are repeated as literals and pinned by
-`tests/test_pipeline_structure.py::TestIntegrationImports`
+`tests/common/test_pipeline_structure.py::TestIntegrationImports`
 (`test_config_matches_rasterio_backed_upstream_modules`).
 
 CRS constants are re-exported from grid/config.py (the authoritative source),
