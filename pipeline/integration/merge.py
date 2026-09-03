@@ -35,6 +35,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
@@ -45,7 +46,7 @@ import pyogrio
 from pyproj import CRS
 
 from . import config
-from ..common.geo import atomic_write_json, atomic_write_text, sha256_file
+from ..common.geo import atomic_write_json, atomic_write_text, sha256_file, utc_now
 
 
 # ---------------------------------------------------------------------------
@@ -578,6 +579,11 @@ def validate(
               str(list(EXCLUSIONS_CROSS_CHECK_COLUMNS)),
               "absent — cross-layer checks skipped", False, WARN)
 
+    return summarise_checks(checks)
+
+
+def summarise_checks(checks: list[dict]) -> dict:
+    """Counts over a check list: passed / total / failed (fatal) / warnings."""
     passed = sum(1 for c in checks if c["passed"])
     failed = sum(1 for c in checks if not c["passed"] and c["severity"] == FATAL)
     warnings = sum(1 for c in checks if not c["passed"] and c["severity"] == WARN)
@@ -985,3 +991,141 @@ def record_provenance(
         text = text.rstrip("\n") + "\n\n" + section if text else section
     atomic_write_text(provenance_path, text)
     return record
+
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+
+
+def _print_checks(result: dict) -> None:
+    for check in result["checks"]:
+        if check["passed"]:
+            status = "PASS"
+        elif check["severity"] == WARN:
+            status = "WARN"
+        else:
+            status = "**FAIL**"
+        print(f"    [{status}] {check['name']}: expected {check['expected']}, "
+              f"observed {check['observed']}")
+    print(f"    {result['passed']}/{result['total']} checks passed "
+          f"({result['failed']} fatal failures, {result['warnings']} warnings)")
+
+
+def run(verbose: bool = False) -> dict:
+    """
+    Run the S1-08 integration stage.
+
+    Reads the grid and the five feature layers, left-joins them by cell_id,
+    validates (writing merge_validation.md even when validation fails), then
+    writes the GeoPackage + CSV, verifies them by reading back, and records
+    the method report, manifest and provenance block.
+
+    Raises FileNotFoundError / ValueError from the loaders and RuntimeError on
+    any fatal validation failure, so the orchestrator halts with a non-zero
+    exit. WARN checks never halt.
+    """
+    t0 = time.time()
+    generated_utc = utc_now()
+    commit = git_commit(config.PROJECT_ROOT)
+    specs = layer_specs()
+
+    print("  [1/5] Reading analysis grid...")
+    grid, grid_info = read_grid(config.GRID_PATH, config.GRID_LAYER)
+    infos: dict[str, dict] = {"grid": grid_info}
+    print(f"    {grid_info['rows']:,} cells  ({_rel(grid_info['path'])}, layer {grid_info['layer']})")
+
+    print("  [2/5] Reading feature layers (attributes only)...")
+    layers: dict[str, pd.DataFrame] = {}
+    for spec in specs:
+        required = spec.source_columns
+        if spec.name == "exclusions":
+            required = required + EXCLUSIONS_CROSS_CHECK_COLUMNS
+        layers[spec.name], infos[spec.name] = read_layer(
+            spec.path, spec.layer, stage=spec.stage, required_columns=required,
+        )
+        info = infos[spec.name]
+        print(f"    {spec.name:15s} {info['rows']:>8,} rows  layer={info['layer']}  "
+              f"({_rel(info['path'])})")
+
+    print("  [3/5] Left-joining onto the grid by cell_id...")
+    table, join_log = merge_layers(grid, layers, specs)
+    if verbose:
+        for entry in join_log:
+            print(f"    {entry['layer']:15s} rows {entry['rows_before']} -> {entry['rows_after']}, "
+                  f"missing {entry['cell_ids_missing_from_upstream']}, "
+                  f"extra {entry['cell_ids_extra_in_upstream']}")
+
+    print("  [4/5] Validating (no silent passes)...")
+    result = validate(table, grid, layers, join_log, specs, infos)
+    meta_dir = config.INTEGRATION_META_DIR
+    validation_path = meta_dir / config.VALIDATION_REPORT_FILENAME
+    atomic_write_text(validation_path, build_validation_report(result, generated_utc))
+    _print_checks(result)
+    if result["failed"]:
+        failed = [c["name"] for c in result["checks"]
+                  if not c["passed"] and c["severity"] == FATAL]
+        raise RuntimeError(
+            f"integrated feature table failed validation: {', '.join(failed)} "
+            f"(see {validation_path})"
+        )
+
+    print("  [5/5] Writing outputs...")
+    gpkg_path = config.INTEGRATION_DIR / config.OUTPUT_FILENAME
+    csv_path = config.INTEGRATION_DIR / config.CSV_FILENAME
+    write_gpkg(table, gpkg_path)
+    print(f"    -> {_rel(gpkg_path)} (layer {config.OUTPUT_LAYER})")
+    write_csv(table, csv_path)
+    print(f"    -> {_rel(csv_path)}")
+
+    result = summarise_checks(result["checks"] + verify_written(gpkg_path, csv_path, len(table)))
+    atomic_write_text(validation_path, build_validation_report(result, generated_utc))
+    if result["failed"]:
+        failed = [c["name"] for c in result["checks"]
+                  if not c["passed"] and c["severity"] == FATAL]
+        raise RuntimeError(
+            f"written outputs failed read-back verification: {', '.join(failed)} "
+            f"(see {validation_path})"
+        )
+    print(f"    -> {_rel(validation_path)}")
+
+    runtime_s = time.time() - t0
+    report_path = meta_dir / config.METHOD_REPORT_FILENAME
+    atomic_write_text(report_path, build_method_report(
+        table=table, infos=infos, specs=specs, join_log=join_log, result=result,
+        runtime_s=runtime_s, generated_utc=generated_utc, git_commit=commit,
+        outputs={"gpkg": gpkg_path, "csv": csv_path, "validation_report": validation_path},
+    ))
+    print(f"    -> {_rel(report_path)}")
+
+    manifest_path = meta_dir / config.MANIFEST_FILENAME
+    provenance_path = config.INTEGRATION_DIR / "DATA_PROVENANCE.md"
+    record_provenance(
+        gpkg_path=gpkg_path, csv_path=csv_path, table=table, infos=infos,
+        generated_utc=generated_utc, git_commit=commit,
+        manifest_path=manifest_path, provenance_path=provenance_path,
+    )
+    print(f"    -> {_rel(manifest_path)}, {_rel(provenance_path)}")
+
+    n_cells = int(len(table))
+    n_eligible = int(table["eligible"].fillna(False).astype(bool).sum())
+    histogram = table["n_missing_features"].value_counts().sort_index()
+    print(f"    Cells {n_cells:,}; eligible {n_eligible:,}; excluded {n_cells - n_eligible:,}; "
+          f"runtime {runtime_s:.1f}s")
+
+    return {
+        "feature_table": gpkg_path,
+        "csv": csv_path,
+        "report": report_path,
+        "validation_report": validation_path,
+        "manifest": manifest_path,
+        "provenance": provenance_path,
+        "n_cells": n_cells,
+        "n_eligible": n_eligible,
+        "n_excluded": n_cells - n_eligible,
+        "n_missing_histogram": {int(k): int(v) for k, v in histogram.items()},
+        "runtime_s": runtime_s,
+        "validation": result,
+        "git_commit": commit,
+        "generated_utc": generated_utc,
+    }

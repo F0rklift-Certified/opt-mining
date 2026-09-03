@@ -1022,3 +1022,155 @@ class TestProvenance:
         assert text.count(PROVENANCE_BEGIN) == 1 and text.count(PROVENANCE_END) == 1
         assert entry["sha256_csv"] in text
         assert "--only integration" in text
+
+
+# ---------------------------------------------------------------------------
+# run() end to end
+# ---------------------------------------------------------------------------
+
+RUN_KEYS = {
+    "feature_table", "csv", "report", "validation_report", "manifest", "provenance",
+    "n_cells", "n_eligible", "n_excluded", "n_missing_histogram", "runtime_s",
+    "validation", "git_commit", "generated_utc",
+}
+
+
+class TestRun:
+    def test_run_writes_all_outputs_and_returns_summary(self, synthetic_pipeline):
+        from pipeline.integration.merge import PROVENANCE_BEGIN, run
+
+        result = run(verbose=False)
+        assert set(result) == RUN_KEYS
+        out, meta = synthetic_pipeline.out_dir, synthetic_pipeline.meta_dir
+        assert result["feature_table"] == out / icfg.OUTPUT_FILENAME
+        assert result["csv"] == out / icfg.CSV_FILENAME
+        assert result["report"] == meta / icfg.METHOD_REPORT_FILENAME
+        assert result["validation_report"] == meta / icfg.VALIDATION_REPORT_FILENAME
+        assert result["manifest"] == meta / icfg.MANIFEST_FILENAME
+        assert result["provenance"] == out / "DATA_PROVENANCE.md"
+        for key in ("feature_table", "csv", "report", "validation_report", "manifest", "provenance"):
+            assert result[key].exists(), key
+        assert result["n_cells"] == 6
+        assert result["n_eligible"] == 3 and result["n_excluded"] == 3
+        assert result["n_missing_histogram"] == {1: 4, 2: 1, 4: 1}
+        assert result["validation"]["failed"] == 0
+        assert result["validation"]["warnings"] == 1
+        assert isinstance(result["git_commit"], str) and result["git_commit"]
+        assert result["runtime_s"] > 0
+        report = result["report"].read_text(encoding="utf-8")
+        assert "Do not edit by hand" in report and result["generated_utc"] in report
+        validation = result["validation_report"].read_text(encoding="utf-8")
+        assert "GeoPackage read-back row count" in validation
+        assert "CSV read-back row count" in validation
+        assert PROVENANCE_BEGIN in result["provenance"].read_text(encoding="utf-8")
+        # Excluded rows are retained, marked ineligible, with their features intact.
+        table = gpd.read_file(result["feature_table"], layer=icfg.OUTPUT_LAYER).set_index("cell_id")
+        assert len(table) == 6
+        assert bool(table.loc["CELL_STEEP", "eligible"]) is False
+        assert table.loc["CELL_STEEP", "slope_deg"] == 20.0
+
+    def test_run_raises_and_still_writes_validation_report_on_fatal(self, synthetic_pipeline):
+        from pipeline.integration.merge import run
+
+        frame = _wind_frame()
+        _write_layer(synthetic_pipeline.wind, frame[frame["cell_id"] != "CELL_PLAIN"],
+                     icfg.WIND_LAYER, geometry=_geoms()[:5])
+        with pytest.raises(RuntimeError, match="wind: cell_id set matches grid"):
+            run(verbose=False)
+        validation = synthetic_pipeline.meta_dir / icfg.VALIDATION_REPORT_FILENAME
+        assert validation.exists()
+        assert "**FAIL**" in validation.read_text(encoding="utf-8")
+        assert not (synthetic_pipeline.out_dir / icfg.OUTPUT_FILENAME).exists()
+        assert not (synthetic_pipeline.out_dir / icfg.CSV_FILENAME).exists()
+
+    def test_rerun_is_idempotent(self, synthetic_pipeline):
+        import json
+        from pipeline.integration.merge import PROVENANCE_BEGIN, run
+
+        first = run(verbose=False)
+        csv_bytes = first["csv"].read_bytes()
+        second = run(verbose=False)
+        assert second["csv"].read_bytes() == csv_bytes
+        manifest = json.loads(second["manifest"].read_text(encoding="utf-8"))
+        assert len(manifest["derived_features"]) == 1
+        assert second["provenance"].read_text(encoding="utf-8").count(PROVENANCE_BEGIN) == 1
+
+
+# ---------------------------------------------------------------------------
+# Pipeline registration
+# ---------------------------------------------------------------------------
+
+
+class TestPipelineRegistration:
+    def test_stage_runs_after_every_producer_and_before_validate(self):
+        from pipeline import config as top
+
+        assert "integration" in top.STAGES
+        idx = top.STAGES.index("integration")
+        for producer in ("grid", "wind.features", "geographic.features",
+                         "infrastructure.features", "demand.feature", "exclusions"):
+            assert top.STAGES.index(producer) < idx, producer
+        assert idx < top.STAGES.index("validate")
+        assert "integration" in top.DOMAINS
+
+    def test_only_integration_resolves_single_stage(self):
+        import sys
+
+        sys.argv = ["test", "--only", "integration"]
+        from pipeline.__main__ import parse_args, resolve_stages
+
+        assert resolve_stages(parse_args()) == ["integration"]
+
+    def test_runner_dispatches_to_merge(self):
+        from pipeline.__main__ import _get_runner
+
+        assert _get_runner("integration").__module__ == "pipeline.integration.merge"
+
+    # Feature: s1-08-create-integrated-nsw-feature-table, Property 5: whenever
+    # `integration` is scheduled together with any of its producers, it runs
+    # after all of them and before `validate`, for any --only/--skip combination.
+    @settings(max_examples=100, deadline=None)
+    @given(
+        only=st.sampled_from([None, "integration", "exclusions", "grid", "wind", "validate"]),
+        skips=st.lists(st.sampled_from(
+            ["wind", "geographic", "demand", "grid", "exclusions", "wind.features",
+             "demand.feature", "infrastructure.features"]), max_size=4),
+        skip_validate=st.booleans(),
+    )
+    def test_property_5_integration_after_producers(self, only, skips, skip_validate):
+        from pipeline.__main__ import resolve_stages
+
+        stages = resolve_stages(SimpleNamespace(only=only, skip=skips, skip_validate=skip_validate))
+        if "integration" not in stages:
+            return
+        idx = stages.index("integration")
+        for producer in ("grid", "wind.features", "geographic.features",
+                         "infrastructure.features", "demand.feature", "exclusions"):
+            if producer in stages:
+                assert stages.index(producer) < idx
+        if "validate" in stages:
+            assert idx < stages.index("validate")
+
+
+# ---------------------------------------------------------------------------
+# Opt-in real-data integration (outputs redirected; never rewrites DATA/)
+# ---------------------------------------------------------------------------
+
+
+class TestRealDataIntegration:
+    def test_run_against_real_layers(self, tmp_path, monkeypatch):
+        from pipeline.integration.merge import run
+
+        inputs = [icfg.GRID_PATH, icfg.WIND_PATH, icfg.GEOGRAPHIC_PATH, icfg.INFRA_PATH,
+                  icfg.DEMAND_PATH, icfg.EXCLUSIONS_PATH]
+        missing = [p for p in inputs if not p.exists()]
+        if missing:
+            pytest.skip(f"real inputs not present: {[p.name for p in missing]}")
+        monkeypatch.setattr(icfg, "INTEGRATION_DIR", tmp_path / "integration")
+        monkeypatch.setattr(icfg, "INTEGRATION_META_DIR", tmp_path / "integration" / "metadata")
+
+        result = run(verbose=False)
+        assert result["n_cells"] == 47_311
+        assert result["validation"]["failed"] == 0
+        assert result["n_eligible"] + result["n_excluded"] == 47_311
+        assert "Do not edit by hand" in result["report"].read_text(encoding="utf-8")

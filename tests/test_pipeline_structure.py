@@ -227,6 +227,23 @@ class TestIntegrationImports:
         from pipeline.integration.analyse import run
         assert callable(run)
 
+    def test_merge_importable_without_rasterio(self):
+        # The stage needs no rasterio: prove it in a fresh interpreter so an
+        # earlier test importing rasterio cannot mask a regression.
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        code = (
+            "import sys; import pipeline.integration.merge as m; "
+            "assert callable(m.run); "
+            "assert 'rasterio' not in sys.modules, 'merge imported rasterio'"
+        )
+        proc = subprocess.run([sys.executable, "-c", code], cwd=root,
+                              capture_output=True, text=True, timeout=60)
+        assert proc.returncode == 0, proc.stderr
+
 
 class TestTopLevel:
     """Top-level pipeline modules are importable and consistent."""
@@ -253,12 +270,20 @@ class TestTopLevel:
         # after the grid stage that produces it (Req 10.4, 10.7).
         assert "geographic.features" in config.STAGES
         assert config.STAGES.index("geographic.features") > config.STAGES.index("grid")
+        # integration (S1-08) consumes every feature layer and the exclusion
+        # layer, so it is scheduled after all of them and before validate.
+        assert "integration" in config.STAGES
+        for producer in ("wind.features", "geographic.features",
+                         "infrastructure.features", "demand.feature", "exclusions"):
+            assert config.STAGES.index(producer) < config.STAGES.index("integration")
+        assert config.STAGES.index("integration") < config.STAGES.index("validate")
 
     def test_config_domains(self):
         assert "wind" in config.DOMAINS
         assert "geographic" in config.DOMAINS
         assert "infrastructure" in config.DOMAINS
         assert "demand" in config.DOMAINS
+        assert "integration" in config.DOMAINS
 
     def test_common_geo(self):
         from pipeline.common.geo import (
@@ -327,6 +352,16 @@ class TestOrchestratorResolution:
         from pipeline.__main__ import parse_args
         with pytest.raises(SystemExit):
             parse_args()
+
+    def test_only_integration_resolves_single_stage(self):
+        import sys
+        sys.argv = ["test", "--only", "integration"]
+        from pipeline.__main__ import parse_args, resolve_stages
+        assert resolve_stages(parse_args()) == ["integration"]
+
+    def test_get_runner_integration(self):
+        from pipeline.__main__ import _get_runner
+        assert _get_runner("integration").__module__ == "pipeline.integration.merge"
 
     def test_skip_domain(self):
         import sys

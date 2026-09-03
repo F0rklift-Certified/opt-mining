@@ -2,7 +2,7 @@
 CLI entry point for the data pipeline.
 
 Runs domain subpackages sequentially:
-  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → validate
+  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → integration → validate
 
 Usage:
     python -m pipeline                          # run all stages
@@ -84,6 +84,9 @@ def _get_runner(stage: str):
     elif stage == "exclusions":
         from .exclusions.apply import run
         return run
+    elif stage == "integration":
+        from .integration.merge import run
+        return run
     elif stage == "validate":
         from .validate import run
         return run
@@ -118,13 +121,14 @@ def parse_args() -> argparse.Namespace:
         description=(
             "Opt-Mining Data Pipeline — Wind, Geographic, Infrastructure & Demand.\n\n"
             "Runs domain subpackages sequentially:\n"
-            "  wind → geographic → infrastructure → demand → grid → feature layers → cross-domain validate"
+            "  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → integration → cross-domain validate"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
             "  python -m pipeline\n"
             "  python -m pipeline --only wind\n"
+            "  python -m pipeline --only integration\n"
             "  python -m pipeline --only wind.probe\n"
             "  python -m pipeline --skip infrastructure\n"
             "  python -m pipeline --skip-validate\n"
@@ -156,7 +160,8 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Run only the specified domain or stage. "
-            "Examples: 'wind', 'geographic.derive', 'demand', 'infrastructure.features', 'validate'"
+            "Examples: 'wind', 'geographic.derive', 'demand', 'infrastructure.features', "
+            "'integration', 'validate'"
         ),
     )
     parser.add_argument(
