@@ -457,3 +457,190 @@ def assess(table: pd.DataFrame, weights: Weights) -> pd.DataFrame:
         },
         index=table.index,
     )
+
+
+# ---------------------------------------------------------------------------
+# Summary statistics — distribution, reasons, lattice clustering
+# ---------------------------------------------------------------------------
+
+LEVEL_ORDER = (LEVEL_HIGH, LEVEL_MEDIUM, LEVEL_LOW)
+_LEVEL_CODE = {LEVEL_LOW: 0, LEVEL_MEDIUM: 1, LEVEL_HIGH: 2}
+_NEIGHBOUR_OFFSETS = tuple((dr, dc) for dr in (-1, 0, 1) for dc in (-1, 0, 1) if (dr, dc) != (0, 0))
+
+
+def lattice_index(
+    table: pd.DataFrame, *, origin_lon: float, origin_lat: float, cell_deg: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    (row, col) integer indices of each cell on the regular analysis lattice,
+    from its centroid: col counts cells east of the GWA origin, row counts
+    cells south of it. Cell centroids sit at half-cell offsets, so floor() is
+    robust to floating-point noise.
+    """
+    lon = table["centroid_lon"].to_numpy(dtype=float)
+    lat = table["centroid_lat"].to_numpy(dtype=float)
+    col = np.floor((lon - origin_lon) / cell_deg).astype(int)
+    row = np.floor((origin_lat - lat) / cell_deg).astype(int)
+    return row, col
+
+
+def _level_counts(levels: pd.Series) -> dict[str, int]:
+    return {level: int((levels == level).sum()) for level in LEVEL_ORDER}
+
+
+def _reason_counts(notes: pd.Series, n: int) -> list[dict]:
+    exploded = notes.astype(str).str.split(config.CONFIDENCE_NOTE_DELIMITER).explode()
+    exploded = exploded[(exploded != config.CONFIDENCE_NO_NOTES) & (exploded != "")]
+    counts = exploded.value_counts()
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    return [{"reason": reason, "count": int(count), "share": 100.0 * int(count) / n if n else 0.0}
+            for reason, count in ranked]
+
+
+def _histogram(scores: np.ndarray) -> list[dict]:
+    edges = [round(i / 10, 1) for i in range(11)]
+    bins = np.clip(np.floor(scores * 10 + 1e-9).astype(int), 0, 9) if len(scores) else np.array([], dtype=int)
+    counts = np.bincount(bins, minlength=10) if len(scores) else np.zeros(10, dtype=int)
+    out = []
+    for i in range(10):
+        closed = i == 9
+        label = f"[{edges[i]:.1f}, {edges[i + 1]:.1f}{']' if closed else ')'}"
+        out.append({"bin": label, "lower": edges[i], "upper": edges[i + 1], "count": int(counts[i])})
+    return out
+
+
+def _neighbour_agreement(levels: pd.Series, row: np.ndarray, col: np.ndarray) -> dict:
+    n = len(levels)
+    code = levels.map(_LEVEL_CODE).fillna(-1).to_numpy(dtype=int)
+    if n == 0:
+        return {level: {"n": 0, "all_neighbours_same": 0, "share_all_neighbours_same": None,
+                        "mean_same_fraction": None, "expected_share_random": None, "clustered": None}
+                for level in LEVEL_ORDER}
+    r_off, c_off = row - row.min() + 1, col - col.min() + 1
+    grid = np.full((r_off.max() + 2, c_off.max() + 2), -1, dtype=np.int8)
+    grid[r_off, c_off] = code
+    present = np.zeros(n, dtype=int)
+    same = np.zeros(n, dtype=int)
+    for dr, dc in _NEIGHBOUR_OFFSETS:
+        neighbour = grid[r_off + dr, c_off + dc]
+        present += neighbour != -1
+        same += (neighbour == code) & (neighbour != -1)
+
+    result = {}
+    for level in LEVEL_ORDER:
+        mask = code == _LEVEL_CODE[level]
+        n_level = int(mask.sum())
+        with_neighbours = mask & (present > 0)
+        all_same = with_neighbours & (same == present)
+        share = int(all_same.sum()) / n_level if n_level else None
+        fractions = same[with_neighbours] / present[with_neighbours]
+        p = n_level / n
+        result[level] = {
+            "n": n_level,
+            "all_neighbours_same": int(all_same.sum()),
+            "share_all_neighbours_same": share,
+            "mean_same_fraction": float(fractions.mean()) if len(fractions) else None,
+            "expected_share_random": p ** 8 if n_level else None,
+            "clustered": (share > p ** 8) if n_level else None,
+        }
+    return result
+
+
+def summarise(table: pd.DataFrame, weights: Weights) -> dict:
+    """
+    Distribution of the confidence columns plus the reasons and a geographic
+    pattern read-out. `table` must carry the confidence columns, `eligible`
+    and the grid centroids. Pure; returns plain Python values.
+    """
+    n = len(table)
+    levels = table["data_confidence"].astype(str)
+    scores = table["confidence_score"].to_numpy(dtype=float)
+
+    counts = _level_counts(levels)
+    shares = {level: (100.0 * counts[level] / n if n else 0.0) for level in LEVEL_ORDER}
+    score_stats = (
+        {"min": float(scores.min()), "max": float(scores.max()),
+         "mean": float(scores.mean()), "median": float(np.median(scores))}
+        if n else {"min": None, "max": None, "mean": None, "median": None}
+    )
+
+    distinct = (
+        table.groupby(["confidence_score", "data_confidence"]).size().reset_index(name="count")
+        .sort_values("confidence_score", ascending=False)
+    )
+    distinct_scores = [
+        {"score": float(r.confidence_score), "level": str(r.data_confidence), "count": int(r.count)}
+        for r in distinct.itertuples(index=False)
+    ]
+
+    reasons = _reason_counts(table["confidence_notes"], n)
+    if "eligible" in table.columns:
+        eligible = table["eligible"].fillna(False).astype(bool)
+        reasons_eligible = _reason_counts(table.loc[eligible, "confidence_notes"], int(eligible.sum()))
+        by_eligibility = {
+            "eligible": _level_counts(levels[eligible]),
+            "excluded": _level_counts(levels[~eligible]),
+        }
+    else:
+        reasons_eligible, by_eligibility = [], None
+
+    row, col = lattice_index(
+        table, origin_lon=config.GRID_ORIGIN_LON, origin_lat=config.GRID_ORIGIN_LAT,
+        cell_deg=config.CELL_DEG,
+    )
+    lat = table["centroid_lat"].to_numpy(dtype=float)
+    lon = table["centroid_lon"].to_numpy(dtype=float)
+    blocks_frame = pd.DataFrame({
+        "lat_block": np.floor(lat).astype(int) if n else np.array([], dtype=int),
+        "lon_block": np.floor(lon).astype(int) if n else np.array([], dtype=int),
+        "level": levels.to_numpy(),
+    })
+    blocks = []
+    for (lat_block, lon_block), group in blocks_frame.groupby(["lat_block", "lon_block"], sort=False):
+        size = len(group)
+        blocks.append({
+            "lat_block": int(lat_block), "lon_block": int(lon_block), "n": int(size),
+            **{f"pct_{level}": 100.0 * int((group["level"] == level).sum()) / size for level in LEVEL_ORDER},
+        })
+    blocks.sort(key=lambda b: (-b["lat_block"], b["lon_block"]))
+
+    bounding_boxes = {}
+    for level in LEVEL_ORDER:
+        mask = (levels == level).to_numpy()
+        if not mask.any():
+            bounding_boxes[level] = None
+            continue
+        bounding_boxes[level] = {
+            "n": int(mask.sum()),
+            "lat_min": float(lat[mask].min()), "lat_max": float(lat[mask].max()),
+            "lon_min": float(lon[mask].min()), "lon_max": float(lon[mask].max()),
+            "centroid_lat_mean": float(lat[mask].mean()), "centroid_lon_mean": float(lon[mask].mean()),
+        }
+
+    return {
+        "n_cells": n,
+        "counts": counts,
+        "shares": shares,
+        "score_stats": score_stats,
+        "histogram": _histogram(scores),
+        "distinct_scores": distinct_scores,
+        "reasons": reasons,
+        "reasons_eligible": reasons_eligible,
+        "top_reason": reasons[0]["reason"] if reasons else None,
+        "by_eligibility": by_eligibility,
+        "geographic": {
+            "lattice": {
+                "origin_lon": config.GRID_ORIGIN_LON, "origin_lat": config.GRID_ORIGIN_LAT,
+                "cell_deg": config.CELL_DEG,
+                "n_rows": int(row.max() - row.min() + 1) if n else 0,
+                "n_cols": int(col.max() - col.min() + 1) if n else 0,
+            },
+            "neighbour_agreement": _neighbour_agreement(levels, row, col),
+            "blocks": blocks,
+            "bounding_boxes": bounding_boxes,
+        },
+        "thresholds": {"high": weights.thresholds.high, "medium": weights.thresholds.medium},
+        "max_attainable": weights.max_attainable,
+        "weights_version": weights.version,
+        "weights_sha256": weights.sha256,
+    }

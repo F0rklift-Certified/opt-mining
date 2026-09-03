@@ -551,3 +551,171 @@ class TestProperties:
             notes = out.loc[i, "confidence_notes"].split(icfg.CONFIDENCE_NOTE_DELIMITER)
             for f in w.features:
                 assert (f.note in notes) == bool(pd.isna(table.loc[i, f.name])), (f.name, notes)
+
+
+# ---------------------------------------------------------------------------
+# summarise() — distribution, reasons, lattice clustering
+# ---------------------------------------------------------------------------
+
+
+def _assessed_six(weights):
+    from pipeline.integration.confidence import assess
+
+    table = six_cells()
+    return pd.concat([table, assess(table, weights)], axis=1)
+
+
+def _lattice_5x5(level_at):
+    """25 cells on the real lattice; level_at(row, col) -> data_confidence."""
+    rows = []
+    for r in range(5):
+        for c in range(5):
+            row_idx, col_idx = 422 + r, 834 + c
+            rows.append({
+                "cell_id": f"R{r}C{c}",
+                "centroid_lat": icfg.GRID_ORIGIN_LAT - (row_idx + 0.5) * icfg.CELL_DEG,
+                "centroid_lon": icfg.GRID_ORIGIN_LON + (col_idx + 0.5) * icfg.CELL_DEG,
+                "eligible": True,
+                "data_confidence": level_at(r, c),
+                "confidence_score": 0.9 if level_at(r, c) == "high" else 0.6 if level_at(r, c) == "medium" else 0.3,
+                "confidence_notes": "—",
+            })
+    return pd.DataFrame(rows)
+
+
+class TestLatticeIndex:
+    def test_six_cells_share_a_row_and_run_along_consecutive_columns(self):
+        from pipeline.integration.confidence import lattice_index
+
+        row, col = lattice_index(six_cells(), origin_lon=icfg.GRID_ORIGIN_LON,
+                                 origin_lat=icfg.GRID_ORIGIN_LAT, cell_deg=icfg.CELL_DEG)
+        assert row.tolist() == [422] * 6
+        assert col.tolist() == list(range(834, 840))
+
+    def test_lattice_cells_round_trip(self):
+        from pipeline.integration.confidence import lattice_index
+
+        table = _lattice_5x5(lambda r, c: "medium")
+        row, col = lattice_index(table, origin_lon=icfg.GRID_ORIGIN_LON,
+                                 origin_lat=icfg.GRID_ORIGIN_LAT, cell_deg=icfg.CELL_DEG)
+        assert sorted(set(row.tolist())) == list(range(422, 427))
+        assert sorted(set(col.tolist())) == list(range(834, 839))
+
+
+class TestSummarise:
+    def test_distribution_and_reasons_for_six_cells(self, weights):
+        from pipeline.integration.confidence import summarise
+
+        s = summarise(_assessed_six(weights), weights)
+        assert s["n_cells"] == 6
+        assert s["counts"] == {"high": 4, "medium": 2, "low": 0}
+        assert s["shares"]["high"] == pytest.approx(100 * 4 / 6)
+        assert s["score_stats"]["min"] == 0.680 and s["score_stats"]["max"] == 0.830
+        assert s["by_eligibility"] == {
+            "eligible": {"high": 2, "medium": 1, "low": 0},
+            "excluded": {"high": 2, "medium": 1, "low": 0},
+        }
+        assert s["distinct_scores"][0] == {"score": 0.830, "level": "high", "count": 3}
+        assert [d["score"] for d in s["distinct_scores"]] == [0.830, 0.818, 0.783, 0.680]
+        assert s["reasons"][0] == {"reason": "Missing connection-point distance", "count": 6, "share": 100.0}
+        assert s["top_reason"] == "Missing connection-point distance"
+        reasons = {r["reason"]: r["count"] for r in s["reasons"]}
+        assert reasons["Missing demand proxy"] == 1 and reasons["Missing elevation"] == 1
+        assert "—" not in reasons
+        eligible = {r["reason"]: r["count"] for r in s["reasons_eligible"]}
+        assert eligible == {"Missing connection-point distance": 3, "Missing demand proxy": 1}
+        assert s["thresholds"] == {"high": 0.8, "medium": 0.5}
+        assert s["max_attainable"] == pytest.approx(weights.max_attainable)
+        assert s["weights_version"] == "1.0" and s["weights_sha256"] == weights.sha256
+
+    def test_histogram_bins_cover_unit_interval_closed_at_one(self, weights):
+        from pipeline.integration.confidence import summarise
+
+        table = _lattice_5x5(lambda r, c: "medium").iloc[:5].copy()
+        table["confidence_score"] = [0.0, 0.05, 0.1, 0.95, 1.0]
+        s = summarise(table, weights)
+        bins = {b["bin"]: b["count"] for b in s["histogram"]}
+        assert len(bins) == 10 and sum(bins.values()) == 5
+        assert bins["[0.0, 0.1)"] == 2 and bins["[0.1, 0.2)"] == 1 and bins["[0.9, 1.0]"] == 2
+
+    def test_neighbour_agreement_on_a_3x3_block(self, weights):
+        from pipeline.integration.confidence import summarise
+
+        table = _lattice_5x5(lambda r, c: "low" if 1 <= r <= 3 and 1 <= c <= 3 else "medium")
+        s = summarise(table, weights)
+        assert s["counts"] == {"high": 0, "medium": 16, "low": 9}
+        geo = s["geographic"]
+        assert geo["lattice"] == {
+            "origin_lon": icfg.GRID_ORIGIN_LON, "origin_lat": icfg.GRID_ORIGIN_LAT,
+            "cell_deg": icfg.CELL_DEG, "n_rows": 5, "n_cols": 5,
+        }
+        low = geo["neighbour_agreement"]["low"]
+        assert low["n"] == 9 and low["all_neighbours_same"] == 1
+        assert low["share_all_neighbours_same"] == pytest.approx(1 / 9)
+        assert low["expected_share_random"] == pytest.approx((9 / 25) ** 8)
+        assert low["clustered"] is True
+        medium = geo["neighbour_agreement"]["medium"]
+        assert medium["n"] == 16 and medium["all_neighbours_same"] == 0
+        assert 0 < medium["mean_same_fraction"] < 1
+        high = geo["neighbour_agreement"]["high"]
+        assert high["n"] == 0 and high["clustered"] is None
+        boxes = geo["bounding_boxes"]
+        assert boxes["high"] is None
+        assert boxes["low"]["n"] == 9
+        assert boxes["low"]["lon_min"] < boxes["low"]["lon_max"]
+        assert boxes["low"]["lat_min"] < boxes["low"]["lat_max"]
+        blocks = geo["blocks"]
+        assert sum(b["n"] for b in blocks) == 25
+        for b in blocks:
+            assert b["pct_high"] + b["pct_medium"] + b["pct_low"] == pytest.approx(100.0)
+
+    def test_single_cell_has_no_neighbours(self, weights):
+        from pipeline.integration.confidence import summarise
+
+        s = summarise(_assessed_six(weights).iloc[[0]], weights)
+        agreement = s["geographic"]["neighbour_agreement"]["high"]
+        assert agreement["n"] == 1 and agreement["mean_same_fraction"] is None
+
+
+# ---------------------------------------------------------------------------
+# Reports
+# ---------------------------------------------------------------------------
+
+
+class TestReports:
+    def test_method_document_contents(self, weights):
+        from pipeline.integration.confidence import build_confidence_method
+
+        text = build_confidence_method(weights, generated_utc="2026-09-03T00:00:00+00:00", git_commit="abc1234")
+        assert "pipeline.integration.confidence" in text and "Do not edit by hand" in text
+        assert "2026-09-03T00:00:00+00:00" in text and "abc1234" in text
+        assert "confidence_score" in text and "Σ" in text
+        for f in weights.features:
+            assert f"| `{f.name}` |" in text and f.resolution_basis in text and f.limitation_basis in text
+        assert "| `wind_speed` | 0.35 |" in text
+        assert "0.8" in text and "0.5" in text
+        assert "not applicable" in text.lower()
+        assert "2008" in text and "2025" in text          # temporal-gap disclosure
+        assert "AEMO KCI" in text                          # the infra flag-factor rationale
+        assert f"`{weights.version}`" in text and weights.sha256 in text
+        assert "--confidence-weights" in text
+        assert "0.870" in text                              # max attainable
+        assert "tri" in text and "triggered_rules" in text  # deliberately not inputs
+
+    def test_summary_document_contents(self, weights, tmp_path):
+        from pipeline.integration.confidence import build_confidence_summary, summarise
+
+        s = summarise(_assessed_six(weights), weights)
+        text = build_confidence_summary(
+            s, weights, generated_utc="2026-09-03T00:00:00+00:00", git_commit="abc1234",
+            outputs={"method": tmp_path / "confidence_method.md", "table": tmp_path / "t.gpkg"},
+        )
+        assert "Do not edit by hand" in text
+        assert "| high | 4 |" in text and "| medium | 2 |" in text and "| low | 0 |" in text
+        assert "66.7" in text                               # share of high
+        assert "Missing connection-point distance" in text and "| 6 |" in text
+        assert "0.830" in text and "0.680" in text
+        assert "clustered" in text.lower()
+        assert "0 cells" in text                            # empty level stated explicitly
+        assert "confidence_method.md" in text
+        assert "Eligible" in text
