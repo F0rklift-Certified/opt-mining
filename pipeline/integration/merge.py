@@ -19,9 +19,11 @@ Design rules (Constitution + pipeline/README.md "Design Principles"):
     already be in the storage CRS (EPSG:4326) or the stage halts; upstream
     nulls stay null and their counts are checked to be unchanged after the
     join ("no NaN inflation").
-  * `data_confidence` is NOT derived here — that is S1-09's job. The five
-    per-layer confidence flags are carried through under per-layer names and
-    an objective `n_missing_features` count is added.
+  * The per-layer confidence flags are carried through under per-layer names
+    and an objective `n_missing_features` count is added; then the S1-09
+    layer (`confidence.assess()`, config `confidence_weights.yaml`) appends
+    `data_confidence`, `confidence_score` and `confidence_notes` — after the
+    join, before validation. It is a quality layer, never a filter.
   * Every validation check reports its expected and observed values, even
     when it passes (no silent passes).
 
@@ -45,7 +47,7 @@ import pandas as pd
 import pyogrio
 from pyproj import CRS
 
-from . import config
+from . import config, confidence
 from ..common.geo import atomic_write_json, atomic_write_text, sha256_file, utc_now
 
 
@@ -277,7 +279,7 @@ GRID_COLUMNS = ("cell_id", "centroid_lat", "centroid_lon", "area_km2")
 # Column order of the integrated table. Names follow the S1-08 ticket (and the
 # S1-10 weights config); the source of each is in LayerSpec.columns and is
 # tabulated in the method report.
-OUTPUT_COLUMNS = [
+BASE_COLUMNS = [
     "cell_id", "centroid_lat", "centroid_lon", "area_km2",
     "wind_speed", "wind_confidence",
     "demand_proxy", "source_region", "demand_confidence",
@@ -288,6 +290,10 @@ OUTPUT_COLUMNS = [
     "eligible", "exclusion_reason", "triggered_rules", "data_flags",
     "n_missing_features",
 ]
+
+# S1-09 confidence columns, appended by attach_confidence() after the join.
+CONFIDENCE_COLUMNS = tuple(config.CONFIDENCE_COLUMNS)
+OUTPUT_COLUMNS = BASE_COLUMNS + list(CONFIDENCE_COLUMNS)
 
 # The ten feature columns downstream scoring consumes (the ticket's feature
 # rows). n_missing_features counts nulls over exactly these. Defined in
@@ -323,8 +329,8 @@ def merge_layers(
     """
     Left-join every layer onto the grid by `cell_id`, in spec order.
 
-    Returns (integrated GeoDataFrame in OUTPUT_COLUMNS + geometry order,
-    join_log). The row count is asserted unchanged after every join and the
+    Returns (integrated GeoDataFrame in BASE_COLUMNS + geometry order — the
+    S1-09 confidence columns are attached separately — and the join_log). The row count is asserted unchanged after every join and the
     join is validated one-to-one, so a duplicated upstream key or a row
     inflation halts with a RuntimeError naming the layer. Nothing is
     back-filled: a grid cell absent from a layer simply gets nulls, and the
@@ -377,8 +383,22 @@ def merge_layers(
         table[column] = _normalise_bool(table[column])
     table["n_missing_features"] = compute_n_missing_features(table)
 
-    table = table[OUTPUT_COLUMNS + [geometry_name]]
+    table = table[BASE_COLUMNS + [geometry_name]]
     return gpd.GeoDataFrame(table, geometry=geometry_name, crs=grid.crs), join_log
+
+
+def attach_confidence(table: gpd.GeoDataFrame, weights: confidence.Weights) -> gpd.GeoDataFrame:
+    """
+    Append the S1-09 columns (data_confidence, confidence_score,
+    confidence_notes) to a merged table and return it in OUTPUT_COLUMNS +
+    geometry order. Pure: the input is not mutated.
+    """
+    assessed = confidence.assess(table, weights)
+    out = table.copy()
+    for column in CONFIDENCE_COLUMNS:
+        out[column] = assessed[column].to_numpy()
+    out = out[OUTPUT_COLUMNS + [table.geometry.name]]
+    return gpd.GeoDataFrame(out, geometry=table.geometry.name, crs=table.crs)
 
 
 # ---------------------------------------------------------------------------
@@ -410,9 +430,13 @@ def validate(
     join_log: list[dict],
     specs: Sequence[LayerSpec],
     infos: dict[str, dict] | None = None,
+    weights: confidence.Weights | None = None,
 ) -> dict:
     """
     Every check reports expected vs observed, even when it passes.
+
+    `weights` enables the two S1-09 checks that need the config (threshold
+    consistency and the full recount via assess()).
 
     Returns {"checks": [{name, expected, observed, passed, severity}],
     "passed", "total", "failed" (fatal checks that failed), "warnings"
@@ -528,6 +552,45 @@ def validate(
             outside = int((~table[column].isin(levels)).sum())
             check(f"{column} within vocabulary", f"all in {levels}",
                   f"{outside} rows outside {levels}", outside == 0)
+
+    # --- S1-09 confidence columns ---
+    conf_columns = list(CONFIDENCE_COLUMNS)
+    conf_missing = [c for c in conf_columns if c not in table.columns]
+    check("confidence: columns present", str(conf_columns),
+          "all present" if not conf_missing else f"missing {conf_missing}", not conf_missing)
+    if not conf_missing:
+        score = pd.to_numeric(table["confidence_score"], errors="coerce")
+        n_null_score = int(score.isna().sum())
+        n_outside = int(((score < 0) | (score > 1)).sum())
+        check("confidence_score within [0, 1] with no nulls", "0 nulls, 0 outside",
+              f"{n_null_score} nulls, {n_outside} outside", n_null_score == 0 and n_outside == 0)
+        level = table["data_confidence"]
+        outside_vocab = int((~level.isin(config.DATA_CONFIDENCE_LEVELS)).sum())
+        check("data_confidence within vocabulary", f"all in {config.DATA_CONFIDENCE_LEVELS}",
+              f"{outside_vocab} rows outside {config.DATA_CONFIDENCE_LEVELS}", outside_vocab == 0)
+        notes = table["confidence_notes"]
+        n_bad_notes = int((notes.isna() | (notes.astype(str).str.len() == 0)).sum())
+        check("confidence_notes non-empty text", "0 empty or null",
+              f"{n_bad_notes} empty or null", n_bad_notes == 0)
+        if weights is not None:
+            expected_level = confidence.categorise(score.fillna(-1.0).to_numpy(), weights.thresholds)
+            n_level_diff = int((expected_level != level.astype(str).to_numpy()).sum())
+            check("data_confidence consistent with thresholds", "0 rows differ",
+                  f"{n_level_diff} rows differ", n_level_diff == 0)
+            try:
+                recount = confidence.assess(table, weights)
+            except ValueError as exc:
+                check("confidence columns equal recount via assess()", "0 rows differ",
+                      f"recount impossible: {exc}", False)
+            else:
+                differ = (
+                    (recount["data_confidence"].to_numpy() != level.astype(str).to_numpy())
+                    | (recount["confidence_score"].to_numpy() != score.to_numpy())
+                    | (recount["confidence_notes"].to_numpy() != notes.astype(str).to_numpy())
+                )
+                n_recount = int(differ.sum())
+                check("confidence columns equal recount via assess()", "0 rows differ",
+                      f"{n_recount} rows differ", n_recount == 0)
 
     # --- cross-layer consistency (WARN): S1-07's own recomputation vs the
     #     geographic and wind layers, joined on cell_id ---
@@ -703,6 +766,11 @@ COLUMN_UNITS = {
     "triggered_rules": "text — ', '-joined rule names, null when eligible",
     "data_flags": "text — '; '-joined non-exclusionary coverage flags",
     "n_missing_features": "int 0–10 — nulls among the ten scored feature columns",
+    "data_confidence": "flag: high | medium | low — composite data confidence (S1-09); "
+                       "thresholds in confidence_weights.yaml",
+    "confidence_score": "float 0–1 (3 dp) — weighted availability × resolution × limitation × "
+                        "upstream-flag factors; see metadata/confidence_method.md",
+    "confidence_notes": "text — '; '-joined reasons for reduced confidence, '—' when none",
 }
 
 
@@ -718,6 +786,9 @@ def _column_source_map(specs: Sequence[LayerSpec]) -> dict[str, str]:
         for target, source in spec.columns.items():
             sources[target] = f"{spec.name}.{source}"
     sources["n_missing_features"] = "derived — count of nulls over " + ", ".join(SCORED_FEATURE_COLUMNS)
+    for column in CONFIDENCE_COLUMNS:
+        sources[column] = ("derived — S1-09 confidence.assess() over the ten scored columns, "
+                           "the four per-layer flags and data_flags (config confidence_weights.yaml)")
     return sources
 
 
@@ -740,6 +811,8 @@ def build_method_report(
     generated_utc: str,
     git_commit: str,
     outputs: dict[str, Path],
+    weights: confidence.Weights | None = None,
+    confidence_summary: dict | None = None,
 ) -> str:
     """Render integration_method.md."""
     n_cells = len(table)
@@ -778,6 +851,35 @@ def build_method_report(
         "checks, never carried — the geographic and wind layers are canonical)."
     )
 
+    if weights is not None:
+        counts = confidence_summary["counts"] if confidence_summary else None
+        conf_rows = ("\n".join(f"| {lvl} | {counts[lvl]:,} |" for lvl in config.DATA_CONFIDENCE_LEVELS)
+                     if counts else "| — | — |")
+        config_path = _rel(weights.path) if weights.path else "(in-memory config)"
+        confidence_section = f"""**Data confidence (S1-09).** After the join, `confidence.assess()` appends
+`data_confidence`, `confidence_score` and `confidence_notes` from the ten scored
+features' availability, their configured resolution and limitation factors, the
+per-layer flags (`wind_confidence`, `demand_confidence`, `infra_confidence`,
+`geo_confidence`) and S1-07's `data_flags`. Config `{config_path}` (version
+`{weights.version}`, SHA-256 `{weights.sha256}`). Methodology:
+`{_rel(outputs.get('confidence_method', 'confidence_method.md'))}`; distribution report:
+`{_rel(outputs.get('confidence_summary', 'confidence_summary.md'))}`.
+
+| data_confidence | Cells |
+|-----------------|-------|
+{conf_rows}
+"""
+    else:
+        confidence_section = (
+            "**Data confidence columns were not attached** for this report (no weights "
+            "supplied); the S1-09 layer is normally applied inside run().\n"
+        )
+    confidence_outputs = (
+        f"- Confidence methodology: `{_rel(outputs['confidence_method'])}`\n"
+        f"- Confidence summary: `{_rel(outputs['confidence_summary'])}`\n"
+        if "confidence_method" in outputs and "confidence_summary" in outputs else ""
+    )
+
     return f"""# Integrated NSW Feature Table — method report (S1-08)
 
 {_banner(generated_utc)}
@@ -798,12 +900,7 @@ the join). Distances and areas were computed upstream in {config.COMPUTATION_CRS
 
 Columns dropped on purpose: {dropped}
 
-**`data_confidence` is not emitted by this stage.** Deriving a composite
-confidence is S1-09's job; this table carries the five upstream flags under
-per-layer names (`wind_confidence`, `demand_confidence`, `infra_confidence`,
-`geo_confidence`; exclusions has none) plus the objective `n_missing_features`
-count for S1-09 to build on.
-
+{confidence_section}
 ## 2. Reproducibility
 
 - Generated (UTC): {generated_utc}
@@ -857,7 +954,7 @@ upstream divergence and does not fail the stage.
 
 - GeoPackage (with geometry, layer `{config.OUTPUT_LAYER}`): `{_rel(outputs['gpkg'])}`
 - CSV (without geometry): `{_rel(outputs['csv'])}`
-
+{confidence_outputs}
 ## 8. Runtime
 
 - Total wall-clock runtime: {runtime_s:.3f} s
@@ -912,6 +1009,7 @@ def record_provenance(
     git_commit: str,
     manifest_path: Path,
     provenance_path: Path,
+    weights: confidence.Weights | None = None,
 ) -> dict:
     """
     Read-merge-write one record into the manifest (keyed by output_file, so a
@@ -944,6 +1042,12 @@ def record_provenance(
             for name, info in infos.items()
         ],
     }
+    if weights is not None:
+        record["confidence_weights"] = {
+            "path": _rel(weights.path) if weights.path else None,
+            "sha256": weights.sha256,
+            "version": weights.version,
+        }
 
     manifest_path = Path(manifest_path)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
@@ -968,8 +1072,12 @@ def record_provenance(
         f"- **Derived from:**\n{inputs_md}\n"
         f"- **Method:** left joins on `cell_id` from the S1-02 grid; row count asserted "
         f"after every join; excluded cells retained with `eligible = False`; no "
-        f"reprojection, no back-filling; `data_confidence` deferred to S1-09.\n"
-        f"- **Regenerable:** yes — `python -m pipeline --only {STAGE_NAME}` "
+        f"reprojection, no back-filling; composite confidence appended by the S1-09 "
+        f"layer (`confidence.assess()`).\n"
+        + (f"- **Confidence config:** `{record['confidence_weights']['path']}` "
+           f"(version `{record['confidence_weights']['version']}`, SHA-256 "
+           f"`{record['confidence_weights']['sha256']}`)\n" if weights is not None else "")
+        + f"- **Regenerable:** yes — `python -m pipeline --only {STAGE_NAME}` "
         f"(after the five feature stages and `exclusions`).\n"
         f"- **SHA-256 (GeoPackage):** `{record['sha256_gpkg']}`\n"
         f"- **SHA-256 (CSV):** `{record['sha256_csv']}`\n"
@@ -1009,14 +1117,19 @@ def _print_checks(result: dict) -> None:
           f"({result['failed']} fatal failures, {result['warnings']} warnings)")
 
 
-def run(verbose: bool = False) -> dict:
+def run(verbose: bool = False, weights_path: Path | None = None) -> dict:
     """
-    Run the S1-08 integration stage.
+    Run the S1-08 integration stage (with the S1-09 confidence layer).
 
-    Reads the grid and the five feature layers, left-joins them by cell_id,
-    validates (writing merge_validation.md even when validation fails), then
-    writes the GeoPackage + CSV, verifies them by reading back, and records
-    the method report, manifest and provenance block.
+    Loads the confidence config first (fail fast), reads the grid and the five
+    feature layers, left-joins them by cell_id, appends the confidence
+    columns, validates (writing merge_validation.md even when validation
+    fails), then writes the GeoPackage + CSV, verifies them by reading back,
+    and records the method report, confidence methodology and summary,
+    manifest and provenance block.
+
+    weights_path overrides the packaged confidence_weights.yaml
+    (CLI: --confidence-weights).
 
     Raises FileNotFoundError / ValueError from the loaders and RuntimeError on
     any fatal validation failure, so the orchestrator halts with a non-zero
@@ -1025,14 +1138,19 @@ def run(verbose: bool = False) -> dict:
     t0 = time.time()
     generated_utc = utc_now()
     commit = git_commit(config.PROJECT_ROOT)
+    weights = confidence.load_weights(
+        Path(weights_path) if weights_path else config.DEFAULT_CONFIDENCE_WEIGHTS_PATH
+    )
+    print(f"  Confidence config: {_rel(weights.path)} (version {weights.version}, "
+          f"Σw = {weights.weight_sum:g}, max attainable {weights.max_attainable:.3f})")
     specs = layer_specs()
 
-    print("  [1/5] Reading analysis grid...")
+    print("  [1/6] Reading analysis grid...")
     grid, grid_info = read_grid(config.GRID_PATH, config.GRID_LAYER)
     infos: dict[str, dict] = {"grid": grid_info}
     print(f"    {grid_info['rows']:,} cells  ({_rel(grid_info['path'])}, layer {grid_info['layer']})")
 
-    print("  [2/5] Reading feature layers (attributes only)...")
+    print("  [2/6] Reading feature layers (attributes only)...")
     layers: dict[str, pd.DataFrame] = {}
     for spec in specs:
         required = spec.source_columns
@@ -1045,7 +1163,7 @@ def run(verbose: bool = False) -> dict:
         print(f"    {spec.name:15s} {info['rows']:>8,} rows  layer={info['layer']}  "
               f"({_rel(info['path'])})")
 
-    print("  [3/5] Left-joining onto the grid by cell_id...")
+    print("  [3/6] Left-joining onto the grid by cell_id...")
     table, join_log = merge_layers(grid, layers, specs)
     if verbose:
         for entry in join_log:
@@ -1053,8 +1171,14 @@ def run(verbose: bool = False) -> dict:
                   f"missing {entry['cell_ids_missing_from_upstream']}, "
                   f"extra {entry['cell_ids_extra_in_upstream']}")
 
-    print("  [4/5] Validating (no silent passes)...")
-    result = validate(table, grid, layers, join_log, specs, infos)
+    print("  [4/6] Assessing data confidence (S1-09)...")
+    table = attach_confidence(table, weights)
+    level_counts = {lvl: int((table["data_confidence"] == lvl).sum())
+                    for lvl in config.DATA_CONFIDENCE_LEVELS}
+    print("    " + "; ".join(f"{lvl} {count:,}" for lvl, count in level_counts.items()))
+
+    print("  [5/6] Validating (no silent passes)...")
+    result = validate(table, grid, layers, join_log, specs, infos, weights=weights)
     meta_dir = config.INTEGRATION_META_DIR
     validation_path = meta_dir / config.VALIDATION_REPORT_FILENAME
     atomic_write_text(validation_path, build_validation_report(result, generated_utc))
@@ -1067,7 +1191,7 @@ def run(verbose: bool = False) -> dict:
             f"(see {validation_path})"
         )
 
-    print("  [5/5] Writing outputs...")
+    print("  [6/6] Writing outputs...")
     gpkg_path = config.INTEGRATION_DIR / config.OUTPUT_FILENAME
     csv_path = config.INTEGRATION_DIR / config.CSV_FILENAME
     write_gpkg(table, gpkg_path)
@@ -1086,12 +1210,27 @@ def run(verbose: bool = False) -> dict:
         )
     print(f"    -> {_rel(validation_path)}")
 
+    confidence_method_path = meta_dir / config.CONFIDENCE_METHOD_FILENAME
+    confidence_summary_path = meta_dir / config.CONFIDENCE_SUMMARY_FILENAME
+    conf_summary = confidence.summarise(table, weights)
+    atomic_write_text(confidence_method_path, confidence.build_confidence_method(
+        weights, generated_utc=generated_utc, git_commit=commit,
+    ))
+    atomic_write_text(confidence_summary_path, confidence.build_confidence_summary(
+        conf_summary, weights, generated_utc=generated_utc, git_commit=commit,
+        outputs={"method": confidence_method_path, "table": gpkg_path},
+    ))
+    print(f"    -> {_rel(confidence_method_path)}, {_rel(confidence_summary_path)}")
+
     runtime_s = time.time() - t0
     report_path = meta_dir / config.METHOD_REPORT_FILENAME
     atomic_write_text(report_path, build_method_report(
         table=table, infos=infos, specs=specs, join_log=join_log, result=result,
         runtime_s=runtime_s, generated_utc=generated_utc, git_commit=commit,
-        outputs={"gpkg": gpkg_path, "csv": csv_path, "validation_report": validation_path},
+        outputs={"gpkg": gpkg_path, "csv": csv_path, "validation_report": validation_path,
+                 "confidence_method": confidence_method_path,
+                 "confidence_summary": confidence_summary_path},
+        weights=weights, confidence_summary=conf_summary,
     ))
     print(f"    -> {_rel(report_path)}")
 
@@ -1100,7 +1239,7 @@ def run(verbose: bool = False) -> dict:
     record_provenance(
         gpkg_path=gpkg_path, csv_path=csv_path, table=table, infos=infos,
         generated_utc=generated_utc, git_commit=commit,
-        manifest_path=manifest_path, provenance_path=provenance_path,
+        manifest_path=manifest_path, provenance_path=provenance_path, weights=weights,
     )
     print(f"    -> {_rel(manifest_path)}, {_rel(provenance_path)}")
 
@@ -1125,4 +1264,9 @@ def run(verbose: bool = False) -> dict:
         "validation": result,
         "git_commit": commit,
         "generated_utc": generated_utc,
+        "confidence": conf_summary,
+        "confidence_method": confidence_method_path,
+        "confidence_summary": confidence_summary_path,
+        "confidence_weights": {"path": str(weights.path), "sha256": weights.sha256,
+                               "version": weights.version},
     }

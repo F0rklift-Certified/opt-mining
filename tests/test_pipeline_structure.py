@@ -376,6 +376,16 @@ class TestOrchestratorResolution:
         from pipeline.__main__ import _get_runner
         assert _get_runner("integration").__module__ == "pipeline.integration.merge"
 
+    def test_confidence_weights_flag_threads_into_integration_kwargs(self):
+        import sys
+        from pathlib import Path
+        from pipeline.__main__ import _build_kwargs, parse_args
+        bbox = (150.0, -31.5, 152.0, -29.5)
+        sys.argv = ["test", "--only", "integration", "--confidence-weights", "custom.yaml"]
+        assert _build_kwargs("integration", parse_args(), bbox)["weights_path"] == Path("custom.yaml")
+        sys.argv = ["test", "--only", "integration"]
+        assert "weights_path" not in _build_kwargs("integration", parse_args(), bbox)
+
     def test_skip_domain(self):
         import sys
         sys.argv = ["test", "--skip", "demand", "--skip", "infrastructure"]

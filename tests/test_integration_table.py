@@ -339,7 +339,7 @@ class TestReadLayer:
 # Merge core
 # ---------------------------------------------------------------------------
 
-EXPECTED_OUTPUT_COLUMNS = [
+EXPECTED_BASE_COLUMNS = [
     "cell_id", "centroid_lat", "centroid_lon", "area_km2",
     "wind_speed", "wind_confidence",
     "demand_proxy", "source_region", "demand_confidence",
@@ -350,6 +350,8 @@ EXPECTED_OUTPUT_COLUMNS = [
     "eligible", "exclusion_reason", "triggered_rules", "data_flags",
     "n_missing_features",
 ]
+EXPECTED_CONFIDENCE_COLUMNS = ["data_confidence", "confidence_score", "confidence_notes"]
+EXPECTED_OUTPUT_COLUMNS = EXPECTED_BASE_COLUMNS + EXPECTED_CONFIDENCE_COLUMNS
 EXPECTED_SCORED = (
     "wind_speed", "demand_proxy", "dist_transmission_km", "dist_substation_km",
     "dist_connection_km", "inside_rez", "elevation_m", "slope_deg", "land_use",
@@ -384,12 +386,16 @@ def _merge(grid=None, layers=None):
 
 class TestSchema:
     def test_output_columns_exact_order(self):
-        from pipeline.integration.merge import OUTPUT_COLUMNS, SCORED_FEATURE_COLUMNS
+        from pipeline.integration.merge import (
+            BASE_COLUMNS, CONFIDENCE_COLUMNS, OUTPUT_COLUMNS, SCORED_FEATURE_COLUMNS,
+        )
 
+        assert list(BASE_COLUMNS) == EXPECTED_BASE_COLUMNS
+        assert list(CONFIDENCE_COLUMNS) == EXPECTED_CONFIDENCE_COLUMNS
         assert list(OUTPUT_COLUMNS) == EXPECTED_OUTPUT_COLUMNS
         assert "geometry" not in OUTPUT_COLUMNS
         assert tuple(SCORED_FEATURE_COLUMNS) == EXPECTED_SCORED
-        assert set(SCORED_FEATURE_COLUMNS) <= set(OUTPUT_COLUMNS)
+        assert set(SCORED_FEATURE_COLUMNS) <= set(BASE_COLUMNS)
 
 
 class TestMergeLayers:
@@ -399,7 +405,8 @@ class TestMergeLayers:
         assert str(merged.crs) == STORAGE_CRS
         assert len(merged) == 6
         assert list(merged["cell_id"]) == CELL_IDS
-        assert list(merged.columns) == EXPECTED_OUTPUT_COLUMNS + ["geometry"]
+        # merge_layers() stays pure S1-08: confidence is attached separately.
+        assert list(merged.columns) == EXPECTED_BASE_COLUMNS + ["geometry"]
 
     def test_values_land_in_ticket_named_columns(self):
         merged, _ = _merge()
@@ -604,18 +611,27 @@ def _load_all():
     return grid, layers, infos
 
 
-def _validated(mutate_table=None, mutate_layers=None):
-    """Merge the synthetic pipeline, optionally tamper, and validate."""
-    from pipeline.integration.merge import layer_specs, merge_layers, validate
+def _weights():
+    from pipeline.integration.confidence import load_weights
+
+    return load_weights(icfg.DEFAULT_CONFIDENCE_WEIGHTS_PATH)
+
+
+def _validated(mutate_table=None, mutate_layers=None, weights="default"):
+    """Merge the synthetic pipeline, attach confidence, optionally tamper, validate."""
+    from pipeline.integration.merge import attach_confidence, layer_specs, merge_layers, validate
 
     grid, layers, infos = _load_all()
     if mutate_layers:
         mutate_layers(layers)
     specs = layer_specs()
     table, log = merge_layers(grid, layers, specs)
+    w = _weights() if weights == "default" else weights
+    if w is not None:
+        table = attach_confidence(table, w)
     if mutate_table:
         table = mutate_table(table)
-    return validate(table, grid, layers, log, specs, infos)
+    return validate(table, grid, layers, log, specs, infos, weights=w)
 
 
 def _check(result, name):
@@ -658,6 +674,12 @@ class TestValidate:
             "n_missing_features equals recount over scored columns",
             "wind_confidence within vocabulary",
             "demand_confidence within vocabulary",
+            "confidence: columns present",
+            "confidence_score within [0, 1] with no nulls",
+            "data_confidence within vocabulary",
+            "data_confidence consistent with thresholds",
+            "confidence_notes non-empty text",
+            "confidence columns equal recount via assess()",
         ):
             assert expected in fatal_names, expected
 
@@ -792,6 +814,82 @@ class TestValidate:
         assert check["observed"].startswith("1 nulls")
 
 
+class TestAttachConfidence:
+    def test_columns_appended_before_geometry_with_six_cell_values(self):
+        from pipeline.integration.merge import attach_confidence
+
+        grid, layers = _in_memory_inputs()
+        merged, _ = _merge(grid, layers)
+        out = attach_confidence(merged, _weights())
+        assert isinstance(out, gpd.GeoDataFrame) and str(out.crs) == STORAGE_CRS
+        assert list(out.columns) == EXPECTED_OUTPUT_COLUMNS + ["geometry"]
+        assert out["confidence_score"].tolist() == [0.830, 0.830, 0.818, 0.680, 0.783, 0.830]
+        assert out["data_confidence"].tolist() == ["high", "high", "high", "medium", "medium", "high"]
+        assert out["confidence_notes"].iloc[0] == "Missing connection-point distance"
+        assert list(merged.columns) == EXPECTED_BASE_COLUMNS + ["geometry"]  # input untouched
+
+
+class TestValidateConfidence:
+    def test_score_out_of_range_detected(self, synthetic_pipeline):
+        def tamper(table):
+            table.loc[0, "confidence_score"] = 1.5
+            return table
+
+        check = _check(_validated(mutate_table=tamper), "confidence_score within [0, 1] with no nulls")
+        _assert_failed(check)
+        assert "1 outside" in check["observed"]
+
+    def test_category_outside_vocabulary_detected(self, synthetic_pipeline):
+        def tamper(table):
+            table.loc[0, "data_confidence"] = "unknown"
+            return table
+
+        check = _check(_validated(mutate_table=tamper), "data_confidence within vocabulary")
+        _assert_failed(check)
+        assert check["observed"].startswith("1 rows outside")
+
+    def test_category_inconsistent_with_thresholds_detected(self, synthetic_pipeline):
+        def tamper(table):
+            table.loc[0, "data_confidence"] = "low"   # score 0.830 says high
+            return table
+
+        check = _check(_validated(mutate_table=tamper), "data_confidence consistent with thresholds")
+        _assert_failed(check)
+        assert check["observed"] == "1 rows differ"
+
+    def test_empty_notes_detected(self, synthetic_pipeline):
+        def tamper(table):
+            table.loc[0, "confidence_notes"] = ""
+            return table
+
+        check = _check(_validated(mutate_table=tamper), "confidence_notes non-empty text")
+        _assert_failed(check)
+        assert check["observed"].startswith("1 empty or null")
+
+    def test_recount_detects_tampered_score(self, synthetic_pipeline):
+        def tamper(table):
+            table.loc[0, "confidence_score"] = 0.6
+            table.loc[0, "data_confidence"] = "medium"   # consistent with 0.6, but not with assess()
+            return table
+
+        check = _check(_validated(mutate_table=tamper), "confidence columns equal recount via assess()")
+        _assert_failed(check)
+        assert check["observed"] == "1 rows differ"
+
+    def test_missing_confidence_columns_detected(self, synthetic_pipeline):
+        check = _check(_validated(mutate_table=lambda t: t.drop(columns=["confidence_notes"])),
+                       "confidence: columns present")
+        _assert_failed(check)
+        assert "confidence_notes" in check["observed"]
+
+    def test_weights_optional_skips_recount_checks(self, synthetic_pipeline):
+        result = _validated(weights=None)
+        names = [c["name"] for c in result["checks"]]
+        assert "data_confidence consistent with thresholds" not in names
+        assert "confidence columns equal recount via assess()" not in names
+        assert "confidence: columns present" in names   # still reports the absence
+
+
 class TestValidateProperties:
     # Feature: s1-08-create-integrated-nsw-feature-table, Property 4: the
     # eligible/exclusion_reason consistency check counts exactly the rows
@@ -823,12 +921,14 @@ class TestValidateProperties:
 
 
 def _merged_from_files():
-    from pipeline.integration.merge import layer_specs, merge_layers, validate
+    from pipeline.integration.merge import attach_confidence, layer_specs, merge_layers, validate
 
     grid, layers, infos = _load_all()
     specs = layer_specs()
     table, log = merge_layers(grid, layers, specs)
-    result = validate(table, grid, layers, log, specs, infos)
+    w = _weights()
+    table = attach_confidence(table, w)
+    result = validate(table, grid, layers, log, specs, infos, weights=w)
     return table, grid, layers, log, specs, infos, result
 
 
@@ -886,6 +986,19 @@ class TestWriters:
         by_id = back.set_index("cell_id")
         assert by_id.loc["CELL_PROTECTED", "exclusion_reason"] == "Protected area: Test Reserve"
         assert by_id.loc["CELL_NO_GEO", "data_flags"].startswith("Urban-centre")
+
+    def test_write_csv_round_trips_the_no_notes_dash(self, synthetic_pipeline, tmp_path):
+        from pipeline.integration.merge import attach_confidence, layer_specs, merge_layers, write_csv
+
+        grid, layers = _in_memory_inputs()
+        layers["infrastructure"]["dist_connection_km"] = pd.Series([3.0] + [np.nan] * 5, dtype="float64")
+        table = attach_confidence(merge_layers(grid, layers, layer_specs())[0], _weights())
+        assert table["confidence_notes"].iloc[0] == "—"
+        path = tmp_path / "dash.csv"
+        write_csv(table, path)
+        back = pd.read_csv(path, encoding="utf-8")
+        assert back["confidence_notes"].iloc[0] == "—"
+        assert list(back.columns) == EXPECTED_OUTPUT_COLUMNS
 
     def test_write_csv_renders_nullable_boolean_null_as_empty(self, synthetic_pipeline, tmp_path):
         from pipeline.integration.merge import layer_specs, merge_layers, write_csv
@@ -964,13 +1077,22 @@ class TestReports:
         from pipeline.integration.merge import build_method_report
 
         table, grid, layers, log, specs, infos, result = _merged_from_files()
+        from pipeline.integration.confidence import summarise
+
+        w = _weights()
         report = build_method_report(
             table=table, infos=infos, specs=specs, join_log=log, result=result,
             runtime_s=1.234, generated_utc="2026-09-03T00:00:00+00:00",
             git_commit="abc1234",
             outputs={"gpkg": tmp_path / "a.gpkg", "csv": tmp_path / "a.csv",
-                     "validation_report": tmp_path / "merge_validation.md"},
+                     "validation_report": tmp_path / "merge_validation.md",
+                     "confidence_method": tmp_path / "confidence_method.md",
+                     "confidence_summary": tmp_path / "confidence_summary.md"},
+            weights=w, confidence_summary=summarise(table, w),
         )
+        assert "confidence_method.md" in report and "confidence_summary.md" in report
+        assert w.sha256 in report
+        assert "| high | 4 |" in report
         assert "pipeline.integration.merge" in report
         assert "Do not edit by hand" in report
         assert "| wind_speed | wind.wind_speed_100m |" in report
@@ -1019,7 +1141,7 @@ class TestProvenance:
             record = record_provenance(
                 gpkg_path=gpkg, csv_path=csv, table=table, infos=infos,
                 generated_utc="2026-09-03T00:00:00+00:00", git_commit="abc1234",
-                manifest_path=manifest, provenance_path=provenance,
+                manifest_path=manifest, provenance_path=provenance, weights=_weights(),
             )
 
         import json
@@ -1045,6 +1167,10 @@ class TestProvenance:
         assert text.count(PROVENANCE_BEGIN) == 1 and text.count(PROVENANCE_END) == 1
         assert entry["sha256_csv"] in text
         assert "--only integration" in text
+        assert set(entry["confidence_weights"]) == {"path", "sha256", "version"}
+        assert entry["confidence_weights"]["version"] == "1.0"
+        assert entry["confidence_weights"]["sha256"] in text
+        assert entry["columns"][-3:] == EXPECTED_CONFIDENCE_COLUMNS
 
 
 # ---------------------------------------------------------------------------
@@ -1055,6 +1181,7 @@ RUN_KEYS = {
     "feature_table", "csv", "report", "validation_report", "manifest", "provenance",
     "n_cells", "n_eligible", "n_excluded", "n_missing_histogram", "runtime_s",
     "validation", "git_commit", "generated_utc",
+    "confidence", "confidence_method", "confidence_summary", "confidence_weights",
 }
 
 
@@ -1086,6 +1213,15 @@ class TestRun:
         assert "GeoPackage read-back row count" in validation
         assert "CSV read-back row count" in validation
         assert PROVENANCE_BEGIN in result["provenance"].read_text(encoding="utf-8")
+        # S1-09 confidence products.
+        assert result["confidence_method"] == meta / icfg.CONFIDENCE_METHOD_FILENAME
+        assert result["confidence_summary"] == meta / icfg.CONFIDENCE_SUMMARY_FILENAME
+        assert result["confidence_method"].exists() and result["confidence_summary"].exists()
+        assert result["confidence"]["counts"] == {"high": 4, "medium": 2, "low": 0}
+        assert result["confidence_weights"]["path"] == str(icfg.DEFAULT_CONFIDENCE_WEIGHTS_PATH)
+        assert len(result["confidence_weights"]["sha256"]) == 64
+        header = result["csv"].read_text(encoding="utf-8").split("\n")[0]
+        assert header == ",".join(EXPECTED_OUTPUT_COLUMNS)
         # Excluded rows are retained, marked ineligible, with their features intact.
         table = gpd.read_file(result["feature_table"], layer=icfg.OUTPUT_LAYER).set_index("cell_id")
         assert len(table) == 6
@@ -1105,6 +1241,32 @@ class TestRun:
         assert "**FAIL**" in validation.read_text(encoding="utf-8")
         assert not (synthetic_pipeline.out_dir / icfg.OUTPUT_FILENAME).exists()
         assert not (synthetic_pipeline.out_dir / icfg.CSV_FILENAME).exists()
+
+    def test_custom_weights_change_counts_and_manifest_sha(self, synthetic_pipeline, tmp_path):
+        import json
+
+        yaml = pytest.importorskip("yaml")
+        from pipeline.integration.merge import run
+
+        raw = yaml.safe_load(icfg.DEFAULT_CONFIDENCE_WEIGHTS_PATH.read_text(encoding="utf-8"))
+        raw["thresholds"] = {"high": 0.9, "medium": 0.7}
+        custom = tmp_path / "strict.yaml"
+        custom.write_text(yaml.safe_dump(raw), encoding="utf-8")
+
+        default = run(verbose=False)
+        strict = run(verbose=False, weights_path=custom)
+        assert strict["confidence"]["counts"] == {"high": 0, "medium": 5, "low": 1}
+        assert strict["confidence_weights"]["sha256"] != default["confidence_weights"]["sha256"]
+        manifest = json.loads(strict["manifest"].read_text(encoding="utf-8"))
+        assert manifest["derived_features"][0]["confidence_weights"]["path"].endswith("strict.yaml")
+
+    def test_missing_weights_file_fails_before_any_output(self, synthetic_pipeline):
+        from pipeline.integration.confidence import ConfidenceConfigError
+        from pipeline.integration.merge import run
+
+        with pytest.raises(ConfidenceConfigError, match="not found"):
+            run(verbose=False, weights_path=synthetic_pipeline.out_dir / "missing.yaml")
+        assert not synthetic_pipeline.out_dir.exists() or not any(synthetic_pipeline.out_dir.iterdir())
 
     def test_rerun_is_idempotent(self, synthetic_pipeline):
         import json
@@ -1197,3 +1359,11 @@ class TestRealDataIntegration:
         assert result["validation"]["failed"] == 0
         assert result["n_eligible"] + result["n_excluded"] == 47_311
         assert "Do not edit by hand" in result["report"].read_text(encoding="utf-8")
+        counts = result["confidence"]["counts"]
+        assert sum(counts.values()) == 47_311
+        table = pd.read_csv(result["csv"], usecols=["confidence_score", "confidence_notes",
+                                                     "dist_connection_km"])
+        assert table["confidence_score"].notna().all()
+        assert table["confidence_score"].max() <= _weights().max_attainable + 1e-9
+        if table["dist_connection_km"].isna().all():
+            assert table["confidence_notes"].str.contains("Missing connection-point distance").all()

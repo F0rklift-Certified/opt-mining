@@ -129,6 +129,7 @@ def parse_args() -> argparse.Namespace:
             "  python -m pipeline\n"
             "  python -m pipeline --only wind\n"
             "  python -m pipeline --only integration\n"
+            "  python -m pipeline --only integration --confidence-weights my_weights.yaml\n"
             "  python -m pipeline --only wind.probe\n"
             "  python -m pipeline --skip infrastructure\n"
             "  python -m pipeline --skip-validate\n"
@@ -291,6 +292,15 @@ def parse_args() -> argparse.Namespace:
             "(default: pipeline/exclusions/exclusion_rules.yaml)"
         ),
     )
+    parser.add_argument(
+        "--confidence-weights",
+        type=str,
+        default=None,
+        help=(
+            "Path to a custom confidence weights YAML for the 'integration' stage "
+            "(S1-09; default: pipeline/integration/confidence_weights.yaml)"
+        ),
+    )
 
     # Output
     parser.add_argument(
@@ -390,6 +400,8 @@ def _build_kwargs(stage: str, args: argparse.Namespace, bbox: tuple) -> dict:
     if stage == "exclusions":
         if args.exclusion_rules:
             kwargs["rules_path"] = Path(args.exclusion_rules)
+    if stage == "integration" and args.confidence_weights:
+        kwargs["weights_path"] = Path(args.confidence_weights)
 
     return kwargs
 

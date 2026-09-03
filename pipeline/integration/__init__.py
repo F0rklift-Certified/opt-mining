@@ -11,8 +11,13 @@ Modules:
               S1-02 analysis grid by `cell_id` and writes the Integrated
               Feature Table (GeoPackage + CSV) with a merge-validation report
               and provenance.
-    config  — Paths, layer names and constants for the merge stage; every
-              input path is composed from the producing domain's config.
+    confidence — S1-09 data-quality layer: composes data_confidence /
+              confidence_score / confidence_notes per cell from the per-layer
+              flags, feature availability and the configured resolution and
+              limitation factors (confidence_weights.yaml); applied inside the
+              `integration` stage.
+    config  — Paths, layer names and constants for both stages; every input
+              path is composed from the producing domain's config.
 
 Usage:
     from pipeline.integration.merge import run
