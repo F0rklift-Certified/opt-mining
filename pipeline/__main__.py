@@ -2,7 +2,7 @@
 CLI entry point for the data pipeline.
 
 Runs domain subpackages sequentially:
-  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → integration → scoring → shortlist → validate
+  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → integration → scoring → shortlist → validate → sanity
 
 Usage:
     python -m pipeline                          # run all stages
@@ -11,6 +11,7 @@ Usage:
     python -m pipeline --skip wind              # skip a domain
     python -m pipeline --skip-validate          # skip cross-domain checks
     python -m pipeline --only scoring --scoring-weights w.yaml   # rescore with custom weights
+    python -m pipeline --only sanity            # run the terminal sanity check
     python -m pipeline --verbose                # detailed logging
     python -m pipeline --bbox 150.0,-31.5,152.0,-29.5 --area-name my-area
 """
@@ -97,6 +98,9 @@ def _get_runner(stage: str):
     elif stage == "validate":
         from .validate import run
         return run
+    elif stage == "sanity":
+        from .sanity.run import run
+        return run
     else:
         raise ValueError(f"Unknown stage: {stage}")
 
@@ -121,6 +125,21 @@ def _projected_crs_arg(value: str) -> str:
     return value
 
 
+def _spot_cells_arg(value: str) -> int:
+    """Argparse validator for --sanity-spot-cells (inclusive range 5-10)."""
+    try:
+        n = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"--sanity-spot-cells must be an integer (got {value!r})"
+        ) from exc
+    if not (5 <= n <= 10):
+        raise argparse.ArgumentTypeError(
+            f"--sanity-spot-cells must be within the inclusive range 5-10 (got {n})"
+        )
+    return n
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
@@ -128,7 +147,7 @@ def parse_args() -> argparse.Namespace:
         description=(
             "Opt-Mining Data Pipeline — Wind, Geographic, Infrastructure & Demand.\n\n"
             "Runs domain subpackages sequentially:\n"
-            "  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → integration → scoring → shortlist → cross-domain validate"
+            "  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → integration → scoring → shortlist → cross-domain validate → sanity"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -141,6 +160,8 @@ def parse_args() -> argparse.Namespace:
             "  python -m pipeline --only scoring --scoring-weights my_weights.yaml\n"
             "  python -m pipeline --only shortlist\n"
             "  python -m pipeline --only shortlist --shortlist-top-n 50\n"
+            "  python -m pipeline --only sanity\n"
+            "  python -m pipeline --only sanity --sanity-spot-cells 10\n"
             "  python -m pipeline --only wind.probe\n"
             "  python -m pipeline --skip infrastructure\n"
             "  python -m pipeline --skip-validate\n"
@@ -355,6 +376,27 @@ def parse_args() -> argparse.Namespace:
         ),
     )
 
+    # Sanity options (S1-12)
+    parser.add_argument(
+        "--sanity-spot-cells",
+        type=_spot_cells_arg,
+        default=8,
+        help=(
+            "Number of Eligible_Cells to spot-check in the 'sanity' stage "
+            "(S1-12; default: 8). Must be within the inclusive range 5-10."
+        ),
+    )
+    parser.add_argument(
+        "--wind-generators",
+        type=str,
+        default=None,
+        help=(
+            "Path override for the GA Wind_Generators dataset used by the "
+            "'sanity' stage (S1-12; default: "
+            "DATA/infrastructure/generators/ga_wind_generators_2026_nsw.geojson)."
+        ),
+    )
+
     # Output
     parser.add_argument(
         "--verbose",
@@ -462,6 +504,10 @@ def _build_kwargs(stage: str, args: argparse.Namespace, bbox: tuple) -> dict:
             kwargs["confidence_discount"] = args.confidence_discount
     if stage == "shortlist":
         kwargs["top_n"] = args.shortlist_top_n
+    if stage == "sanity":
+        kwargs["spot_cells"] = args.sanity_spot_cells
+        if args.wind_generators:
+            kwargs["wind_generators_path"] = Path(args.wind_generators)
 
     return kwargs
 
