@@ -113,7 +113,7 @@ def _integrated_frame() -> gpd.GeoDataFrame:
             "wind_speed": [6.0 + 0.2 * i for i in range(_N_CELLS)],
             "slope_deg": [2.0 + 0.1 * i for i in range(_N_CELLS)],
             "dist_transmission_km": [5.0 + i for i in range(_N_CELLS)],
-            "protected": [False] * _N_CELLS,
+            "protected_area": [False] * _N_CELLS,
             "eligible": [True] * _N_CELLS,
         },
         geometry=[_cell_polygon(i) for i in range(_N_CELLS)],

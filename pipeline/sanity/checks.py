@@ -987,7 +987,7 @@ def check_exclusions(
 _INT_WIND_SPEED = config.REQUIRED_INTEGRATED_COLUMNS[1]  # "wind_speed"
 _INT_SLOPE_DEG = config.REQUIRED_INTEGRATED_COLUMNS[2]  # "slope_deg"
 _INT_DIST_TRANSMISSION = config.REQUIRED_INTEGRATED_COLUMNS[3]  # "dist_transmission_km"
-_INT_PROTECTED = config.REQUIRED_INTEGRATED_COLUMNS[4]  # "protected"
+_INT_PROTECTED = config.REQUIRED_INTEGRATED_COLUMNS[4]  # "protected_area"
 
 # The grid centroid columns a Spot_Check_Cell carries once eligible cells have
 # been joined to the Analysis_Grid (config.REQUIRED_GRID_COLUMNS[1:3]).

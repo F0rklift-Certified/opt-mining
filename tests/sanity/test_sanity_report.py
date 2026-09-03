@@ -72,7 +72,7 @@ _INT_CELL_ID = config.REQUIRED_INTEGRATED_COLUMNS[0]  # "cell_id"
 _INT_WIND_SPEED = config.REQUIRED_INTEGRATED_COLUMNS[1]  # "wind_speed"
 _INT_SLOPE = config.REQUIRED_INTEGRATED_COLUMNS[2]  # "slope_deg"
 _INT_DIST_TX = config.REQUIRED_INTEGRATED_COLUMNS[3]  # "dist_transmission_km"
-_INT_PROTECTED = config.REQUIRED_INTEGRATED_COLUMNS[4]  # "protected"
+_INT_PROTECTED = config.REQUIRED_INTEGRATED_COLUMNS[4]  # "protected_area"
 _INT_ELIGIBLE = config.REQUIRED_INTEGRATED_COLUMNS[5]  # "eligible"
 
 

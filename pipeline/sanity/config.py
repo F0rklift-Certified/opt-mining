@@ -98,7 +98,7 @@ REQUIRED_INTEGRATED_COLUMNS = (
     "wind_speed",
     "slope_deg",
     "dist_transmission_km",
-    "protected",
+    "protected_area",
     "eligible",
 )
 REQUIRED_GRID_COLUMNS = ("cell_id", "centroid_lat", "centroid_lon", "geometry")
@@ -158,7 +158,7 @@ VERIFY_SOURCES = {
     "wind_speed": "open Global Wind Atlas (GWA) at the cell centroid",
     "slope_deg": "a topographic reference (SRTM-derived slope)",
     "dist_transmission_km": "a GIS distance measurement to the nearest transmission line",
-    "protected": "CAPAD protected-area lookup",
+    "protected_area": "CAPAD protected-area lookup",
 }
 
 # ---------------------------------------------------------------------------

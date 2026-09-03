@@ -69,7 +69,7 @@ def _integrated_frame() -> gpd.GeoDataFrame:
             "wind_speed": [8.0, 7.0, 6.0],
             "slope_deg": [2.0, 3.0, 4.0],
             "dist_transmission_km": [5.0, 10.0, 15.0],
-            "protected": [False, False, True],
+            "protected_area": [False, False, True],
             "eligible": [True, True, False],
         },
         geometry=[Point(150 + i, -30) for i in range(3)],
