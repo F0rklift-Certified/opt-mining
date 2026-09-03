@@ -10,7 +10,10 @@
 # same source, numpy (2.2.6) and shapely (2.1.2) work correctly on Python
 # 3.13; the fault is in the 3.14 interpreter, not this code. See pyproject.toml
 # (requires-python) which enforces this for pip installs.
-pandas==2.2.2
+# Bumped 2.2.2 -> 2.2.3 (same 2.2.x line): pandas 2.2.2 ships no cp313 wheel,
+# so on the Python 3.13 CI runner pip fell back to building it from source and
+# the C++ compile failed under the runner's GCC. 2.2.3 provides cp313 wheels.
+pandas==2.2.3
 requests==2.32.3
 
 # Task 1 — Wind Resource (Global Wind Atlas GeoTIFF handling)
