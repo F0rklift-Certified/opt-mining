@@ -60,6 +60,15 @@ python -m pipeline --only scoring --scoring-weights path/to/my_weights.yaml
 python -m pipeline --only shortlist
 python -m pipeline --only shortlist --shortlist-top-n 50
 
+# Validation sanity check (S1-12 — the TERMINAL stage; a preliminary-screening
+# plausibility check of the pipeline outputs against known reality. Requires the
+# S1-11 shortlist, the S1-10 Scored_Table, the S1-08 integrated table, the GA
+# wind generators and the grid to exist already. DISTINCT from the structural
+# 'validate' step; it never re-scores, re-ranks or adjusts the model.)
+python -m pipeline --only sanity
+python -m pipeline --only sanity --sanity-spot-cells 10
+python -m pipeline --only sanity --wind-generators path/to/ga_wind_generators.geojson
+
 # Validation: stricter slope threshold
 python -m pipeline --max-slope 12
 
@@ -174,6 +183,7 @@ wind.probe → wind.download → wind.inspect → wind.validate → wind.analyse
 → scoring (S1-10 baseline suitability model — weighted MCDA over the integrated table; scores, ranks and explains every eligible cell)
 → shortlist (S1-11 preliminary ranked shortlist — selects the top-N eligible cells by their existing S1-10 rank; the Sprint 1 headline output)
 → validate (cross-domain integration checks)
+→ sanity (S1-12 plausibility sanity check — TERMINAL; validates the pipeline outputs against known reality, distinct from the structural `validate` step above)
 ```
 
 `wind.features` is registered after `grid` (not inline with the other
@@ -218,6 +228,15 @@ Note: `shortlist` (S1-11) runs after `scoring` and before `validate` because the
 - **Two consistent exports.** A Shortlist_CSV and a Shortlist_GeoJSON (EPSG:4326, one feature per cell, centroid Point geometry by default) carry the same `cell_id` set in the same rank order, plus a Summary_Report of descriptive statistics over the eligible population and the top sites.
 - **Preliminary screening only.** Every output and its metadata carry the Preliminary_Disclaimer — the shortlist is a preliminary screening output at the ~5 km (0.05 degree) Analysis_Resolution, indicating where to look next; it is **not** a site approval, an engineering assessment, or a final recommendation.
 
+Note: `sanity` (S1-12) is the **terminal** stage; it runs last, after `validate`. It is a **preliminary-screening plausibility sanity check** that asks whether the pipeline's outputs make sense against known reality — it is **distinct from the structural `pipeline/validate.py` step**, which checks internal data-integrity contracts (row counts, schema, CRS, key coverage). The `sanity` stage instead runs four reality checks over the pipeline outputs, read-only:
+
+- **Known Wind Farm Comparison.** Each GA wind generator is located to its Analysis_Grid cell (point-in-polygon in EPSG:3577, the transform logged) and its `suitability_score`, `rank` and percentile over the eligible population are reported, with the count/proportion in the upper quartile — the expectation is that most operating farms score highly.
+- **Exclusion Validation.** Named urban centres (Sydney, Newcastle, Wollongong), national parks (Blue Mountains, Kosciuszko) and offshore areas are asserted excluded, each reported as an explicit expected-versus-observed pass/fail.
+- **Feature-Value Spot-Checks.** A deterministic set of 5–10 eligible cells spanning the score range is tabulated with each cell's feature values and the source to verify each against, leaving a discrepancy field for a human reviewer.
+- **Score-Distribution Plausibility.** The score distribution over eligible cells (min/max/mean/std/quartiles), a degenerate-clustering pass/fail, the geographic diversity of the top cells and the wind-versus-score correlation are reported.
+- **Never adjusts the model.** All inputs are read-only; the stage never re-scores, re-ranks or re-weights. Surprising results are documented honestly and, where systematic, logged as Sprint 2 issues rather than patched. Every check reports expected versus observed with an explicit pass/fail ("no silent passes").
+- **Preliminary screening only.** The Validation_Report (`outputs/sprint1_validation_report.md`) and any Results_Sidecar carry the Preliminary_Disclaimer — this is a plausibility sanity check at the ~5 km (0.05 degree) Analysis_Resolution, **not** a formal accuracy assessment and **not** a site approval.
+
 ## CLI Options
 
 ```
@@ -249,6 +268,10 @@ Note: `shortlist` (S1-11) runs after `scoring` and before `validate` because the
 --no-confidence-discount Disable the S1-10 confidence discount (overrides the weights file)
 --shortlist-top-n N   Number of top-ranked eligible cells for the 'shortlist' stage (S1-11)
                        (default 20; selection is by ascending S1-10 rank; must be a positive integer)
+--sanity-spot-cells N Number of eligible cells to spot-check in the 'sanity' stage (S1-12)
+                       (default 8; must be within the inclusive range 5-10)
+--wind-generators PATH Path override for the GA Wind_Generators dataset used by the 'sanity' stage
+                       (S1-12; default DATA/infrastructure/generators/ga_wind_generators_2026_nsw.geojson)
 --verbose             Detailed logging
 ```
 
@@ -345,8 +368,11 @@ DATA/
 ├── exclusions/             # Eligibility_Table + method report (S1-07)
 ├── integration/            # Integrated NSW Feature Table (S1-08) with data confidence (S1-09) + Task 5 analysis
 ├── scoring/                # Baseline suitability score, rank and per-criterion contributions (S1-10)
-└── shortlist/              # Preliminary ranked shortlist — top-N eligible cells (CSV + GeoJSON) + summary (S1-11)
+├── shortlist/              # Preliminary ranked shortlist — top-N eligible cells (CSV + GeoJSON) + summary (S1-11)
+└── sanity/                 # S1-12 sanity-check Results_Sidecar + provenance (the report itself is written to outputs/)
 ```
+
+The S1-12 sanity check writes its human-readable Validation_Report outside the `DATA/` tree, to `outputs/sprint1_validation_report.md`.
 
 ## Expected Outputs
 
@@ -499,6 +525,20 @@ Filenames are timestamped per run: `<UTCdate>` is the UTC Run_Timestamp date (`Y
 | `landmask_assessment.md` | validate | Quantifies coastal leakage between mask sources |
 
 The `validate` (cross-domain) stage does not produce additional files; it writes pass/fail results to stdout. The geographic and wind domain validation reports (listed above) capture siting constraint checks (slope, protected areas, land mask).
+
+### Validation Report (`outputs/` + `DATA/sanity/`) — S1-12
+
+The `sanity` stage is the **terminal** stage and a preliminary-screening plausibility sanity check — **distinct from the structural `validate` step above**. Its human-readable report is written to `outputs/` (outside the `DATA/` tree); its optional machine-readable sidecar and provenance live under `DATA/sanity/`.
+
+| File | Stage | Description |
+|------|-------|-------------|
+| `outputs/sprint1_validation_report.md` | sanity | Validation_Report (banner-stamped): run metadata (run date, pipeline version, total/eligible cell counts) + the Preliminary_Disclaimer and ~5 km Analysis_Resolution statement, then the six sections — 1. Known Wind Farm Comparison, 2. Exclusion Validation, 3. Feature Value Spot-Checks, 4. Score Distribution, 5. Issues for Sprint 2, 6. Conclusion; each automated check reports expected vs observed with an explicit pass/fail |
+| `DATA/sanity/optmining_validation-results_2026_nsw.json` | sanity | Optional Results_Sidecar: the structured automated results (including the Known_Wind_Farm_Comparison table), written atomically and labelled a derived product |
+| `DATA/sanity/metadata/sanity_manifest.json` | sanity | `derived_products` record: report/sidecar SHA-256 hashes and byte counts, UTC Run_Timestamp, and the five inputs (Shortlist, Scored_Table, Integrated Feature Table, GA Wind_Generators, Analysis_Grid) |
+| `DATA/sanity/metadata/source_register.csv` | sanity | Source-register row marking the Validation_Report (and any sidecar) derived products |
+| `DATA/sanity/DATA_PROVENANCE.md` | sanity | Generated derived-product row recording the five inputs and the UTC Run_Timestamp |
+
+**Scope note:** the `sanity` stage reads all inputs **read-only** — it never re-scores, re-ranks, re-weights or otherwise adjusts the model to make a check pass. It locates wind farms and landmarks to their grid cells by a point-in-polygon join performed in EPSG:3577 (the transform logged in the report), computes percentile/distribution statistics over the eligible cell population only, and records surprising results honestly as anomalies or Sprint 2 issues rather than suppressing them. Spot_Check_Cells count (`--sanity-spot-cells`, default 8, range 5–10) and the Wind_Generators path (`--wind-generators`) are runtime values, not frozen decisions (Q1–Q7). This is a plausibility screen at the ~5 km (0.05 degree) resolution — **not** a formal accuracy assessment and **not** a site approval.
 
 ## Data Sources
 
