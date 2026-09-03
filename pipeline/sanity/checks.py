@@ -23,7 +23,7 @@ Section map (checks are added incrementally by the S1-12 task plan):
   - Shared: percentile over the eligible population, anomaly records.
   - Check 1 — Known Wind Farm Comparison (Requirement 2)  [task 3.1]
   - Check 2 — Exclusion Validation (Requirement 3)         [this task]
-  - Check 3 — Feature-Value Spot-Checks (Requirement 4)    [task 5.1]
+  - Check 3 — Feature-Value Spot-Checks (Requirement 4)    [this task]
   - Check 4 — Score-Distribution Plausibility (Requirement 5) [task 6.1]
   - CheckOutcome no-silent-passes contract (Requirement 11) [task 9.1]
 
@@ -828,4 +828,371 @@ def check_exclusions(
         all_passed=n_failed == 0,
         anomalies=anomalies,
         transform_log=transform_log,
+    )
+
+# ===========================================================================
+# Check 3 — Feature-Value Spot-Checks (Requirement 4)
+# ===========================================================================
+#
+# Deterministically select N (SPOT_CHECK_MIN..SPOT_CHECK_MAX, default
+# SPOT_CHECK_DEFAULT) Spot_Check_Cells that span the Eligible_Cell score range,
+# then record each selected cell's feature values so a human reviewer can
+# independently verify them against source. The selection is a fixed function of
+# (sorted eligible scores, n) so repeated runs pick the SAME cells (12.3); the
+# recording never fabricates a value — a missing feature is recorded as MISSING
+# with a note (4.6). This check surfaces no automated pass/fail: verification is
+# a human-judgement item, so each row carries the VERIFY_SOURCES entry for its
+# value and an empty `discrepancy` field for the reviewer to fill in (4.3, 4.4).
+
+# The Integrated_Feature_Table columns Check 3 reads (from
+# config.REQUIRED_INTEGRATED_COLUMNS): the feature values the spot-check records.
+_INT_WIND_SPEED = config.REQUIRED_INTEGRATED_COLUMNS[1]  # "wind_speed"
+_INT_SLOPE_DEG = config.REQUIRED_INTEGRATED_COLUMNS[2]  # "slope_deg"
+_INT_DIST_TRANSMISSION = config.REQUIRED_INTEGRATED_COLUMNS[3]  # "dist_transmission_km"
+_INT_PROTECTED = config.REQUIRED_INTEGRATED_COLUMNS[4]  # "protected"
+
+# The grid centroid columns a Spot_Check_Cell carries once eligible cells have
+# been joined to the Analysis_Grid (config.REQUIRED_GRID_COLUMNS[1:3]).
+_CENTROID_LAT = config.REQUIRED_GRID_COLUMNS[1]  # "centroid_lat"
+_CENTROID_LON = config.REQUIRED_GRID_COLUMNS[2]  # "centroid_lon"
+
+# The sentinel recorded when a required feature value is absent, rather than
+# fabricating one (Requirement 4.6).
+MISSING_VALUE = "MISSING"
+
+# The score-band label each selected position spans (Requirement 4.2). The top
+# and bottom cells are always included; interior selections are labelled
+# "middle".
+SPOT_BAND_TOP = "top"
+SPOT_BAND_MIDDLE = "middle"
+SPOT_BAND_BOTTOM = "bottom"
+
+# The check name recorded on any anomaly this check surfaces.
+_SPOT_CHECK_NAME = "Feature-Value Spot-Checks"
+
+
+@dataclass(frozen=True)
+class SpotCheckRow:
+    """
+    One recorded Spot_Check_Cell (Requirements 4.3, 4.4, 4.6).
+
+    Mirrors the report's spot-check table. ``cell_id`` / ``centroid_lat`` /
+    ``centroid_lon`` locate the cell in EPSG:4326 storage (4.3). ``score_band``
+    records where in the score range the cell sits (``top`` / ``middle`` /
+    ``bottom``), the deterministic span the selection guarantees (4.2). Each
+    feature value (``wind_speed`` / ``slope_deg`` / ``dist_transmission_km`` /
+    ``protected``) is the value read from the Integrated_Feature_Table, or the
+    :data:`MISSING_VALUE` sentinel when that feature is absent, never fabricated
+    (4.6). ``verify_sources`` maps each feature name to the independent source a
+    reviewer verifies it against (4.4). ``discrepancy`` is intentionally left
+    empty for the human reviewer to fill in (4.3).
+    """
+
+    cell_id: object  # selected Spot_Check_Cell id (grid-native, 4.3)
+    centroid_lat: float | None  # EPSG:4326 latitude, or None if unavailable (4.3)
+    centroid_lon: float | None  # EPSG:4326 longitude, or None if unavailable (4.3)
+    score: float  # the cell's suitability_score (context for the band)
+    score_band: str  # SPOT_BAND_TOP | SPOT_BAND_MIDDLE | SPOT_BAND_BOTTOM (4.2)
+    wind_speed: object  # float value or MISSING_VALUE (4.3, 4.4, 4.6)
+    slope_deg: object  # float value or MISSING_VALUE (4.3, 4.4, 4.6)
+    dist_transmission_km: object  # float value or MISSING_VALUE (4.3, 4.4, 4.6)
+    protected: object  # bool value or MISSING_VALUE (4.3, 4.4, 4.6)
+    verify_sources: dict  # feature name -> independent verification source (4.4)
+    discrepancy: str  # empty human-verification field, left blank (4.3)
+    notes: str  # honest note recording any MISSING feature value (4.6)
+
+
+@dataclass(frozen=True)
+class SpotCheckResult:
+    """
+    Structured result of Check 3 — Feature-Value Spot-Checks (Requirement 4).
+
+    ``rows`` is one :class:`SpotCheckRow` per selected Spot_Check_Cell, in
+    ascending-score selection order (bottom .. top), so the report table spans
+    the score range (4.2, 4.3). ``n_spot_cells`` is the count actually recorded
+    (== the requested ``n``). ``verify_sources`` is the shared feature ->
+    verification-source map (a copy of ``config.VERIFY_SOURCES``) rendered once
+    in the report header for reference (4.4). ``anomalies`` carries an honestly
+    recorded note for every cell that was missing a required feature value, for
+    task 8.1's ``collect_issues`` to gather (4.6). Check 3 emits no automated
+    pass/fail — verification is a human-judgement item (11.x note in design §6).
+    """
+
+    rows: list[SpotCheckRow]
+    n_spot_cells: int
+    verify_sources: dict = field(default_factory=dict)
+    anomalies: list[CheckAnomaly] = field(default_factory=list)
+
+
+def select_spot_cells(eligible: pd.DataFrame, n: int) -> pd.DataFrame:
+    """
+    Deterministically select ``n`` Eligible_Cells spanning the score range.
+
+    PURE and DETERMINISTIC. The selection is a fixed function of
+    ``(sorted eligible scores, n)`` — no randomness, no clock, no filesystem —
+    so repeated runs over identical inputs pick the SAME cells (Requirement
+    12.3).
+
+    Steps:
+
+      1. Require ``SPOT_CHECK_MIN <= n <= SPOT_CHECK_MAX``; otherwise raise a
+         ``ValueError`` naming the invalid count so the caller halts BEFORE any
+         output (Requirement 4.5). The orchestrator (``run``) also validates the
+         count up front; validating here keeps the pure function honest when
+         called directly.
+      2. Order the Eligible_Cells ascending by ``suitability_score`` with a
+         ``cell_id`` tie-break, so the ordering is total and stable regardless
+         of the input row order.
+      3. Pick ``n`` evenly-spaced quantile positions spanning the full range —
+         ``round(i * (m - 1) / (n - 1))`` for ``i`` in ``0..n-1`` over ``m``
+         sorted rows — so the selection ALWAYS includes the bottom cell
+         (position 0), the top cell (position ``m - 1``), and ``n - 2`` interior
+         quantiles between them (Requirement 4.2). Positions are de-duplicated
+         while preserving order, so a small eligible population never yields the
+         same cell twice.
+
+    A ``score_band`` column is attached to the returned frame: ``bottom`` for the
+    lowest-score selection, ``top`` for the highest, ``middle`` for the interior
+    ones (the deterministic span, 4.2).
+
+    Args:
+        eligible: the Eligible_Cell frame (non-null ``suitability_score`` AND
+            ``rank``), carrying at least ``cell_id`` and ``suitability_score``.
+            Any additional columns (e.g. ``centroid_lat`` / ``centroid_lon``
+            joined in from the Analysis_Grid) are preserved for
+            :func:`check_spot_values` to read.
+        n: the requested Spot_Check_Cells count, ``SPOT_CHECK_MIN..SPOT_CHECK_MAX``.
+
+    Returns:
+        A new DataFrame of exactly ``n`` selected rows (or fewer only if the
+        eligible population itself has fewer than ``n`` distinct cells), in
+        ascending-score order, with an added ``score_band`` column. The input
+        frame is never mutated.
+
+    Raises:
+        ValueError: if ``n`` is outside ``[SPOT_CHECK_MIN, SPOT_CHECK_MAX]``
+            (4.5), or if the eligible population is empty.
+    """
+    if not (config.SPOT_CHECK_MIN <= n <= config.SPOT_CHECK_MAX):
+        raise ValueError(
+            f"select_spot_cells: requested Spot_Check_Cells count {n} is outside "
+            f"the inclusive range [{config.SPOT_CHECK_MIN}, {config.SPOT_CHECK_MAX}]."
+        )
+
+    m = len(eligible)
+    if m == 0:
+        raise ValueError(
+            "select_spot_cells: the eligible population is empty; cannot select "
+            "any Spot_Check_Cells."
+        )
+
+    # 2. Total, stable ordering: ascending score, cell_id tie-break.
+    ordered = eligible.sort_values(
+        by=[_SCORE, _CELL_ID], ascending=[True, True], kind="mergesort"
+    ).reset_index(drop=True)
+
+    # 3. Evenly-spaced quantile positions spanning [0, m-1], always including
+    #    the bottom (0) and top (m-1). De-duplicate while preserving order so a
+    #    small population never selects the same cell twice.
+    if n == 1:
+        positions = [0]
+    else:
+        raw = [round(i * (m - 1) / (n - 1)) for i in range(n)]
+        seen: set[int] = set()
+        positions = []
+        for pos in raw:
+            if pos not in seen:
+                seen.add(pos)
+                positions.append(pos)
+
+    selected = ordered.iloc[positions].copy().reset_index(drop=True)
+
+    # Attach the deterministic score_band label: bottom / top / middle.
+    bands = []
+    last = len(selected) - 1
+    for idx, pos in enumerate(positions):
+        if pos == 0:
+            bands.append(SPOT_BAND_BOTTOM)
+        elif pos == m - 1:
+            bands.append(SPOT_BAND_TOP)
+        else:
+            bands.append(SPOT_BAND_MIDDLE)
+        # Guard the degenerate single-cell edge: if only one position survived
+        # de-duplication it is simultaneously top and bottom; label it "bottom".
+        if last == 0:
+            bands[-1] = SPOT_BAND_BOTTOM
+    selected["score_band"] = bands
+
+    return selected
+
+
+def _feature_value_or_missing(row, column):
+    """
+    Read ``column`` from a per-cell feature ``row``, or the MISSING sentinel.
+
+    Returns ``(value, missing)``: ``value`` is the native feature value when the
+    column is present and non-null, otherwise :data:`MISSING_VALUE`; ``missing``
+    is ``True`` in the latter case. Never fabricates a value (Requirement 4.6).
+    """
+    if row is None or column not in row.index:
+        return MISSING_VALUE, True
+    raw = row[column]
+    if pd.isna(raw):
+        return MISSING_VALUE, True
+    return raw, False
+
+
+def check_spot_values(spot_cells: pd.DataFrame, integrated: pd.DataFrame) -> SpotCheckResult:
+    """
+    Check 3 — record each Spot_Check_Cell's feature values for verification.
+
+    PURE. For each selected cell in ``spot_cells`` (from
+    :func:`select_spot_cells`) record, in a :class:`SpotCheckRow`:
+
+      - ``cell_id`` and its ``centroid_lat`` / ``centroid_lon`` in EPSG:4326
+        storage — read from the ``spot_cells`` frame, which the caller joins to
+        the Analysis_Grid so the centroids are available (Requirement 4.3);
+      - the feature values ``wind_speed``, ``slope_deg`` (or elevation),
+        ``dist_transmission_km``, and the ``protected`` flag, read from the
+        Integrated_Feature_Table for that ``cell_id`` (4.3);
+      - the ``VERIFY_SOURCES`` entry for each value — the independent source a
+        reviewer verifies it against — and an empty ``discrepancy`` field for
+        the human reviewer to fill in (4.3, 4.4).
+
+    A cell missing a required feature value in the Integrated_Feature_Table
+    records that value as :data:`MISSING_VALUE` with an honest note rather than
+    fabricating one, and surfaces a :class:`CheckAnomaly` so the omission is
+    visible in the Sprint-2 issues section (4.6). The model is never adjusted and
+    no cell is silently dropped.
+
+    Args:
+        spot_cells: the selected Spot_Check_Cells (from :func:`select_spot_cells`),
+            carrying ``cell_id``, ``suitability_score``, ``score_band``, and —
+            where the caller joined the grid — ``centroid_lat`` / ``centroid_lon``.
+        integrated: the Integrated_Feature_Table with ``cell_id`` and the
+            per-cell feature columns (``wind_speed`` / ``slope_deg`` /
+            ``dist_transmission_km`` / ``protected``).
+
+    Returns:
+        A :class:`SpotCheckResult`.
+    """
+    verify_sources = dict(config.VERIFY_SOURCES)
+
+    # Fast cell_id -> feature-row lookup over the Integrated_Feature_Table.
+    integrated_indexed = (
+        integrated.set_index(_INT_CELL_ID)
+        if _INT_CELL_ID in integrated.columns
+        else None
+    )
+
+    has_lat = _CENTROID_LAT in spot_cells.columns
+    has_lon = _CENTROID_LON in spot_cells.columns
+
+    rows: list[SpotCheckRow] = []
+    anomalies: list[CheckAnomaly] = []
+
+    for _, cell in spot_cells.iterrows():
+        cell_id = cell[_CELL_ID]
+
+        centroid_lat = (
+            float(cell[_CENTROID_LAT])
+            if has_lat and not pd.isna(cell[_CENTROID_LAT])
+            else None
+        )
+        centroid_lon = (
+            float(cell[_CENTROID_LON])
+            if has_lon and not pd.isna(cell[_CENTROID_LON])
+            else None
+        )
+
+        # Locate this cell's feature row in the Integrated_Feature_Table.
+        feature_row = None
+        if integrated_indexed is not None and cell_id in integrated_indexed.index:
+            feature_row = integrated_indexed.loc[cell_id]
+            # A non-unique cell_id would give a DataFrame; take the first match
+            # deterministically and keep the outcome honest.
+            if isinstance(feature_row, pd.DataFrame):
+                feature_row = feature_row.iloc[0]
+
+        wind_speed, ws_missing = _feature_value_or_missing(feature_row, _INT_WIND_SPEED)
+        slope_deg, sl_missing = _feature_value_or_missing(feature_row, _INT_SLOPE_DEG)
+        dist_tx, dt_missing = _feature_value_or_missing(feature_row, _INT_DIST_TRANSMISSION)
+        protected, pr_missing = _feature_value_or_missing(feature_row, _INT_PROTECTED)
+
+        # Coerce present numeric values to plain floats / bools for a clean table.
+        if not ws_missing:
+            wind_speed = float(wind_speed)
+        if not sl_missing:
+            slope_deg = float(slope_deg)
+        if not dt_missing:
+            dist_tx = float(dist_tx)
+        if not pr_missing:
+            protected = bool(protected)
+
+        missing_features = [
+            name
+            for name, is_missing in (
+                (_INT_WIND_SPEED, ws_missing),
+                (_INT_SLOPE_DEG, sl_missing),
+                (_INT_DIST_TRANSMISSION, dt_missing),
+                (_INT_PROTECTED, pr_missing),
+            )
+            if is_missing
+        ]
+
+        if feature_row is None:
+            note = (
+                f"Cell {cell_id!r} is ABSENT from the Integrated_Feature_Table; "
+                f"all feature values recorded as {MISSING_VALUE}, not fabricated."
+            )
+        elif missing_features:
+            note = (
+                f"Missing feature value(s) {missing_features} recorded as "
+                f"{MISSING_VALUE}, not fabricated."
+            )
+        else:
+            note = ""
+
+        if feature_row is None or missing_features:
+            anomalies.append(
+                CheckAnomaly(
+                    check=_SPOT_CHECK_NAME,
+                    description=(
+                        f"Spot_Check_Cell {cell_id!r} is missing feature value(s) "
+                        f"{missing_features or 'ALL (absent from Integrated_Feature_Table)'} "
+                        f"in the Integrated_Feature_Table."
+                    ),
+                    kind=ANOMALY_DATA_ISSUE,
+                    investigation_note=(
+                        "Likely a DATA issue: the integration stage should carry "
+                        "every feature for every eligible cell. A gap here means "
+                        "an upstream join dropped this cell's value. Recorded as "
+                        f"{MISSING_VALUE}; investigate the integration key "
+                        "coverage before treating it as a model result."
+                    ),
+                )
+            )
+
+        rows.append(
+            SpotCheckRow(
+                cell_id=cell_id,
+                centroid_lat=centroid_lat,
+                centroid_lon=centroid_lon,
+                score=float(cell[_SCORE]),
+                score_band=cell["score_band"] if "score_band" in cell.index else SPOT_BAND_MIDDLE,
+                wind_speed=wind_speed,
+                slope_deg=slope_deg,
+                dist_transmission_km=dist_tx,
+                protected=protected,
+                verify_sources=verify_sources,
+                discrepancy="",
+                notes=note,
+            )
+        )
+
+    return SpotCheckResult(
+        rows=rows,
+        n_spot_cells=len(rows),
+        verify_sources=verify_sources,
+        anomalies=anomalies,
     )
