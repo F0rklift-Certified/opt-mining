@@ -58,8 +58,10 @@ STAGES = [
     "demand.feature",  # per-cell demand proxy (S1-04)
     "exclusions",  # S1-07 exclusion layer — consumes grid + geographic/wind sources
     "integration",  # S1-08 integrated feature table — CONSUMES every feature layer + exclusions
+    "scoring",  # S1-10 baseline suitability model — CONSUMES the integrated table, so scheduled after it
     "validate",  # cross-domain integration checks
 ]
 
 # --- Domain list ---
-DOMAINS = ["wind", "geographic", "infrastructure", "demand", "grid", "exclusions", "integration"]
+DOMAINS = ["wind", "geographic", "infrastructure", "demand", "grid", "exclusions",
+           "integration", "scoring"]

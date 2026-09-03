@@ -258,6 +258,85 @@ class TestIntegrationImports:
         assert proc.returncode == 0, proc.stderr
 
 
+class TestScoringImports:
+    """Scoring subpackage: the S1-10 baseline suitability model."""
+
+    _CONFIG_ATTRS = (
+        "INTEGRATED_PATH", "INTEGRATED_LAYER", "DEFAULT_WEIGHTS_PATH",
+        "SCORING_DIR", "SCORING_META_DIR", "SCORING_VINTAGE",
+        "OUTPUT_FILENAME", "CSV_FILENAME", "OUTPUT_LAYER",
+        "METHOD_REPORT_FILENAME", "VALIDATION_REPORT_FILENAME",
+        "MANIFEST_FILENAME", "SOURCE_REGISTER_FILENAME", "PROVENANCE_FILENAME",
+        "CELL_ID_COLUMN", "ELIGIBLE_COLUMN", "CONFIDENCE_COLUMN",
+        "CONFIDENCE_LEVELS", "SCORE_COLUMN", "RANK_COLUMN",
+        "CONTRIBUTION_PREFIX", "OUTPUT_CONFIDENCE_COLUMN", "CARRIED_COLUMNS",
+        "RECONCILE_TOLERANCE", "CONSTANT_CRITERION_VALUE", "BOOLEAN_BOUNDS",
+        "HIGHER_IS_BETTER", "LOWER_IS_BETTER", "DIRECTIONS",
+        "STORAGE_CRS", "COMPUTATION_CRS", "STAGE_NAME", "MODULE_NAME",
+    )
+
+    def test_config(self):
+        from pipeline.scoring import config as sc
+        missing = [name for name in self._CONFIG_ATTRS if not hasattr(sc, name)]
+        assert missing == []
+
+    def test_config_derives_from_upstream_configs(self):
+        """
+        Input path and the confidence vocabulary are composed from the
+        producing domain's config, so an upstream rename propagates here
+        rather than silently drifting.
+        """
+        from pipeline.grid import config as gc
+        from pipeline.integration import config as ic
+        from pipeline.scoring import config as sc
+
+        assert sc.INTEGRATED_PATH == ic.INTEGRATION_DIR / ic.OUTPUT_FILENAME
+        assert sc.INTEGRATED_LAYER == ic.OUTPUT_LAYER
+        assert sc.CONFIDENCE_COLUMN == ic.CONFIDENCE_COLUMNS[0]
+        assert sc.CONFIDENCE_LEVELS == ic.DATA_CONFIDENCE_LEVELS
+        assert sc.STORAGE_CRS == gc.STORAGE_CRS
+        assert sc.SCORING_VINTAGE == ic.INTEGRATION_VINTAGE
+
+    def test_modules_importable(self):
+        for name in ("weights", "load", "normalise", "score", "rank",
+                     "write", "report", "validate", "run"):
+            mod = _try_import(f"pipeline.scoring.{name}")
+            assert mod is not None, name
+
+    def test_run_entry_point(self):
+        mod = _try_import("pipeline.scoring.run")
+        assert hasattr(mod, "run") and callable(mod.run)
+
+    def test_default_weights_file_exists_and_loads(self):
+        from pipeline.scoring import config as sc
+        from pipeline.scoring.weights import load_weights
+
+        assert sc.DEFAULT_WEIGHTS_PATH.exists()
+        weights = load_weights(sc.DEFAULT_WEIGHTS_PATH)
+        assert weights.criteria and weights.weight_sum > 0
+        assert all(c.rationale.strip() for c in weights.criteria)
+
+    def test_scoring_importable_without_rasterio(self):
+        """
+        The scoring stage is pure pandas/geopandas/yaml — it must not drag in
+        rasterio, so it can run in an environment without it (mirrors the
+        same guarantee for integration.merge).
+        """
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        code = (
+            "import sys; import pipeline.scoring.run as r; "
+            "assert callable(r.run); "
+            "assert 'rasterio' not in sys.modules, 'scoring imported rasterio'"
+        )
+        proc = subprocess.run([sys.executable, "-c", code], cwd=root,
+                              capture_output=True, text=True, timeout=60)
+        assert proc.returncode == 0, proc.stderr
+
+
 class TestTopLevel:
     """Top-level pipeline modules are importable and consistent."""
 
@@ -290,6 +369,12 @@ class TestTopLevel:
                          "infrastructure.features", "demand.feature", "exclusions"):
             assert config.STAGES.index(producer) < config.STAGES.index("integration")
         assert config.STAGES.index("integration") < config.STAGES.index("validate")
+        # scoring (S1-10) consumes the integrated feature table, so the
+        # producer is scheduled before this consumer, and before validate so
+        # the cross-domain tier sees the scored output (Req 11.4, 11.8).
+        assert "scoring" in config.STAGES
+        assert config.STAGES.index("integration") < config.STAGES.index("scoring")
+        assert config.STAGES.index("scoring") < config.STAGES.index("validate")
 
     def test_config_domains(self):
         assert "wind" in config.DOMAINS
@@ -297,6 +382,7 @@ class TestTopLevel:
         assert "infrastructure" in config.DOMAINS
         assert "demand" in config.DOMAINS
         assert "integration" in config.DOMAINS
+        assert "scoring" in config.DOMAINS
 
     def test_common_geo(self):
         from pipeline.common.geo import (

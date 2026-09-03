@@ -52,6 +52,8 @@ python -m pipeline --only exclusions --exclusion-rules path/to/custom_rules.yaml
 # appends the S1-09 data-confidence columns)
 python -m pipeline --only integration
 python -m pipeline --only integration --confidence-weights path/to/my_weights.yaml
+python -m pipeline --only scoring
+python -m pipeline --only scoring --scoring-weights path/to/my_weights.yaml
 
 # Validation: stricter slope threshold
 python -m pipeline --max-slope 12
@@ -117,6 +119,19 @@ pipeline/
 │   ├── merge.py            # Stage (S1-08): left-join every layer -> Integrated Feature Table
 │   ├── confidence.py       # S1-09: per-cell data_confidence / confidence_score / confidence_notes
 │   └── confidence_weights.yaml  # S1-09 weights, resolution/limitation factors, flag factors, thresholds
+├── scoring/
+│   ├── __init__.py
+│   ├── config.py           # Paths, vocabularies, tolerances (composed from upstream configs)
+│   ├── scoring_weights.yaml  # S1-10 criteria weights, directions and rationales — USER INPUT
+│   ├── weights.py          # Weights loader + validator (fails before any write)
+│   ├── load.py             # Reads the S1-08 integrated table (the sole feature input)
+│   ├── normalise.py        # Directional min-max from the eligible population only
+│   ├── score.py            # Stage (S1-10): the PURE weighted-MCDA scoring function
+│   ├── rank.py             # Descending by score, ties by ascending cell_id
+│   ├── write.py            # Scored_Table assembly + atomic GeoPackage/CSV writers
+│   ├── report.py           # Method report, validation report, derived-product provenance
+│   ├── validate.py         # No-silent-passes checks over the scored table
+│   └── run.py              # Stage entry point: run(verbose=False, ...) -> dict
 ├── demand/
 │   ├── __init__.py
 │   ├── __main__.py          # Demand-specific CLI
@@ -151,6 +166,7 @@ wind.probe → wind.download → wind.inspect → wind.validate → wind.analyse
 → demand.feature (per-cell demand proxy)
 → exclusions (S1-07 exclusion layer — eligibility per cell)
 → integration (S1-08 Integrated Feature Table — joins every feature layer + exclusions by cell_id; S1-09 appends the composite data confidence)
+→ scoring (S1-10 baseline suitability model — weighted MCDA over the integrated table; scores, ranks and explains every eligible cell)
 → validate (cross-domain integration checks)
 ```
 
@@ -171,6 +187,22 @@ analysis cell is a clean 20×20 native-pixel block.)
 Note: `geographic.features` is registered in `config.STAGES` after `grid` (not inline with the other `geographic.*` stages) because it CONSUMES the grid — the grid producer must run before this consumer.
 
 Note: `integration` (S1-08) runs after `exclusions` and before `validate` because it consumes every feature table and the Eligibility_Table. It joins whatever is on disk and halts — naming the stage to run — if any input is absent, so `python -m pipeline` (all stages) is the single command from raw data to the integrated table, and `--only integration` re-joins already-generated layers. The S1-09 confidence layer runs inside the same stage, between the join and validation, from `pipeline/integration/confidence_weights.yaml`.
+
+Note: `scoring` (S1-10) runs after `integration` and before `validate` because the integrated feature table is its sole input. It is a transparent, deterministic **weighted multi-criteria decision analysis (MCDA)** — not a machine-learning model:
+
+```
+norm_i    = (v_i - min_i) / (max_i - min_i)          direction higher_is_better
+norm_i    = 1 - (v_i - min_i) / (max_i - min_i)      direction lower_is_better
+contrib_i = weight_i * norm_i / W_cell
+score     = SUM_i contrib_i                          -> [0, 1]
+```
+
+- **Criteria weights are user inputs**, loaded at runtime from `pipeline/scoring/scoring_weights.yaml` (or `--scoring-weights PATH`). No weight literal appears anywhere in `pipeline/scoring/`; edit the YAML to change the model's priorities. Each criterion carries a weight, a direction (`higher_is_better` / `lower_is_better`) and a written rationale.
+- **Normalisation** is linear min-max, with bounds computed from the **eligible cell population on each run** — never hard-coded. Boolean criteria use their definitional `{False -> 0.0, True -> 1.0}` domain. A criterion that is constant over the eligible population is filled with a documented constant rather than dividing by zero, and is flagged as constant in the method report.
+- **Only eligible cells are scored.** Cells the S1-07 exclusion layer rejected receive a null score, a null rank and null contributions, and take no part in the normalisation bounds or the ranking — ineligible land is never ranked as if it were developable.
+- **Explainability:** every criterion's additive contribution to every score is written to the table as `contrib_{feature}`, and the contributions are verified to sum back to the score on every run. `rank` 1 is the best cell; ties break by ascending `cell_id`.
+- **Confidence** is carried through from the S1-09 composite flag unchanged, never recomputed or fabricated. The optional confidence discount (`--confidence-discount`) multiplies both the score and its contributions by the cell's factor, so they stay reconcilable.
+- **Not circular:** `wind_speed` is an input criterion only, never a prediction target.
 
 ## CLI Options
 
@@ -197,6 +229,10 @@ Note: `integration` (S1-08) runs after `exclusions` and before `validate` becaus
                        (default: pipeline/exclusions/exclusion_rules.yaml)
 --confidence-weights PATH Custom confidence weights YAML for the 'integration' stage (S1-09)
                        (default: pipeline/integration/confidence_weights.yaml)
+--scoring-weights PATH Custom criteria weights YAML for the 'scoring' stage (S1-10)
+                       (default: pipeline/scoring/scoring_weights.yaml)
+--confidence-discount  Enable the S1-10 confidence discount (overrides the weights file)
+--no-confidence-discount Disable the S1-10 confidence discount (overrides the weights file)
 --verbose             Detailed logging
 ```
 
@@ -251,6 +287,21 @@ weights = load_weights("pipeline/integration/confidence_weights.yaml")
 columns = assess(integrated_table, weights)   # data_confidence, confidence_score, confidence_notes
 ```
 
+The S1-10 scoring stage, and its pure scoring function on any in-memory frame:
+
+```python
+from pipeline.scoring.run import run as scoring_run
+summary = scoring_run(verbose=True)           # summary["validation"] holds every check
+
+# The scoring computation itself is pure — a DataFrame and a WeightsConfig in,
+# a scored DataFrame out, with no file I/O — so it can be swapped for a
+# different model without touching the loading or writing layers.
+from pipeline.scoring.score import score_and_rank
+from pipeline.scoring.weights import load_weights as load_criteria_weights
+weights = load_criteria_weights("pipeline/scoring/scoring_weights.yaml")
+scored = score_and_rank(feature_frame, weights)
+```
+
 ## Data Outputs
 
 Outputs write to the existing `DATA/` layout:
@@ -263,7 +314,8 @@ DATA/
 ├── electricity-demand/     # AEMO demand data
 ├── grid/                   # Common analysis cell grid (S1-02)
 ├── exclusions/             # Eligibility_Table + method report (S1-07)
-└── integration/            # Integrated NSW Feature Table (S1-08) with data confidence (S1-09) + Task 5 analysis
+├── integration/            # Integrated NSW Feature Table (S1-08) with data confidence (S1-09) + Task 5 analysis
+└── scoring/                # Baseline suitability score, rank and per-criterion contributions (S1-10)
 ```
 
 ## Expected Outputs
@@ -379,6 +431,20 @@ A successful full pipeline run produces the following file tree under `DATA/`:
 | `integration_analysis.md` | — | Task 5 cross-domain analysis (Sprint 0, `pipeline.integration.analyse`) |
 
 **Scope note:** the table carries the per-layer flags (`wind_confidence`, `demand_confidence`, `infra_confidence`, `geo_confidence`), an objective `n_missing_features` count (nulls among the ten scored feature columns) and, from S1-09, the composite `data_confidence` / `confidence_score` / `confidence_notes`. The composite is a weighted sum over the ten scored features of availability × resolution factor × known-limitation factor × upstream-flag factor, normalised by the weight sum, with thresholds high ≥ 0.8 and medium ≥ 0.5 (`pipeline/integration/confidence_weights.yaml`; formula and bases in `metadata/confidence_method.md`). On the committed data the distribution is high 1,600 / medium 45,711 / low 0 with five distinct scores: the 1,600 New-England-REZ-window cells (which include every eligible cell) score 0.830 and the rest of the state 0.633–0.699, because the geographic rasters and the connection-point distance are the missing evidence while the heavily weighted wind and GA distances are present statewide. The maximum attainable score under the defaults is 0.870. Confidence never excludes a cell; excluded cells are retained with `eligible = False`. The WARN cross-layer checks compare S1-07's own raster recomputation with the geographic and wind layers; on the committed data they report the known divergence that S1-07 samples the New-England-REZ wind clip while `wind.features` covers all of NSW (45,711 cells where only one side is null), plus 73 boundary cells whose means differ by more than 0.01 m/s.
+
+### Baseline Suitability Score (`DATA/scoring/`) — S1-10
+
+| File | Stage | Description |
+|------|-------|-------------|
+| `optmining_suitability-score_2026_nsw.gpkg` | scoring | One row per grid `cell_id` (47,311), EPSG:4326, layer `suitability_score`: `cell_id, centroid_lat, centroid_lon, suitability_score, rank, confidence, contrib_wind_speed, contrib_dist_transmission_km, contrib_demand_proxy, contrib_dist_substation_km, contrib_slope_deg, contrib_inside_rez, geometry`. One `contrib_{feature}` column per configured criterion, so the schema follows the weights file |
+| `optmining_suitability-score_2026_nsw.csv` | scoring | The same table without geometry — the deterministic artefact (byte-identical across reruns with unchanged inputs) |
+| `metadata/scoring_method.md` | scoring | Method report: the formula, every criterion with its weight, direction and rationale, the per-criterion normalisation bounds computed on that run, constant-criterion flags, the confidence-discount setting and factor map, eligible/excluded/confidence counts, the contribution reconciliation rule, documented deviations, input SHA-256s, git commit and runtime |
+| `metadata/scoring_validation.md` | scoring | Every validation check with expected vs observed values and PASS / FAIL — no silent passes |
+| `metadata/scoring_manifest.json` | scoring | `derived_features` record: output hashes and sizes, git commit, the integrated-table input, and the `weights_config_id` (SHA-256 of the weights file that produced the scores) |
+| `metadata/source_register.csv` | scoring | Source-register row marking the scored table a derived product |
+| `DATA_PROVENANCE.md` | scoring | Generated derived-layer block (BEGIN/END markers) recording inputs, weights, method and hashes |
+
+**Scope note:** the score is a weighted MCDA over criteria normalised to [0, 1] from the **eligible** cell population, not a fitted or learned model — no parameter in it comes from anywhere but the weights YAML and the run's own data. On the committed data 1,233 of 47,311 cells are eligible and scored (scores 0.218–0.932, mean 0.646) and 46,078 carry a null score and no rank. Two properties of the current data are worth knowing before reading a shortlist. First, `demand_proxy` is **constant** across every eligible cell (the MVP proxy allocates one NEM-region value uniformly), so it adds a flat 0.15 to every score and cannot discriminate between cells — the ranking is effectively driven by the other five criteria, and the method report flags this on every run. Second, every eligible cell is `high` confidence, so the optional confidence discount would be an identical multiplier on every scored cell; it is disabled by default for that reason. Excluded cells are retained with a null score rather than dropped, so the table still joins one-to-one to the grid.
 
 ### Cross-Domain Validation (`DATA/geographic/metadata/`)
 
