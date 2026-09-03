@@ -169,7 +169,11 @@ def resolve_output_paths(out_dir: Path, ts: str) -> ResolvedPaths:
     parsed = _parse_utc(ts)
     prefix = config.OUTPUT_PREFIX
 
-    date_component = parsed.strftime("%Y%m%d")
+    # Build the YYYYMMDD date explicitly rather than via strftime("%Y%m%d"):
+    # on glibc/macOS, "%Y" does NOT zero-pad years below 1000 (e.g. year 999
+    # renders as "999", yielding a 7-char date), which breaks the fixed-width
+    # <YYYYMMDD> naming contract. Explicit field widths guarantee 8 digits.
+    date_component = f"{parsed.year:04d}{parsed.month:02d}{parsed.day:02d}"
     base_stem = f"{prefix}_{date_component}"
 
     # Tier 1 — base date stem (the common, no-collision case).
@@ -187,7 +191,9 @@ def resolve_output_paths(out_dir: Path, ts: str) -> ResolvedPaths:
         )
 
     # Tier 2 — append the second-precise UTC time of the SAME Run_Timestamp.
-    second_stem = f"{prefix}_{date_component}T{parsed.strftime('%H%M%S')}"
+    # Explicit field widths (not strftime) for the same fixed-width guarantee.
+    time_component = f"{parsed.hour:02d}{parsed.minute:02d}{parsed.second:02d}"
+    second_stem = f"{prefix}_{date_component}T{time_component}"
     if not _stem_exists(out_dir, second_stem):
         resolved_stem = second_stem
         precision = "second"
