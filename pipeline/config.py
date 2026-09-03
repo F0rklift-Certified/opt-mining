@@ -53,6 +53,7 @@ STAGES = [
     "demand",
     "grid",  # common analysis cell (S1-02) — must run before feature layers
     "wind.features",  # S1-03 feature-builder — CONSUMES grid, so scheduled after it
+    "infrastructure.features",  # per-cell infrastructure features (S1-05)
     "demand.feature",  # per-cell demand proxy (S1-04)
     "validate",  # cross-domain integration checks
 ]

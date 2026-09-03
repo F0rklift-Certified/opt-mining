@@ -2,7 +2,7 @@
 CLI entry point for the data pipeline.
 
 Runs domain subpackages sequentially:
-  wind → geographic → infrastructure → demand → grid → demand.feature → validate
+  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → validate
 
 Usage:
     python -m pipeline                          # run all stages
@@ -75,6 +75,9 @@ def _get_runner(stage: str):
     elif stage == "demand.feature":
         from .demand.feature import run
         return run
+    elif stage == "infrastructure.features":
+        from .infrastructure.features import run
+        return run
     elif stage == "validate":
         from .validate import run
         return run
@@ -87,6 +90,21 @@ def _get_runner(stage: str):
 # ---------------------------------------------------------------------------
 
 
+def _projected_crs_arg(value: str) -> str:
+    """Argparse validator for CRS values used in metre-based distances."""
+    from pyproj import CRS
+
+    try:
+        crs = CRS.from_user_input(value)
+    except Exception as exc:
+        raise argparse.ArgumentTypeError(f"Invalid CRS {value!r}: {exc}") from exc
+    if not crs.is_projected:
+        raise argparse.ArgumentTypeError(
+            f"--infra-features-crs must be projected for metre distances (got {value!r})"
+        )
+    return value
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
@@ -94,7 +112,7 @@ def parse_args() -> argparse.Namespace:
         description=(
             "Opt-Mining Data Pipeline — Wind, Geographic, Infrastructure & Demand.\n\n"
             "Runs domain subpackages sequentially:\n"
-            "  wind → geographic → infrastructure → demand → cross-domain validate"
+            "  wind → geographic → infrastructure → demand → grid → feature layers → cross-domain validate"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -132,7 +150,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Run only the specified domain or stage. "
-            "Examples: 'wind', 'geographic.derive', 'demand', 'validate'"
+            "Examples: 'wind', 'geographic.derive', 'demand', 'infrastructure.features', 'validate'"
         ),
     )
     parser.add_argument(
@@ -216,6 +234,12 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="NSW",
         help="State filter for infrastructure inspection (default: NSW)",
+    )
+    parser.add_argument(
+        "--infra-features-crs",
+        type=_projected_crs_arg,
+        default="EPSG:3577",
+        help="Projected CRS for infrastructure distances (default: EPSG:3577)",
     )
     parser.add_argument(
         "--fuel-type",
@@ -338,6 +362,9 @@ def _build_kwargs(stage: str, args: argparse.Namespace, bbox: tuple) -> dict:
 
     if stage == "demand.feature":
         kwargs["allocation_method"] = args.allocation_method
+    if stage == "infrastructure.features":
+        kwargs["state"] = args.state
+        kwargs["computation_crs"] = args.infra_features_crs
 
     return kwargs
 
