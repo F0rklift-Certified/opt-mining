@@ -25,7 +25,7 @@ Section map (checks are added incrementally by the S1-12 task plan):
   - Check 2 — Exclusion Validation (Requirement 3)         [this task]
   - Check 3 — Feature-Value Spot-Checks (Requirement 4)    [task 5.1]
   - Check 4 — Score-Distribution Plausibility (Requirement 5) [this task]
-  - CheckOutcome no-silent-passes contract (Requirement 11) [task 9.1]
+  - CheckOutcome no-silent-passes contract (Requirement 11) [this task]
 
 Design reference: design.md §4 "Check 1 — Known Wind Farm Comparison".
 """
@@ -82,6 +82,80 @@ class CheckAnomaly:
     description: str  # what was observed that was surprising
     kind: str  # ANOMALY_DATA_ISSUE | ANOMALY_MODEL_RESULT
     investigation_note: str  # how to tell a data issue from a model result
+
+
+# ===========================================================================
+# Shared — the CheckOutcome no-silent-passes contract (Requirement 11)
+# ===========================================================================
+#
+# Every AUTOMATED check headline exposes its result through a single structured
+# `CheckOutcome(expected, observed, passed)` so the renderer can print all three
+# and no check ever records a `pass` without a recorded observed value (11.1).
+# The four check result classes below build their outcome(s) ON DEMAND from
+# fields they already carry (see the `outcome` / `outcomes` / `cluster_outcome`
+# / `correlation_outcome` accessors), so this contract is ADDITIVE: it never
+# changes an existing dataclass constructor signature or breaks a caller/test
+# that reads the raw fields (`n_upper_quartile`, `cluster_passed`, `corr_passed`,
+# `assertions[].passed`, ...). Check 1 reports the Upper_Quartile count against
+# the expectation (11.2); each Check 2 assertion reports observed eligibility /
+# grid-membership (11.3); Check 4 reports the clustering and wind-correlation
+# checks with their observed statistics (11.4). A failing outcome is surfaced
+# here exactly as recorded, never overwritten or hidden (11.5). This is the
+# reality-check stage only; the cross-domain structural checks remain in
+# `pipeline/validate.py` and are NOT duplicated here (11.6).
+#
+# Check 3 (Feature-Value Spot-Checks) is deliberately NOT an automated pass/fail
+# check — verification is a human-judgement item, so it emits no CheckOutcome
+# (design §6). The observed values it records for the reviewer are carried on
+# its own SpotCheckRow fields.
+
+
+# The sentinel used when an observed value is genuinely absent/undefined and
+# recorded HONESTLY as such (never as a silent pass). An outcome may carry this
+# as its ``observed`` ONLY when ``passed`` is False, enforced in __post_init__.
+OBSERVED_NONE = None
+
+
+@dataclass(frozen=True)
+class CheckOutcome:
+    """
+    The no-silent-passes contract for a single automated check (Requirement 11).
+
+    Carries the ``expected`` outcome, the ``observed`` outcome, and the explicit
+    ``passed`` pass/fail for one automated check headline, so the renderer can
+    print all three and a reviewer can see WHY a check passed or failed (11.1).
+
+    A pass is NEVER recorded without a recorded observed value: ``__post_init__``
+    rejects ``passed=True`` when ``observed`` is ``None`` or an empty string
+    (11.1). A FAIL may legitimately carry a ``None``/empty observed — an
+    undefined or absent observation is itself an honest failing outcome and is
+    surfaced, never hidden (11.5).
+
+    ``label`` names the check headline (e.g. "Upper_Quartile count",
+    "Sydney CBD exclusion", "Degenerate-clustering") so a rendered/serialised
+    list of outcomes is self-describing. It defaults to an empty string for the
+    minimal ``CheckOutcome(expected, observed, passed)`` shape named in the
+    design.
+    """
+
+    expected: object  # the expected outcome (human-readable or structured)
+    observed: object  # the observed outcome; may be None ONLY when passed=False
+    passed: bool  # explicit pass/fail — never a pass without an observed value
+    label: str = ""  # optional headline label for a self-describing outcome
+
+    def __post_init__(self) -> None:
+        # A pass MUST carry a recorded observed value. An empty string or None
+        # observed alongside passed=True would be a silent pass (11.1).
+        if self.passed:
+            observed_is_empty = self.observed is None or (
+                isinstance(self.observed, str) and self.observed.strip() == ""
+            )
+            if observed_is_empty:
+                raise ValueError(
+                    "CheckOutcome: a pass cannot be recorded without an observed "
+                    f"value (label={self.label!r}, expected={self.expected!r}). "
+                    "Record the observed value, or set passed=False."
+                )
 
 
 # ===========================================================================
@@ -191,6 +265,36 @@ class WindFarmCheckResult:
     expectation: str
     anomalies: list[CheckAnomaly] = field(default_factory=list)
     transform_log: list[CrsTransform] = field(default_factory=list)
+
+    @property
+    def outcome(self) -> CheckOutcome:
+        """
+        The Check 1 headline as a :class:`CheckOutcome` (Requirements 11.1, 11.2).
+
+        Reports the Upper_Quartile count against the expectation that MOST
+        Known_Wind_Farms fall in the Upper_Quartile, with the observed count
+        recorded (11.2). ``passed`` is True iff a strict majority of the known
+        farms land in the Upper_Quartile (``n_upper_quartile > n_known_farms /
+        2``); it is derived ON DEMAND from the already-recorded fields, so no
+        pass is ever recorded without the observed count (11.1). With no known
+        farms the observed count is recorded (0 of 0) and the outcome does NOT
+        pass — there is nothing to confirm the expectation against.
+        """
+        passed = (
+            self.n_known_farms > 0
+            and self.n_upper_quartile > self.n_known_farms / 2.0
+        )
+        observed = (
+            f"{self.n_upper_quartile} of {self.n_known_farms} known wind farms "
+            f"in the Upper_Quartile "
+            f"(proportion {self.proportion_upper_quartile:.3f})"
+        )
+        return CheckOutcome(
+            expected=self.expectation,
+            observed=observed,
+            passed=passed,
+            label="Upper_Quartile count",
+        )
 
 
 # The check name recorded on every anomaly this check surfaces.
@@ -533,6 +637,26 @@ class ExclusionAssertion:
     observed: str  # observed eligibility / grid-membership (3.4, 11.3)
     passed: bool  # explicit pass/fail, never a pass without an observed value
 
+    @property
+    def outcome(self) -> CheckOutcome:
+        """
+        This assertion as a :class:`CheckOutcome` (Requirements 3.4, 11.3).
+
+        Exposes the already-recorded ``expected`` / ``observed`` / ``passed`` of
+        one Exclusion_Validation assertion through the shared no-silent-passes
+        contract, so the reporter can render observed eligibility / grid-
+        membership as an explicit pass/fail with the observed value (11.3). The
+        ``ExclusionAssertion`` constructor already guarantees an observed value
+        is recorded for every assertion, so a pass here always carries an
+        observed value (3.4, 11.1).
+        """
+        return CheckOutcome(
+            expected=self.expected,
+            observed=self.observed,
+            passed=self.passed,
+            label=f"{self.landmark} exclusion",
+        )
+
 
 @dataclass(frozen=True)
 class ExclusionCheckResult:
@@ -556,6 +680,20 @@ class ExclusionCheckResult:
     all_passed: bool
     anomalies: list[CheckAnomaly] = field(default_factory=list)
     transform_log: list[CrsTransform] = field(default_factory=list)
+
+    @property
+    def outcomes(self) -> list[CheckOutcome]:
+        """
+        Every Check 2 assertion as a :class:`CheckOutcome` (Requirements 11.1, 11.3).
+
+        One outcome per :class:`ExclusionAssertion` (landmark exclusions plus the
+        offshore/ocean assertion), each reporting the observed eligibility /
+        grid-membership as an explicit pass/fail with the observed value (11.3).
+        A failing assertion is surfaced as a failing outcome, never hidden
+        (11.5). Built ON DEMAND from ``assertions``, so no existing field or test
+        (which read ``assertions[].passed``) is affected.
+        """
+        return [assertion.outcome for assertion in self.assertions]
 
 
 def _landmarks_to_points(landmarks, storage_crs: str) -> gpd.GeoDataFrame:
@@ -1300,6 +1438,66 @@ class DistributionCheckResult:
     n_eligible: int = 0
     anomalies: list[CheckAnomaly] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+
+    @property
+    def cluster_outcome(self) -> CheckOutcome:
+        """
+        The degenerate-clustering headline as a :class:`CheckOutcome` (11.1, 11.4).
+
+        Reports the clustering check as an explicit pass/fail with the observed
+        clustering fraction recorded (11.4). ``passed`` mirrors ``cluster_passed``
+        (a NON-degenerate distribution passes); the observed value is always the
+        recorded ``cluster_fraction``, so no pass is recorded without an observed
+        statistic (11.1). Built ON DEMAND from the already-recorded fields.
+        """
+        observed = (
+            f"{self.cluster_fraction:.4f} of eligible scores within "
+            f"{config.CLUSTER_EPSILON:g} of 0 or 1 "
+            f"(threshold {config.CLUSTER_FRACTION_THRESHOLD:g}); "
+            f"degenerate={self.cluster_degenerate}"
+        )
+        expected = (
+            f"at most {config.CLUSTER_FRACTION_THRESHOLD:g} of eligible scores "
+            f"clustered within {config.CLUSTER_EPSILON:g} of 0 or 1 "
+            f"(a non-degenerate distribution)"
+        )
+        return CheckOutcome(
+            expected=expected,
+            observed=observed,
+            passed=self.cluster_passed,
+            label="Degenerate-clustering",
+        )
+
+    @property
+    def correlation_outcome(self) -> CheckOutcome:
+        """
+        The wind-versus-score correlation headline as a :class:`CheckOutcome`.
+
+        Reports the correlation check as an explicit pass/fail with the observed
+        correlation statistic recorded (Requirements 11.1, 11.4). ``passed``
+        mirrors ``corr_passed`` (a sensibly POSITIVE correlation passes). The
+        correlation is REPORTED against the documented positive expectation, not
+        enforced (5.4): an undefined correlation (``wind_score_corr is None``) is
+        an honest FAIL that carries its observed state ("undefined ..."), so it is
+        surfaced rather than silently passed (11.1, 11.5). Built ON DEMAND from
+        the already-recorded fields.
+        """
+        if self.wind_score_corr is None:
+            observed = (
+                f"undefined {self.corr_method} correlation "
+                f"(insufficient data or zero variance)"
+            )
+        else:
+            observed = (
+                f"{self.corr_method} correlation "
+                f"{self.wind_score_corr:+.4f} over {self.n_eligible} eligible cells"
+            )
+        return CheckOutcome(
+            expected=self.expectation,
+            observed=observed,
+            passed=self.corr_passed,
+            label="Wind-versus-score correlation",
+        )
 
 
 def _rank_average(values: np.ndarray) -> np.ndarray:
