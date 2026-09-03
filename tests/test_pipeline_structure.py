@@ -109,6 +109,10 @@ class TestGeographicImports:
         mod = _try_import("pipeline.geographic.validate")
         assert hasattr(mod, "run")
 
+    def test_features(self):
+        mod = _try_import("pipeline.geographic.features")
+        assert hasattr(mod, "run")
+
 
 class TestInfrastructureImports:
     """Infrastructure subpackage modules are importable."""
@@ -163,6 +167,10 @@ class TestTopLevel:
         assert "wind.features" in config.STAGES
         assert config.STAGES.index("wind.features") > config.STAGES.index("grid")
         assert config.STAGES.index("wind.features") < config.STAGES.index("validate")
+        # geographic.features consumes the grid, so it must be registered
+        # after the grid stage that produces it (Req 10.4, 10.7).
+        assert "geographic.features" in config.STAGES
+        assert config.STAGES.index("geographic.features") > config.STAGES.index("grid")
 
     def test_config_domains(self):
         assert "wind" in config.DOMAINS
@@ -197,6 +205,17 @@ class TestOrchestratorResolution:
         # (S1-03 feature builder), which sits after `grid` in STAGES.
         assert len(stages) == 6
         assert stages[-1] == "wind.features"
+
+    def test_only_geographic_domain(self):
+        # geographic now resolves 6 stages (was 5) after registering
+        # geographic.features (S1-06 feature builder).
+        import sys
+        sys.argv = ["test", "--only", "geographic"]
+        from pipeline.__main__ import parse_args, resolve_stages
+        args = parse_args()
+        stages = resolve_stages(args)
+        assert all(s.startswith("geographic.") for s in stages)
+        assert len(stages) == 6
 
     def test_only_single_stage(self):
         import sys

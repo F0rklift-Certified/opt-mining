@@ -78,6 +78,9 @@ def _get_runner(stage: str):
     elif stage == "infrastructure.features":
         from .infrastructure.features import run
         return run
+    elif stage == "geographic.features":
+        from .geographic.features import run
+        return run
     elif stage == "validate":
         from .validate import run
         return run

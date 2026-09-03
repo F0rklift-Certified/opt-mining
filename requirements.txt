@@ -2,7 +2,9 @@ pandas==2.2.2
 requests==2.32.3
 
 # Task 1 — Wind Resource (Global Wind Atlas GeoTIFF handling)
-rasterio==1.4.3
+# Bumped from 1.4.3 to 1.4.4 (same 1.4.x line): Python 3.14 has no 1.4.3 wheel
+# and there is no local gdal-config to build from source. 1.4.4 ships a 3.14 wheel.
+rasterio==1.4.4
 numpy==2.2.6
 
 # Sprint 1 — Grid generation and feature layers (S1-02 onwards)
