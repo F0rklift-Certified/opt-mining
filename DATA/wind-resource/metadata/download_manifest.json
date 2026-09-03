@@ -339,9 +339,9 @@
       "output_file": "DATA/wind-resource/features/gwa_v4_wind-feature_2025_nsw.gpkg",
       "stage": "wind.features",
       "derived_from": "DATA/wind-resource/gwa_v4_wind-speed_100m_nsw.tif",
-      "sha256": "ff735ce010f90ff99d308ea32e6c375d3003133225f4168417c36b7bb42e88d6",
-      "local_bytes": 13803520,
-      "generated_utc": "2026-08-31T04:08:08+00:00"
+      "sha256": "257976e17ba36afe5c20476f1834d401a8b00afe6252cb2c960d179a9dd5a06a",
+      "local_bytes": 13750272,
+      "generated_utc": "2026-09-03T06:46:45+00:00"
     }
   ]
 }

@@ -134,6 +134,79 @@ def _run_cross_domain_checks(verbose: bool, max_slope: float = DEFAULT_MAX_SLOPE
 
 
 # ---------------------------------------------------------------------------
+# Scoring cross-domain checks (S1-10)
+# ---------------------------------------------------------------------------
+
+
+def _run_scoring_cross_checks(verbose: bool = False) -> list[dict]:
+    """
+    Cross-domain checks on the S1-10 Scored_Table.
+
+    These live here rather than in `pipeline/scoring/validate.py` because they
+    span domains: they compare the scored table against the S1-02 analysis
+    grid and the S1-08 integrated table, which the scoring stage's own
+    validation tier does not load. Within-stage checks (score range, rank
+    contiguity, contribution reconciliation) stay in the scoring package.
+
+    Returns [] when the scored table has not been generated yet, so a partial
+    pipeline run does not fail on a stage that has not been run.
+    """
+    checks: list[dict] = []
+
+    def check(name, expected, observed, passed):
+        checks.append({"name": name, "expected": expected,
+                       "observed": observed, "passed": bool(passed)})
+
+    from .scoring import config as scoring_config
+
+    scored_path = scoring_config.SCORING_DIR / scoring_config.OUTPUT_FILENAME
+    grid_path = scoring_config.PROJECT_ROOT / "DATA" / "grid" / "nsw_analysis_grid.gpkg"
+    if not scored_path.exists():
+        return checks
+
+    import geopandas as gpd
+
+    scored = gpd.read_file(scored_path, layer=scoring_config.OUTPUT_LAYER)
+    cell_column = scoring_config.CELL_ID_COLUMN
+
+    # 1. The scored table covers exactly the analysis grid.
+    if grid_path.exists():
+        grid_ids = set(gpd.read_file(grid_path, layer="nsw_grid")[cell_column])
+        scored_ids = set(scored[cell_column])
+        missing = grid_ids - scored_ids
+        extra = scored_ids - grid_ids
+        check("Scored table cell_id set equals the analysis grid",
+              "0 missing, 0 extra",
+              f"{len(missing):,} missing, {len(extra):,} extra",
+              not missing and not extra)
+
+    # 2. Eligibility agrees with the integrated table that gated it. A cell
+    #    the exclusion layer rejected must not carry a score here.
+    integrated_path = scoring_config.INTEGRATED_PATH
+    if integrated_path.exists():
+        integrated = gpd.read_file(
+            integrated_path, layer=scoring_config.INTEGRATED_LAYER,
+            columns=[cell_column, scoring_config.ELIGIBLE_COLUMN],
+        )
+        merged = scored[[cell_column, scoring_config.SCORE_COLUMN]].merge(
+            integrated, on=cell_column, how="left", validate="one_to_one",
+        )
+        eligible = merged[scoring_config.ELIGIBLE_COLUMN].fillna(False).astype(bool)
+        has_score = merged[scoring_config.SCORE_COLUMN].notna()
+        violations = int((~eligible & has_score).sum()) + int((eligible & ~has_score).sum())
+        check("Scored cells match the S1-07 eligibility flag in the integrated table",
+              "0 mismatches",
+              f"{violations:,} mismatches "
+              f"({int(eligible.sum()):,} eligible, {int(has_score.sum()):,} scored)",
+              violations == 0)
+
+    if verbose:
+        for entry in checks:
+            print(f"    [{'PASS' if entry['passed'] else 'FAIL'}] {entry['name']}")
+    return checks
+
+
+# ---------------------------------------------------------------------------
 # Land mask assessment
 # ---------------------------------------------------------------------------
 
@@ -269,6 +342,13 @@ def run(
     passed = sum(1 for c in checks if c["passed"])
     print(f"    {passed}/{len(checks)} checks passed")
     results["cross_domain_checks"] = checks
+
+    scoring_checks = _run_scoring_cross_checks(verbose)
+    if scoring_checks:
+        scoring_passed = sum(1 for c in scoring_checks if c["passed"])
+        print(f"    Scoring (S1-10) cross-checks: "
+              f"{scoring_passed}/{len(scoring_checks)} passed")
+    results["scoring_cross_checks"] = scoring_checks
 
     if not skip_land_sea:
         print("  [2/2] Land-mask assessment...")

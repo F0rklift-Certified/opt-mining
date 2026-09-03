@@ -2,7 +2,7 @@
 CLI entry point for the data pipeline.
 
 Runs domain subpackages sequentially:
-  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → integration → validate
+  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → integration → scoring → validate
 
 Usage:
     python -m pipeline                          # run all stages
@@ -10,6 +10,7 @@ Usage:
     python -m pipeline --only wind.probe        # run a single stage
     python -m pipeline --skip wind              # skip a domain
     python -m pipeline --skip-validate          # skip cross-domain checks
+    python -m pipeline --only scoring --scoring-weights w.yaml   # rescore with custom weights
     python -m pipeline --verbose                # detailed logging
     python -m pipeline --bbox 150.0,-31.5,152.0,-29.5 --area-name my-area
 """
@@ -87,6 +88,9 @@ def _get_runner(stage: str):
     elif stage == "integration":
         from .integration.merge import run
         return run
+    elif stage == "scoring":
+        from .scoring.run import run
+        return run
     elif stage == "validate":
         from .validate import run
         return run
@@ -121,7 +125,7 @@ def parse_args() -> argparse.Namespace:
         description=(
             "Opt-Mining Data Pipeline — Wind, Geographic, Infrastructure & Demand.\n\n"
             "Runs domain subpackages sequentially:\n"
-            "  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → integration → cross-domain validate"
+            "  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → integration → scoring → cross-domain validate"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -130,6 +134,8 @@ def parse_args() -> argparse.Namespace:
             "  python -m pipeline --only wind\n"
             "  python -m pipeline --only integration\n"
             "  python -m pipeline --only integration --confidence-weights my_weights.yaml\n"
+            "  python -m pipeline --only scoring\n"
+            "  python -m pipeline --only scoring --scoring-weights my_weights.yaml\n"
             "  python -m pipeline --only wind.probe\n"
             "  python -m pipeline --skip infrastructure\n"
             "  python -m pipeline --skip-validate\n"
@@ -302,6 +308,36 @@ def parse_args() -> argparse.Namespace:
         ),
     )
 
+    # Scoring options (S1-10)
+    parser.add_argument(
+        "--scoring-weights",
+        type=str,
+        default=None,
+        help=(
+            "Path to a custom criteria weights YAML for the 'scoring' stage "
+            "(S1-10; default: pipeline/scoring/scoring_weights.yaml). Criteria "
+            "weights are user inputs — edit this file to change the model's "
+            "priorities."
+        ),
+    )
+    parser.add_argument(
+        "--confidence-discount",
+        dest="confidence_discount",
+        action="store_true",
+        default=None,
+        help=(
+            "Enable the S1-10 confidence discount, multiplying each score and its "
+            "contributions by the factor for that cell's confidence (overrides the "
+            "weights file)."
+        ),
+    )
+    parser.add_argument(
+        "--no-confidence-discount",
+        dest="confidence_discount",
+        action="store_false",
+        help="Disable the S1-10 confidence discount (overrides the weights file).",
+    )
+
     # Output
     parser.add_argument(
         "--verbose",
@@ -402,6 +438,11 @@ def _build_kwargs(stage: str, args: argparse.Namespace, bbox: tuple) -> dict:
             kwargs["rules_path"] = Path(args.exclusion_rules)
     if stage == "integration" and args.confidence_weights:
         kwargs["weights_path"] = Path(args.confidence_weights)
+    if stage == "scoring":
+        if args.scoring_weights:
+            kwargs["weights_path"] = Path(args.scoring_weights)
+        if args.confidence_discount is not None:
+            kwargs["confidence_discount"] = args.confidence_discount
 
     return kwargs
 

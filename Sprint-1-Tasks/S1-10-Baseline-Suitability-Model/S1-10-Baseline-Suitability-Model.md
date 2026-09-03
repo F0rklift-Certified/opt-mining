@@ -39,16 +39,16 @@ The baseline model should be simple enough that anyone can understand why one ce
 
 ## Acceptance Criteria
 
-- [ ] Scoring module (`pipeline/scoring/`) takes the integrated feature table as input
-- [ ] Criteria weights are **configurable inputs** (loaded from config file, not hard-coded)
-- [ ] Default weights are documented with rationale for each
-- [ ] Scoring formula is documented, deterministic, and reproducible
-- [ ] Only **eligible** cells (from exclusion layer) receive a score; excluded cells get `score = NULL`
-- [ ] Score is normalised to [0, 1] range
-- [ ] Output: `cell_id | suitability_score | rank | confidence`
-- [ ] **Explainability:** for any cell, the contribution of each criterion to its final score is retrievable (per-criterion sub-scores)
-- [ ] Model does NOT use wind data to predict wind data (no circular modelling)
-- [ ] Unit tests verify scoring logic with known inputs/outputs
+- [x] Scoring module (`pipeline/scoring/`) takes the integrated feature table as input
+- [x] Criteria weights are **configurable inputs** (loaded from config file, not hard-coded)
+- [x] Default weights are documented with rationale for each
+- [x] Scoring formula is documented, deterministic, and reproducible
+- [x] Only **eligible** cells (from exclusion layer) receive a score; excluded cells get `score = NULL`
+- [x] Score is normalised to [0, 1] range
+- [x] Output: `cell_id | suitability_score | rank | confidence`
+- [x] **Explainability:** for any cell, the contribution of each criterion to its final score is retrievable (per-criterion sub-scores)
+- [x] Model does NOT use wind data to predict wind data (no circular modelling)
+- [x] Unit tests verify scoring logic with known inputs/outputs
 
 ---
 
