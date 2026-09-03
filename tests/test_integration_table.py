@@ -815,3 +815,210 @@ class TestValidateProperties:
         check = _check(result, "eligible/exclusion_reason consistent")
         assert check["observed"] == f"{sum(mask)} inconsistent rows"
         assert check["passed"] is (sum(mask) == 0)
+
+
+# ---------------------------------------------------------------------------
+# Writers, reports, provenance
+# ---------------------------------------------------------------------------
+
+
+def _merged_from_files():
+    from pipeline.integration.merge import layer_specs, merge_layers, validate
+
+    grid, layers, infos = _load_all()
+    specs = layer_specs()
+    table, log = merge_layers(grid, layers, specs)
+    result = validate(table, grid, layers, log, specs, infos)
+    return table, grid, layers, log, specs, infos, result
+
+
+class TestWriters:
+    def test_write_gpkg_uses_named_layer_and_leaves_no_tmp(self, synthetic_pipeline, tmp_path):
+        import pyogrio
+        from pipeline.integration.merge import write_gpkg
+
+        table, *_ = _merged_from_files()
+        path = tmp_path / "out" / "integrated.gpkg"
+        write_gpkg(table, path)
+        assert [str(r[0]) for r in pyogrio.list_layers(path)] == [icfg.OUTPUT_LAYER]
+        assert list(path.parent.glob("*_tmp*")) == []
+        back = gpd.read_file(path, layer=icfg.OUTPUT_LAYER)
+        assert len(back) == 6 and str(back.crs) == STORAGE_CRS
+        assert list(back["cell_id"]) == CELL_IDS
+        assert back["eligible"].dtype == bool
+
+    def test_write_gpkg_round_trips_nullable_boolean(self, synthetic_pipeline, tmp_path):
+        from pipeline.integration.merge import layer_specs, merge_layers, write_gpkg
+
+        grid, layers = _in_memory_inputs()
+        layers["infrastructure"]["inside_rez"] = pd.array(
+            [True, False, None, False, False, False], dtype="boolean",
+        )
+        table, _ = merge_layers(grid, layers, layer_specs())
+        path = tmp_path / "nullable.gpkg"
+        write_gpkg(table, path)
+        back = gpd.read_file(path, layer=icfg.OUTPUT_LAYER).set_index("cell_id")
+        assert pd.isna(back.loc["CELL_STEEP", "inside_rez"])
+        assert bool(back.loc["CELL_CLEAN", "inside_rez"]) is True
+        assert bool(back.loc["CELL_PLAIN", "inside_rez"]) is False
+
+    def test_write_csv_drops_geometry_and_round_trips_values(self, synthetic_pipeline, tmp_path):
+        from pipeline.integration.merge import OUTPUT_COLUMNS, write_csv
+
+        table, *_ = _merged_from_files()
+        path = tmp_path / "out" / "integrated.csv"
+        write_csv(table, path)
+        assert list(path.parent.glob("*_tmp*")) == []
+        text = path.read_text(encoding="utf-8")
+        lines = text.split("\n")
+        assert lines[0] == ",".join(OUTPUT_COLUMNS)
+        assert len([ln for ln in lines if ln]) == 7  # header + 6 rows
+        assert "geometry" not in lines[0]
+        assert "<NA>" not in text and "nan" not in text.lower().split("\n")[1:][0]
+        back = pd.read_csv(path)
+        assert list(back.columns) == OUTPUT_COLUMNS
+        assert back["wind_speed"].tolist() == table["wind_speed"].tolist()
+        assert back["centroid_lon"].tolist() == table["centroid_lon"].tolist()
+        assert back["dist_connection_km"].isna().all()
+        assert back["eligible"].dtype == bool
+        assert back["eligible"].tolist() == table["eligible"].tolist()
+        # A ", "-joined reason must survive quoting.
+        by_id = back.set_index("cell_id")
+        assert by_id.loc["CELL_PROTECTED", "exclusion_reason"] == "Protected area: Test Reserve"
+        assert by_id.loc["CELL_NO_GEO", "data_flags"].startswith("Urban-centre")
+
+    def test_write_csv_renders_nullable_boolean_null_as_empty(self, synthetic_pipeline, tmp_path):
+        from pipeline.integration.merge import layer_specs, merge_layers, write_csv
+
+        grid, layers = _in_memory_inputs()
+        layers["infrastructure"]["inside_rez"] = pd.array(
+            [True, False, None, False, False, False], dtype="boolean",
+        )
+        table, _ = merge_layers(grid, layers, layer_specs())
+        path = tmp_path / "nullable.csv"
+        write_csv(table, path)
+        rows = path.read_text(encoding="utf-8").split("\n")
+        assert "<NA>" not in "\n".join(rows)
+        steep = next(r for r in rows if r.startswith("CELL_STEEP"))
+        cols = rows[0].split(",")
+        assert steep.split(",")[cols.index("inside_rez")] == ""
+        clean = next(r for r in rows if r.startswith("CELL_CLEAN"))
+        assert clean.split(",")[cols.index("inside_rez")] == "True"
+
+    def test_verify_written_reports_read_back_counts(self, synthetic_pipeline, tmp_path):
+        from pipeline.integration.merge import verify_written, write_csv, write_gpkg
+
+        table, *_ = _merged_from_files()
+        gpkg, csv = tmp_path / "t.gpkg", tmp_path / "t.csv"
+        write_gpkg(table, gpkg)
+        write_csv(table, csv)
+        checks = verify_written(gpkg, csv, n_expected=6)
+        assert [c["name"] for c in checks] == [
+            "GeoPackage read-back row count",
+            "CSV read-back row count",
+            "CSV columns match OUTPUT_COLUMNS without geometry",
+        ]
+        assert all(c["passed"] and c["severity"] == "fatal" for c in checks)
+        assert checks[0]["observed"] == "6 rows"
+        # Truncate the CSV: the read-back check must catch it.
+        lines = csv.read_text(encoding="utf-8").split("\n")
+        csv.write_text("\n".join(lines[:-2]) + "\n", encoding="utf-8")
+        tampered = verify_written(gpkg, csv, n_expected=6)
+        assert tampered[1]["passed"] is False and tampered[1]["observed"] == "5 rows"
+
+
+class TestGitCommit:
+    def test_returns_hash_inside_repo_and_unknown_outside(self, tmp_path):
+        from pipeline.integration.merge import git_commit
+
+        here = git_commit(Path(__file__).resolve().parent)
+        assert here == "unknown" or len(here.split("-")[0]) >= 7
+        assert git_commit(tmp_path) == "unknown"
+
+
+class TestReports:
+    def test_method_report_contents(self, synthetic_pipeline, tmp_path):
+        from pipeline.integration.merge import build_method_report
+
+        table, grid, layers, log, specs, infos, result = _merged_from_files()
+        report = build_method_report(
+            table=table, infos=infos, specs=specs, join_log=log, result=result,
+            runtime_s=1.234, generated_utc="2026-09-03T00:00:00+00:00",
+            git_commit="abc1234",
+            outputs={"gpkg": tmp_path / "a.gpkg", "csv": tmp_path / "a.csv",
+                     "validation_report": tmp_path / "merge_validation.md"},
+        )
+        assert "pipeline.integration.merge" in report
+        assert "Do not edit by hand" in report
+        assert "| wind_speed | wind.wind_speed_100m |" in report
+        assert "| geo_confidence | geographic.confidence_flag |" in report
+        assert infos["wind"]["sha256"] in report
+        assert "abc1234" in report
+        assert "2026-09-03T00:00:00+00:00" in report
+        assert "1.234" in report
+        assert "data_confidence" in report and "S1-09" in report
+        assert "n_missing_features" in report
+        assert "Eligible" in report and "3" in report  # 3 eligible of 6
+        assert "| 4 | 1 |" in report  # histogram row: 4 missing -> 1 cell
+        assert "merge_validation.md" in report
+        assert "CSV" in report and "deterministic" in report
+
+    def test_validation_report_lists_every_check_with_status(self, synthetic_pipeline):
+        from pipeline.integration.merge import build_validation_report
+
+        *_, result = _merged_from_files()
+        report = build_validation_report(result, generated_utc="2026-09-03T00:00:00+00:00")
+        assert "pipeline.integration.merge" in report
+        for check in result["checks"]:
+            assert check["name"] in report
+        assert "| PASS |" in report
+        assert "| WARN |" in report  # the known wind divergence
+        assert "**FAIL**" not in report
+        assert f"{result['passed']}/{result['total']}" in report
+
+
+class TestProvenance:
+    def test_manifest_and_provenance_are_idempotent(self, synthetic_pipeline, tmp_path):
+        from pipeline.integration.merge import (
+            PROVENANCE_BEGIN, PROVENANCE_END, record_provenance, write_csv, write_gpkg,
+        )
+
+        table, grid, layers, log, specs, infos, result = _merged_from_files()
+        gpkg, csv = synthetic_pipeline.out_dir / "t.gpkg", synthetic_pipeline.out_dir / "t.csv"
+        write_gpkg(table, gpkg)
+        write_csv(table, csv)
+        manifest = synthetic_pipeline.meta_dir / "integration_manifest.json"
+        provenance = synthetic_pipeline.out_dir / "DATA_PROVENANCE.md"
+        provenance.parent.mkdir(parents=True, exist_ok=True)
+        provenance.write_text("# Handwritten header\n\nKeep me.\n", encoding="utf-8")
+
+        for _ in range(2):
+            record = record_provenance(
+                gpkg_path=gpkg, csv_path=csv, table=table, infos=infos,
+                generated_utc="2026-09-03T00:00:00+00:00", git_commit="abc1234",
+                manifest_path=manifest, provenance_path=provenance,
+            )
+
+        import json
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        assert len(data["derived_features"]) == 1
+        entry = data["derived_features"][0]
+        assert entry == record
+        for key in ("output_file", "csv_file", "stage", "generated_utc", "git_commit",
+                    "rows", "columns", "sha256_gpkg", "sha256_csv", "bytes_gpkg",
+                    "bytes_csv", "inputs"):
+            assert key in entry, key
+        assert entry["stage"] == "integration"
+        assert entry["rows"] == 6
+        assert entry["output_file"] == str(gpkg.relative_to(icfg.PROJECT_ROOT))
+        assert {i["name"] for i in entry["inputs"]} == {
+            "grid", "wind", "geographic", "infrastructure", "demand", "exclusions",
+        }
+        assert all(len(i["sha256"]) == 64 for i in entry["inputs"])
+
+        text = provenance.read_text(encoding="utf-8")
+        assert text.startswith("# Handwritten header")
+        assert "Keep me." in text
+        assert text.count(PROVENANCE_BEGIN) == 1 and text.count(PROVENANCE_END) == 1
+        assert entry["sha256_csv"] in text
+        assert "--only integration" in text

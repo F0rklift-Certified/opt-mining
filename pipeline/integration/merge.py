@@ -32,6 +32,9 @@ Usage:
 
 from __future__ import annotations
 
+import json
+import os
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
@@ -42,7 +45,7 @@ import pyogrio
 from pyproj import CRS
 
 from . import config
-from ..common.geo import sha256_file
+from ..common.geo import atomic_write_json, atomic_write_text, sha256_file
 
 
 # ---------------------------------------------------------------------------
@@ -580,3 +583,405 @@ def validate(
     warnings = sum(1 for c in checks if not c["passed"] and c["severity"] == WARN)
     return {"checks": checks, "passed": passed, "total": len(checks),
             "failed": failed, "warnings": warnings}
+
+
+# ---------------------------------------------------------------------------
+# Writers
+# ---------------------------------------------------------------------------
+
+
+def write_gpkg(table: gpd.GeoDataFrame, path: Path) -> None:
+    """Atomic GeoPackage write (tmp keeps the .gpkg suffix for driver inference)."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.stem + "_tmp.gpkg")
+    try:
+        table.to_file(tmp, driver="GPKG", layer=config.OUTPUT_LAYER)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def write_csv(table: gpd.GeoDataFrame, path: Path) -> None:
+    """
+    Atomic CSV write without geometry. index=False, nulls empty, booleans
+    True/False, floats in pandas' shortest round-trip repr, "\\n" line ends —
+    byte-identical across reruns with unchanged inputs.
+    """
+    path = Path(path)
+    frame = pd.DataFrame(table.drop(columns=[table.geometry.name]))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.stem + "_tmp.csv")
+    try:
+        frame.to_csv(tmp, index=False, na_rep="", lineterminator="\n", encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def verify_written(gpkg_path: Path, csv_path: Path, n_expected: int) -> list[dict]:
+    """Read-back checks on the two written products (same check shape as validate())."""
+    checks: list[dict] = []
+
+    def check(name, expected, observed, passed):
+        checks.append({"name": name, "expected": str(expected), "observed": str(observed),
+                       "passed": bool(passed), "severity": FATAL})
+
+    n_gpkg = int(pyogrio.read_info(gpkg_path, layer=config.OUTPUT_LAYER)["features"])
+    check("GeoPackage read-back row count", f"{n_expected} rows", f"{n_gpkg} rows",
+          n_gpkg == n_expected)
+
+    header = list(pd.read_csv(csv_path, nrows=0).columns)
+    n_csv = int(len(pd.read_csv(csv_path, usecols=[header[0]])))
+    check("CSV read-back row count", f"{n_expected} rows", f"{n_csv} rows", n_csv == n_expected)
+    check("CSV columns match OUTPUT_COLUMNS without geometry",
+          f"{len(OUTPUT_COLUMNS)} columns, no geometry",
+          "identical" if header == OUTPUT_COLUMNS else f"got {header}",
+          header == OUTPUT_COLUMNS)
+    return checks
+
+
+def git_commit(cwd: Path | None = None) -> str:
+    """
+    HEAD commit for the report/manifest ('-dirty' when the tree has changes);
+    'unknown' on any failure. Never raises — reproducibility metadata must not
+    be able to fail the stage.
+    """
+    try:
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=cwd, capture_output=True, text=True, timeout=5,
+        )
+        if head.returncode != 0 or not head.stdout.strip():
+            return "unknown"
+        commit = head.stdout.strip()
+        status = subprocess.run(
+            ["git", "status", "--porcelain"], cwd=cwd, capture_output=True, text=True, timeout=5,
+        )
+        dirty = status.returncode == 0 and status.stdout.strip() != ""
+        return f"{commit}-dirty" if dirty else commit
+    except Exception:  # noqa: BLE001 — any failure degrades to "unknown"
+        return "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Reports
+# ---------------------------------------------------------------------------
+
+STAGE_NAME = "integration"
+MODULE_NAME = "integration.merge"
+
+# Units / type of every output column, for the column map (ticket AC: "all
+# columns retain their units, documented in metadata").
+COLUMN_UNITS = {
+    "cell_id": "str — grid identifier, byte-for-byte from S1-02",
+    "centroid_lat": "degrees (EPSG:4326)",
+    "centroid_lon": "degrees (EPSG:4326)",
+    "area_km2": "km² (computed in EPSG:3577 by the grid stage)",
+    "wind_speed": "m/s — GWA v4 mean wind speed at 100 m hub height",
+    "wind_confidence": "flag: valid | no_data",
+    "demand_proxy": "normalised 0–1 (uniform allocation of NEM-region annual mean MW)",
+    "source_region": "NEM region id, null outside every region",
+    "demand_confidence": "flag: high | medium | low",
+    "dist_transmission_km": "km — EPSG:3577 centroid distance to nearest ≥132 kV line",
+    "dist_substation_km": "km — EPSG:3577 centroid distance to nearest substation",
+    "dist_connection_km": "km — EPSG:3577 centroid distance to nearest connection point",
+    "inside_rez": "bool — cell intersects an EnergyCo REZ",
+    "rez_name": "str, null when not in a REZ ('; '-joined if several)",
+    "infra_confidence": "flag: high | low",
+    "elevation_m": "m AMSL — mean of valid SRTM GL3 pixels",
+    "slope_deg": "degrees — mean of valid Horn-slope pixels",
+    "tri": "m — Riley terrain ruggedness index (Glen-Innes sub-window only)",
+    "land_use": "ALUM v8 tertiary class name of the modal NLUM code",
+    "protected_area": "bool — any CAPAD intersection (frozen decision Q6)",
+    "protected_area_name": "'; '-joined CAPAD names, '' when none",
+    "geo_confidence": "flag: high | low",
+    "eligible": "bool — no exclusion rule triggered (S1-07)",
+    "exclusion_reason": "text — ', '-joined reasons, null when eligible",
+    "triggered_rules": "text — ', '-joined rule names, null when eligible",
+    "data_flags": "text — '; '-joined non-exclusionary coverage flags",
+    "n_missing_features": "int 0–10 — nulls among the ten scored feature columns",
+}
+
+
+def _banner(generated_utc: str) -> str:
+    """Same wording as common.geo.banner(), stamped with the run's timestamp."""
+    return (f"*Generated by `pipeline.{MODULE_NAME}` on {generated_utc}. "
+            f"Do not edit by hand.*\n")
+
+
+def _column_source_map(specs: Sequence[LayerSpec]) -> dict[str, str]:
+    sources = {c: f"grid.{c}" for c in GRID_COLUMNS}
+    for spec in specs:
+        for target, source in spec.columns.items():
+            sources[target] = f"{spec.name}.{source}"
+    sources["n_missing_features"] = "derived — count of nulls over " + ", ".join(SCORED_FEATURE_COLUMNS)
+    return sources
+
+
+def _rel(path: Path) -> str:
+    path = Path(path)
+    try:
+        return str(path.relative_to(config.PROJECT_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def build_method_report(
+    *,
+    table: gpd.GeoDataFrame,
+    infos: dict[str, dict],
+    specs: Sequence[LayerSpec],
+    join_log: list[dict],
+    result: dict,
+    runtime_s: float,
+    generated_utc: str,
+    git_commit: str,
+    outputs: dict[str, Path],
+) -> str:
+    """Render integration_method.md."""
+    n_cells = len(table)
+    n_eligible = int(table["eligible"].fillna(False).astype(bool).sum())
+    n_excluded = n_cells - n_eligible
+
+    input_rows = "\n".join(
+        f"| {name} | `{_rel(info['path'])}` | `{info['layer']}` | {info['rows']:,} | "
+        f"{info['crs']} (asserted == {config.STORAGE_CRS}) | `{info['sha256']}` |"
+        for name, info in infos.items()
+    )
+
+    sources = _column_source_map(specs)
+    column_rows = "\n".join(
+        f"| {column} | {sources.get(column, '—')} | {COLUMN_UNITS.get(column, '—')} |"
+        for column in OUTPUT_COLUMNS
+    )
+
+    upstream_nulls: dict[str, int] = {}
+    for entry in join_log:
+        upstream_nulls.update(entry["null_counts_upstream"])
+    null_rows = "\n".join(
+        f"| {column} | {upstream_nulls[column] if column in upstream_nulls else '—'} | "
+        f"{int(table[column].isna().sum())} |"
+        for column in OUTPUT_COLUMNS
+    )
+
+    histogram = table["n_missing_features"].value_counts().sort_index()
+    histogram_rows = "\n".join(f"| {int(k)} | {int(v)} |" for k, v in histogram.items())
+
+    dropped = (
+        "`wind.units`, `wind.data_source` (constants: m/s, GWA v4), "
+        "`demand.allocation_method` (constant: uniform), and S1-07's own "
+        "`protected_area`, `protected_area_name`, `slope_deg`, `urban_area`, "
+        "`wind_speed_100m_ms` (recomputed from rasters; compared in the WARN "
+        "checks, never carried — the geographic and wind layers are canonical)."
+    )
+
+    return f"""# Integrated NSW Feature Table — method report (S1-08)
+
+{_banner(generated_utc)}
+
+## 1. Method
+
+The S1-02 analysis grid (`cell_id`, centroids, `area_km2`, geometry) is the
+left side of five sequential **left joins on `cell_id`**, in this order:
+wind (S1-03), geographic (S1-06), infrastructure (S1-05), demand (S1-04),
+exclusions (S1-07). Each join is validated one-to-one and the row count is
+asserted unchanged afterwards, so no cell is dropped or duplicated. Excluded
+cells are **retained** with `eligible = False`.
+
+Nothing is computed, reprojected or back-filled here: every input must already
+be stored in {config.STORAGE_CRS} (the loaders halt otherwise), and upstream
+nulls stay null (the per-column null counts are checked to be identical after
+the join). Distances and areas were computed upstream in {config.COMPUTATION_CRS}.
+
+Columns dropped on purpose: {dropped}
+
+**`data_confidence` is not emitted by this stage.** Deriving a composite
+confidence is S1-09's job; this table carries the five upstream flags under
+per-layer names (`wind_confidence`, `demand_confidence`, `infra_confidence`,
+`geo_confidence`; exclusions has none) plus the objective `n_missing_features`
+count for S1-09 to build on.
+
+## 2. Reproducibility
+
+- Generated (UTC): {generated_utc}
+- Git commit: `{git_commit}`
+- Stage: `python -m pipeline --only {STAGE_NAME}` (or the full `python -m pipeline`)
+- The **CSV is the deterministic artefact**: with unchanged inputs a rerun
+  reproduces it byte-for-byte. The GeoPackage embeds a
+  `gpkg_contents.last_change` timestamp, so its SHA-256 changes on every
+  regeneration even when the data does not.
+- Input fingerprints are listed below and in `metadata/{config.MANIFEST_FILENAME}`.
+
+## 3. Inputs
+
+| Layer | File | Layer name | Rows | CRS | SHA-256 |
+|-------|------|------------|------|-----|---------|
+{input_rows}
+
+## 4. Column map
+
+| Column | Source (layer.column) | Units / type |
+|--------|-----------------------|--------------|
+{column_rows}
+
+## 5. Null accounting
+
+Upstream vs integrated null counts per column (`—` = grid or derived column):
+
+| Column | Upstream nulls | Integrated nulls |
+|--------|----------------|------------------|
+{null_rows}
+
+`n_missing_features` histogram (nulls among the ten scored feature columns):
+
+| n_missing_features | Cells |
+|--------------------|-------|
+{histogram_rows}
+
+- Cells: **{n_cells:,}**
+- Eligible: **{n_eligible:,}** — Excluded: **{n_excluded:,}** (rows retained)
+
+## 6. Validation
+
+{result['passed']}/{result['total']} checks passed; {result['failed']} fatal
+failure(s); {result['warnings']} warning(s). Every check, with its expected and
+observed values, is in `{_rel(outputs['validation_report'])}`
+(`merge_validation.md`). WARN checks compare S1-07's own raster recomputation
+with the geographic and wind layers; a non-zero count there documents known
+upstream divergence and does not fail the stage.
+
+## 7. Outputs
+
+- GeoPackage (with geometry, layer `{config.OUTPUT_LAYER}`): `{_rel(outputs['gpkg'])}`
+- CSV (without geometry): `{_rel(outputs['csv'])}`
+
+## 8. Runtime
+
+- Total wall-clock runtime: {runtime_s:.3f} s
+"""
+
+
+def build_validation_report(result: dict, generated_utc: str) -> str:
+    """Render merge_validation.md: one row per check, PASS / **FAIL** / WARN."""
+    rows = []
+    for check in result["checks"]:
+        if check["passed"]:
+            status = "PASS"
+        elif check["severity"] == WARN:
+            status = "WARN"
+        else:
+            status = "**FAIL**"
+        rows.append(
+            f"| {check['name']} | {check['severity']} | {check['expected']} | "
+            f"{check['observed']} | {status} |"
+        )
+    body = "\n".join(rows)
+    return f"""# Integrated NSW Feature Table — merge validation (S1-08)
+
+{_banner(generated_utc)}
+
+**{result['passed']}/{result['total']} checks passed** — {result['failed']} fatal
+failure(s), {result['warnings']} warning(s). Fatal failures halt the stage; WARN
+rows record known divergence between S1-07's raster recomputation and the
+canonical feature layers.
+
+| Check | Severity | Expected | Observed | Result |
+|-------|----------|----------|----------|--------|
+{body}
+"""
+
+
+# ---------------------------------------------------------------------------
+# Provenance
+# ---------------------------------------------------------------------------
+
+PROVENANCE_BEGIN = "<!-- BEGIN integration.merge derived layer (generated) -->"
+PROVENANCE_END = "<!-- END integration.merge derived layer (generated) -->"
+
+
+def record_provenance(
+    *,
+    gpkg_path: Path,
+    csv_path: Path,
+    table: gpd.GeoDataFrame,
+    infos: dict[str, dict],
+    generated_utc: str,
+    git_commit: str,
+    manifest_path: Path,
+    provenance_path: Path,
+) -> dict:
+    """
+    Read-merge-write one record into the manifest (keyed by output_file, so a
+    rerun replaces rather than appends) and splice the generated block into
+    DATA_PROVENANCE.md between the BEGIN/END markers (handwritten text above
+    is never touched). Returns the manifest record.
+    """
+    record = {
+        "output_file": _rel(gpkg_path),
+        "csv_file": _rel(csv_path),
+        "stage": STAGE_NAME,
+        "generated_utc": generated_utc,
+        "git_commit": git_commit,
+        "rows": int(len(table)),
+        "columns": list(OUTPUT_COLUMNS),
+        "sha256_gpkg": sha256_file(gpkg_path),
+        "sha256_csv": sha256_file(csv_path),
+        "bytes_gpkg": Path(gpkg_path).stat().st_size,
+        "bytes_csv": Path(csv_path).stat().st_size,
+        "inputs": [
+            {
+                "name": name,
+                "path": _rel(info["path"]),
+                "layer": info["layer"],
+                "rows": info["rows"],
+                "crs": info["crs"],
+                "sha256": info["sha256"],
+                "bytes": info["bytes"],
+            }
+            for name, info in infos.items()
+        ],
+    }
+
+    manifest_path = Path(manifest_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
+    derived = [
+        r for r in manifest.get("derived_features", [])
+        if r.get("output_file") != record["output_file"]
+    ]
+    derived.append(record)
+    manifest["derived_features"] = derived
+    atomic_write_json(manifest_path, manifest)
+
+    inputs_md = "\n".join(
+        f"  - {i['name']}: `{i['path']}` (layer `{i['layer']}`, {i['rows']:,} rows, "
+        f"SHA-256 `{i['sha256']}`)"
+        for i in record["inputs"]
+    )
+    section = (
+        f"{PROVENANCE_BEGIN}\n"
+        f"## Derived layer — Integrated NSW Feature Table (S1-08)\n\n"
+        f"- **File:** `{record['output_file']}` (GeoPackage, layer `{config.OUTPUT_LAYER}`)\n"
+        f"- **CSV:** `{record['csv_file']}` (no geometry; the deterministic artefact)\n"
+        f"- **Derived from:**\n{inputs_md}\n"
+        f"- **Method:** left joins on `cell_id` from the S1-02 grid; row count asserted "
+        f"after every join; excluded cells retained with `eligible = False`; no "
+        f"reprojection, no back-filling; `data_confidence` deferred to S1-09.\n"
+        f"- **Regenerable:** yes — `python -m pipeline --only {STAGE_NAME}` "
+        f"(after the five feature stages and `exclusions`).\n"
+        f"- **SHA-256 (GeoPackage):** `{record['sha256_gpkg']}`\n"
+        f"- **SHA-256 (CSV):** `{record['sha256_csv']}`\n"
+        f"- **Rows:** {record['rows']:,}\n"
+        f"- **Generated (UTC):** {generated_utc}\n"
+        f"- **Git commit:** `{git_commit}`\n"
+        f"{PROVENANCE_END}\n"
+    )
+    provenance_path = Path(provenance_path)
+    text = provenance_path.read_text(encoding="utf-8") if provenance_path.exists() else ""
+    if PROVENANCE_BEGIN in text and PROVENANCE_END in text:
+        head, rest = text.split(PROVENANCE_BEGIN, 1)
+        _, tail = rest.split(PROVENANCE_END, 1)
+        text = head + section.rstrip("\n") + tail
+    else:
+        text = text.rstrip("\n") + "\n\n" + section if text else section
+    atomic_write_text(provenance_path, text)
+    return record
