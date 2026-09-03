@@ -15,6 +15,8 @@ CRS constants are re-exported from grid/config.py (the authoritative source),
 following pipeline/exclusions/config.py.
 """
 
+from pathlib import Path
+
 from .. import config as _shared
 from ..demand import config as _demand_config
 from ..exclusions import config as _excl_config
@@ -87,3 +89,46 @@ DEMAND_CONFIDENCE_LEVELS = _demand_config.CONFIDENCE_LEVELS
 # code path; values should agree to well within these tolerances.
 SLOPE_TOLERANCE_DEG = 0.05
 WIND_TOLERANCE_MS = 0.01
+
+# ---------------------------------------------------------------------------
+# S1-09 — data-quality and confidence layer (pipeline/integration/confidence.py)
+# ---------------------------------------------------------------------------
+
+# The ten feature columns downstream scoring consumes (the S1-08 ticket's
+# feature rows). n_missing_features counts nulls over exactly these and the
+# confidence score is a weighted sum over exactly these. `tri` is excluded for
+# the same reason S1-06 keeps it out of its confidence flag (Glen-Innes only by
+# design); names, regions and confidence flags are not features. Defined here
+# (not in merge.py) so confidence.py can import it without a cycle.
+SCORED_FEATURE_COLUMNS = (
+    "wind_speed", "demand_proxy", "dist_transmission_km", "dist_substation_km",
+    "dist_connection_km", "inside_rez", "elevation_m", "slope_deg", "land_use",
+    "protected_area",
+)
+
+# Columns appended to the integrated table by confidence.assess().
+CONFIDENCE_COLUMNS = ("data_confidence", "confidence_score", "confidence_notes")
+DATA_CONFIDENCE_LEVELS = ("high", "medium", "low")
+
+# Upstream per-layer flags the composite may modulate: layer -> (column, vocabulary).
+CONFIDENCE_FLAG_COLUMNS = {
+    "wind": ("wind_confidence", WIND_CONFIDENCE_LEVELS),
+    "geographic": ("geo_confidence", GEO_CONFIDENCE_LEVELS),
+    "infrastructure": ("infra_confidence", INFRA_CONFIDENCE_LEVELS),
+    "demand": ("demand_confidence", DEMAND_CONFIDENCE_LEVELS),
+}
+
+CONFIDENCE_NOTE_DELIMITER = "; "  # same delimiter as S1-07's data_flags
+CONFIDENCE_NO_NOTES = "—"
+CONFIDENCE_SCORE_DECIMALS = 3
+
+# Weights/factors/thresholds are DATA, loaded from YAML (like the S1-07 rules).
+DEFAULT_CONFIDENCE_WEIGHTS_PATH = Path(__file__).resolve().parent / "confidence_weights.yaml"
+CONFIDENCE_METHOD_FILENAME = "confidence_method.md"
+CONFIDENCE_SUMMARY_FILENAME = "confidence_summary.md"
+
+# Lattice constants for the summary report's neighbour statistics
+# (authoritative source: grid/config.py).
+GRID_ORIGIN_LON = _grid_config.GWA_ORIGIN_LON
+GRID_ORIGIN_LAT = _grid_config.GWA_ORIGIN_LAT
+CELL_DEG = _grid_config.CELL_DEG

@@ -179,6 +179,12 @@ class TestIntegrationImports:
         "WIND_CONFIDENCE_LEVELS", "GEO_CONFIDENCE_LEVELS",
         "INFRA_CONFIDENCE_LEVELS", "DEMAND_CONFIDENCE_LEVELS",
         "SLOPE_TOLERANCE_DEG", "WIND_TOLERANCE_MS",
+        # S1-09 confidence layer
+        "SCORED_FEATURE_COLUMNS", "CONFIDENCE_COLUMNS", "DATA_CONFIDENCE_LEVELS",
+        "CONFIDENCE_FLAG_COLUMNS", "CONFIDENCE_NOTE_DELIMITER", "CONFIDENCE_NO_NOTES",
+        "CONFIDENCE_SCORE_DECIMALS", "DEFAULT_CONFIDENCE_WEIGHTS_PATH",
+        "CONFIDENCE_METHOD_FILENAME", "CONFIDENCE_SUMMARY_FILENAME",
+        "GRID_ORIGIN_LON", "GRID_ORIGIN_LAT", "CELL_DEG",
     )
 
     def test_config(self):
@@ -227,6 +233,12 @@ class TestIntegrationImports:
         from pipeline.integration.analyse import run
         assert callable(run)
 
+    def test_default_confidence_weights_file_exists_and_loads(self):
+        from pipeline.integration import config as ic
+        from pipeline.integration.confidence import load_weights
+        assert ic.DEFAULT_CONFIDENCE_WEIGHTS_PATH.exists()
+        assert load_weights(ic.DEFAULT_CONFIDENCE_WEIGHTS_PATH).weight_sum > 0
+
     def test_merge_importable_without_rasterio(self):
         # The stage needs no rasterio: prove it in a fresh interpreter so an
         # earlier test importing rasterio cannot mask a regression.
@@ -237,7 +249,8 @@ class TestIntegrationImports:
         root = Path(__file__).resolve().parent.parent
         code = (
             "import sys; import pipeline.integration.merge as m; "
-            "assert callable(m.run); "
+            "import pipeline.integration.confidence as c; "
+            "assert callable(m.run) and callable(c.load_weights); "
             "assert 'rasterio' not in sys.modules, 'merge imported rasterio'"
         )
         proc = subprocess.run([sys.executable, "-c", code], cwd=root,

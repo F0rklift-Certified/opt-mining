@@ -290,14 +290,9 @@ OUTPUT_COLUMNS = [
 ]
 
 # The ten feature columns downstream scoring consumes (the ticket's feature
-# rows). n_missing_features counts nulls over exactly these. `tri` is excluded
-# for the same reason S1-06 keeps it out of its confidence flag (Glen-Innes
-# only by design); names, regions and confidence flags are not features.
-SCORED_FEATURE_COLUMNS = (
-    "wind_speed", "demand_proxy", "dist_transmission_km", "dist_substation_km",
-    "dist_connection_km", "inside_rez", "elevation_m", "slope_deg", "land_use",
-    "protected_area",
-)
+# rows). n_missing_features counts nulls over exactly these. Defined in
+# config.py (shared with confidence.py); re-exported here for callers/tests.
+SCORED_FEATURE_COLUMNS = config.SCORED_FEATURE_COLUMNS
 
 # Boolean columns: numpy bool when null-free, pandas nullable boolean otherwise
 # (so a null is a null in both the GeoPackage and the CSV, never "<NA>").
