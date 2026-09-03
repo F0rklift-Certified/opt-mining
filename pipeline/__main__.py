@@ -2,7 +2,7 @@
 CLI entry point for the data pipeline.
 
 Runs domain subpackages sequentially:
-  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → integration → scoring → validate
+  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → integration → scoring → shortlist → validate
 
 Usage:
     python -m pipeline                          # run all stages
@@ -91,6 +91,9 @@ def _get_runner(stage: str):
     elif stage == "scoring":
         from .scoring.run import run
         return run
+    elif stage == "shortlist":
+        from .shortlist.run import run
+        return run
     elif stage == "validate":
         from .validate import run
         return run
@@ -125,7 +128,7 @@ def parse_args() -> argparse.Namespace:
         description=(
             "Opt-Mining Data Pipeline — Wind, Geographic, Infrastructure & Demand.\n\n"
             "Runs domain subpackages sequentially:\n"
-            "  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → integration → scoring → cross-domain validate"
+            "  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → integration → scoring → shortlist → cross-domain validate"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -136,6 +139,8 @@ def parse_args() -> argparse.Namespace:
             "  python -m pipeline --only integration --confidence-weights my_weights.yaml\n"
             "  python -m pipeline --only scoring\n"
             "  python -m pipeline --only scoring --scoring-weights my_weights.yaml\n"
+            "  python -m pipeline --only shortlist\n"
+            "  python -m pipeline --only shortlist --shortlist-top-n 50\n"
             "  python -m pipeline --only wind.probe\n"
             "  python -m pipeline --skip infrastructure\n"
             "  python -m pipeline --skip-validate\n"
@@ -338,6 +343,18 @@ def parse_args() -> argparse.Namespace:
         help="Disable the S1-10 confidence discount (overrides the weights file).",
     )
 
+    # Shortlist options (S1-11)
+    parser.add_argument(
+        "--shortlist-top-n",
+        type=int,
+        default=20,
+        help=(
+            "Number of top-ranked Eligible_Cells to include in the 'shortlist' "
+            "stage output (S1-11; default: 20). Selection is by the existing "
+            "ascending S1-10 rank; must be a positive integer."
+        ),
+    )
+
     # Output
     parser.add_argument(
         "--verbose",
@@ -443,6 +460,8 @@ def _build_kwargs(stage: str, args: argparse.Namespace, bbox: tuple) -> dict:
             kwargs["weights_path"] = Path(args.scoring_weights)
         if args.confidence_discount is not None:
             kwargs["confidence_discount"] = args.confidence_discount
+    if stage == "shortlist":
+        kwargs["top_n"] = args.shortlist_top_n
 
     return kwargs
 
