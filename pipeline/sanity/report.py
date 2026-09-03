@@ -37,10 +37,19 @@ renderer/writer functions.)
 
 from __future__ import annotations
 
+import csv
+import io
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..common.geo import atomic_write_json, atomic_write_text, banner
+from ..common.geo import (
+    atomic_write_json,
+    atomic_write_text,
+    banner,
+    sha256_file,
+    utc_now,
+)
 from . import config
 from .checks import (
     DistributionCheckResult,
@@ -805,3 +814,320 @@ def write_sidecar(
 # Run_Timestamp, generation params listing all five inputs), and a
 # source_register entry, labelling the report + sidecar derived products.
 # ---------------------------------------------------------------------------
+
+
+# Generated-block markers for the DATA_PROVENANCE.md splice. Handwritten text
+# ABOVE the BEGIN marker is never touched; the block between the markers is
+# rewritten on every run (mirrors integration.merge / shortlist.report).
+PROVENANCE_BEGIN = "<!-- BEGIN sanity.run derived product (generated) -->"
+PROVENANCE_END = "<!-- END sanity.run derived product (generated) -->"
+
+# The ordered names of the five READ-ONLY inputs the stage consumes. Recorded
+# in the manifest, DATA_PROVENANCE.md and the source_register so a reviewer can
+# confirm exactly which artefacts the derived report/sidecar were drawn from
+# (Requirements 10.1, 10.3).
+INPUT_NAMES = (
+    "shortlist",
+    "scored_table",
+    "integrated_feature_table",
+    "wind_generators",
+    "analysis_grid",
+)
+
+
+def _rel(path: Path | str) -> str:
+    """
+    Path relative to the project root for reports and manifests; absolute when
+    it lies outside the project tree. Mirrors ``shortlist.report._rel`` /
+    ``integration.merge._rel`` so every stage's provenance uses the same
+    path vocabulary.
+    """
+    path = Path(path)
+    try:
+        return str(path.relative_to(config.PROJECT_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _input_fingerprint(name: str, path: Path | str, layer: str | None = None) -> dict:
+    """
+    Fingerprint one READ-ONLY input for the manifest and the DATA_PROVENANCE.md
+    row: its project-relative path, the layer read (where the source is a
+    multi-layer container), its SHA-256 digest and byte count. Mirrors
+    ``shortlist.report._input_fingerprint`` so a reviewer can confirm the exact
+    five inputs the derived Validation_Report / Results_Sidecar were drawn from
+    (Requirement 10.1, 10.3).
+    """
+    path = Path(path)
+    return {
+        "name": name,
+        "path": _rel(path),
+        "layer": layer,
+        "sha256": sha256_file(path),
+        "bytes": path.stat().st_size,
+    }
+
+
+def record_provenance(
+    *,
+    report_path: Path | str,
+    sidecar_path: Path | str | None,
+    shortlist_path: Path | str,
+    scored_path: Path | str,
+    integrated_path: Path | str,
+    wind_generators_path: Path | str,
+    grid_path: Path | str,
+    run_timestamp: str,
+    pipeline_version: str | None = None,
+    manifest_path: Path | str = None,
+    provenance_path: Path | str = None,
+    register_path: Path | str = None,
+    scored_layer: str | None = None,
+    integrated_layer: str | None = None,
+    grid_layer: str | None = None,
+) -> dict:
+    """
+    Record the Validation_Report (and, where written, the Results_Sidecar) as
+    DERIVED products in all three provenance artefacts (Requirement 10).
+
+    Mirrors ``infrastructure/features.py`` / ``integration.merge`` /
+    ``shortlist.report`` provenance: the derived-product triple of a
+    ``DATA_PROVENANCE.md`` row, a manifest JSON (SHA-256, byte count, UTC
+    Run_Timestamp, generation params listing all five inputs), and a
+    ``source_register`` entry — every write going through ``common.geo`` atomic
+    writers so an interrupt never leaves a partial or corrupt provenance file.
+
+    The report and any sidecar share a single run's inputs and Run_Timestamp, so
+    they are recorded together as ONE derived-product record; the manifest,
+    ``DATA_PROVENANCE.md`` and the ``source_register`` therefore never disagree
+    about which run produced which pair. The record labels both outputs a
+    **derived product** so neither is mistaken for custodial source data (10.2).
+
+    The five inputs (Shortlist, Scored_Table, Integrated_Feature_Table,
+    Wind_Generators, Analysis_Grid) are supplied by the caller — the Shortlist
+    path is the concrete timestamped file the loader resolved
+    (``LoadedFrames.resolved_shortlist_path``); the other four are the stage's
+    configured default paths (``config.SCORED_PATH`` etc.) or their run-time
+    overrides — and are fingerprinted (path + layer + SHA-256 + bytes) as the
+    generation params (10.1, 10.3).
+
+    The optional Results_Sidecar name follows the project
+    ``{source}_{dataset}_{year/vintage}_{region}.{ext}`` convention with region
+    slug ``nsw`` (``optmining_validation-results_2026_nsw.json`` — from
+    ``config.SIDECAR_PATH``); the Validation_Report retains its FIXED
+    ``outputs/sprint1_validation_report.md`` path and the naming rule is
+    documented in the DATA_PROVENANCE.md block (10.4).
+
+    Parameters
+    ----------
+    report_path:
+        The written Validation_Report (``config.REPORT_PATH``), fingerprinted
+        into the record.
+    sidecar_path:
+        The written Results_Sidecar (``config.SIDECAR_PATH``), or ``None`` when
+        the sidecar was not emitted for this run. When present it is
+        fingerprinted alongside the report and labelled derived.
+    shortlist_path, scored_path, integrated_path, wind_generators_path,
+    grid_path:
+        The five READ-ONLY inputs, fingerprinted (path + layer + SHA-256 +
+        bytes) as the generation params (Requirement 10.1, 10.3).
+    scored_layer, integrated_layer, grid_layer:
+        The layers read from the multi-layer inputs (``config.SCORED_LAYER`` /
+        ``config.INTEGRATED_LAYER`` / ``config.GRID_LAYER``), recorded alongside
+        the path. The Shortlist and Wind_Generators are single-layer files
+        (no layer recorded).
+    run_timestamp:
+        The single UTC Run_Timestamp for the run (Requirement 10.3) — the same
+        value stamped into the report header and the sidecar's run metadata. The
+        record also stamps a ``generated_utc`` at write time for parity with the
+        other stages' manifests.
+    pipeline_version:
+        The Pipeline_Version identifier, recorded alongside the timestamp when
+        supplied.
+    manifest_path, provenance_path, register_path:
+        Destinations; default to
+        ``config.SANITY_META_DIR / config.MANIFEST_FILENAME``,
+        ``config.SANITY_DIR / config.PROVENANCE_FILENAME`` and
+        ``config.SANITY_META_DIR / config.SOURCE_REGISTER_FILENAME`` so
+        ``run()`` need not restate them.
+
+    Returns
+    -------
+    dict
+        The manifest record, so ``run()`` can report its provenance paths.
+    """
+    if manifest_path is None:
+        manifest_path = config.SANITY_META_DIR / config.MANIFEST_FILENAME
+    if provenance_path is None:
+        provenance_path = config.SANITY_DIR / config.PROVENANCE_FILENAME
+    if register_path is None:
+        register_path = config.SANITY_META_DIR / config.SOURCE_REGISTER_FILENAME
+
+    # Fingerprint the five READ-ONLY inputs, in the documented order (10.1).
+    inputs = [
+        _input_fingerprint("shortlist", shortlist_path),
+        _input_fingerprint("scored_table", scored_path, scored_layer),
+        _input_fingerprint("integrated_feature_table", integrated_path, integrated_layer),
+        _input_fingerprint("wind_generators", wind_generators_path),
+        _input_fingerprint("analysis_grid", grid_path, grid_layer),
+    ]
+
+    record: dict = {
+        "report_file": _rel(report_path),
+        "sidecar_file": _rel(sidecar_path) if sidecar_path is not None else None,
+        "stage": config.STAGE_NAME,
+        "product_type": "derived",
+        "run_timestamp": run_timestamp,
+        "generated_utc": utc_now(),
+        "pipeline_version": pipeline_version,
+        "sha256_report": sha256_file(Path(report_path)),
+        "bytes_report": Path(report_path).stat().st_size,
+        # Generation params (Requirement 10.1, 10.3): all five inputs.
+        "inputs": inputs,
+    }
+    if sidecar_path is not None:
+        record["sha256_sidecar"] = sha256_file(Path(sidecar_path))
+        record["bytes_sidecar"] = Path(sidecar_path).stat().st_size
+
+    # --- manifest (read-merge-write, keyed by the report file so a rerun
+    #     REPLACES rather than appends) ---
+    manifest_path = Path(manifest_path)
+    manifest = (
+        json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest_path.exists()
+        else {}
+    )
+    derived = [
+        r for r in manifest.get("derived_products", [])
+        if r.get("report_file") != record["report_file"]
+    ]
+    derived.append(record)
+    manifest["derived_products"] = derived
+    atomic_write_json(manifest_path, manifest)
+
+    # --- DATA_PROVENANCE.md generated block (10.1, 10.2, 10.3, 10.4) ---
+    inputs_md = "\n".join(
+        f"  - {i['name']}: `{i['path']}`"
+        + (f" (layer `{i['layer']}`" if i["layer"] else " (")
+        + f", SHA-256 `{i['sha256']}`)"
+        for i in inputs
+    )
+    sidecar_line = (
+        f"- **Results_Sidecar:** `{record['sidecar_file']}` "
+        f"(machine-readable JSON; named per the "
+        f"`{{source}}_{{dataset}}_{{year/vintage}}_{{region}}.{{ext}}` "
+        f"convention, region slug `{config.REGION_SLUG}`, SHA-256 "
+        f"`{record['sha256_sidecar']}`)\n"
+        if sidecar_path is not None
+        else "- **Results_Sidecar:** not written for this run.\n"
+    )
+    section = (
+        f"{PROVENANCE_BEGIN}\n"
+        f"## Derived product — Sprint 1 Validation Report (S1-12)\n\n"
+        f"- **DERIVED PRODUCT — not custodial source data.** A "
+        f"preliminary-screening plausibility sanity check, fully regenerable "
+        f"from the five inputs below; it contains no data of its own.\n"
+        f"- **Validation_Report:** `{record['report_file']}` (Markdown; a FIXED, "
+        f"non-timestamped path so downstream readers and the README always know "
+        f"where to find it — 10.4)\n"
+        f"{sidecar_line}"
+        f"- **Derived from (five READ-ONLY inputs, never modified):**\n{inputs_md}\n"
+        f"- **Method:** four plausibility checks (Known Wind Farm Comparison, "
+        f"Exclusion Validation, Feature-Value Spot-Checks, Score-Distribution "
+        f"Plausibility) over the inputs read-only; the model is NEVER re-scored, "
+        f"re-ranked, re-weighted, or re-tuned.\n"
+        f"- **SHA-256 (report):** `{record['sha256_report']}`\n"
+        + (f"- **SHA-256 (sidecar):** `{record['sha256_sidecar']}`\n"
+           if sidecar_path is not None else "")
+        + f"- **Regenerable:** yes — `python -m pipeline --only "
+        f"{config.STAGE_NAME}` (the terminal stage, after `shortlist`).\n"
+        f"- **Run timestamp (UTC):** {run_timestamp}\n"
+        + (f"- **Pipeline version:** `{pipeline_version}`\n"
+           if pipeline_version else "")
+        + f"{PROVENANCE_END}\n"
+    )
+    provenance_path = Path(provenance_path)
+    text = provenance_path.read_text(encoding="utf-8") if provenance_path.exists() else ""
+    if PROVENANCE_BEGIN in text and PROVENANCE_END in text:
+        head, rest = text.split(PROVENANCE_BEGIN, 1)
+        _, tail = rest.split(PROVENANCE_END, 1)
+        text = head + section.rstrip("\n") + tail
+    else:
+        header = (
+            "# Data Provenance — Validation / Sanity Check (S1-12)\n\n"
+            "Everything the `sanity` stage writes is a DERIVED product: the "
+            "Validation_Report and the optional Results_Sidecar. Nothing here is "
+            "custodial source data; the generated block below is rewritten on "
+            "every run.\n\n"
+        )
+        text = (text.rstrip("\n") + "\n\n" + section) if text else (header + section)
+    atomic_write_text(provenance_path, text)
+
+    # --- source_register entry (10.3) ---
+    _write_source_register(register_path, record, inputs, run_timestamp)
+    return record
+
+
+def _write_source_register(
+    register_path: Path | str,
+    record: dict,
+    inputs: list[dict],
+    run_timestamp: str,
+) -> None:
+    """
+    Append/replace this product's row in the sanity source register (CSV, the
+    same column vocabulary as the other stages' registers, e.g.
+    ``shortlist.report._write_source_register`` and
+    ``DATA/geographic/metadata/source_register.csv``). Keyed by ``dataset_id``
+    so a rerun replaces the row rather than appending a duplicate (10.3).
+    """
+    scored = next((i for i in inputs if i["name"] == "scored_table"), {})
+    row = {
+        "dataset_id": "optmining_validation_report",
+        "category": "derived-validation",
+        "custodian": "Opt-Mining (DERIVED — not custodial data)",
+        "endpoint": scored.get("path", ""),
+        "access_method": f"generated by pipeline stage `{config.STAGE_NAME}`",
+        "format": (
+            "Markdown report + optional JSON sidecar"
+            if record.get("sidecar_file")
+            else "Markdown report"
+        ),
+        "native_crs": config.STORAGE_CRS,
+        "licence": "derived from the licensed inputs listed in each source layer's register",
+        "vintage": config.REGION_SLUG,
+        "size_or_count": (
+            f"1 report ({record['bytes_report']:,} bytes)"
+            + (f" + 1 sidecar ({record['bytes_sidecar']:,} bytes)"
+               if record.get("sidecar_file") else "")
+        ),
+        "intended_use": (
+            "Preliminary-screening plausibility sanity check (S1-12) — asks "
+            "whether the pipeline's outputs make sense against known reality; "
+            "NOT a formal accuracy assessment and NOT a site approval"
+        ),
+        "notes": (
+            f"derived product; report `{record['report_file']}`"
+            + (f", sidecar `{record['sidecar_file']}`"
+               if record.get("sidecar_file") else "")
+            + f"; five inputs "
+            f"({', '.join(i['name'] for i in inputs)}); generated {run_timestamp}"
+        ),
+    }
+    register_path = Path(register_path)
+    existing: list[dict] = []
+    if register_path.exists():
+        try:
+            existing = list(csv.DictReader(io.StringIO(
+                register_path.read_text(encoding="utf-8"))))
+        except Exception:  # noqa: BLE001 — a corrupt register is rewritten, not fatal
+            existing = []
+    rows = [r for r in existing if r.get("dataset_id") != row["dataset_id"]]
+    rows.append(row)
+
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=list(row), lineterminator="\n")
+    writer.writeheader()
+    for entry in rows:
+        writer.writerow({k: entry.get(k, "") for k in row})
+    atomic_write_text(register_path, buffer.getvalue())
