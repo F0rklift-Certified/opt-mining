@@ -23,8 +23,8 @@ Section map (checks are added incrementally by the S1-12 task plan):
   - Shared: percentile over the eligible population, anomaly records.
   - Check 1 — Known Wind Farm Comparison (Requirement 2)  [task 3.1]
   - Check 2 — Exclusion Validation (Requirement 3)         [this task]
-  - Check 3 — Feature-Value Spot-Checks (Requirement 4)    [this task]
-  - Check 4 — Score-Distribution Plausibility (Requirement 5) [task 6.1]
+  - Check 3 — Feature-Value Spot-Checks (Requirement 4)    [task 5.1]
+  - Check 4 — Score-Distribution Plausibility (Requirement 5) [this task]
   - CheckOutcome no-silent-passes contract (Requirement 11) [task 9.1]
 
 Design reference: design.md §4 "Check 1 — Known Wind Farm Comparison".
@@ -1195,4 +1195,428 @@ def check_spot_values(spot_cells: pd.DataFrame, integrated: pd.DataFrame) -> Spo
         n_spot_cells=len(rows),
         verify_sources=verify_sources,
         anomalies=anomalies,
+    )
+
+# ===========================================================================
+# Check 4 — Score-Distribution Plausibility (Requirement 5)
+# ===========================================================================
+#
+# Over the Eligible_Cell population ONLY (5.1):
+#   - report distribution statistics of suitability_score: min, max, mean, std,
+#     and quartiles Q1 / median / Q3;
+#   - compute the degenerate-clustering flag — the fraction of eligible scores
+#     within CLUSTER_EPSILON of 0 or 1 — and flag the distribution degenerate
+#     if that fraction EXCEEDS CLUSTER_FRACTION_THRESHOLD, reported as an
+#     explicit pass/fail with the observed fraction (5.2);
+#   - report the geographic diversity of the top-scoring cells (latitude range,
+#     longitude range, and the REZs represented WHERE available), so a single-
+#     region concentration is visible (5.3);
+#   - compute the wind_speed-versus-suitability_score correlation (Spearman by
+#     default, Pearson as a documented alternative) over eligible cells, with a
+#     documented POSITIVE sign expectation; report — NOT enforce — it, with an
+#     honest note when the sign is unexpected (5.4).
+# A degenerate distribution or a non-positive correlation is reported HONESTLY
+# as a CheckAnomaly with an investigation note; the model is NEVER adjusted to
+# alter the distribution (5.5, 8.2, 8.3).
+
+# The Integrated_Feature_Table column Check 4 correlates the score against
+# (from config.REQUIRED_INTEGRATED_COLUMNS): the wind resource.
+# (_INT_WIND_SPEED is defined in the Check 3 section above.)
+
+# The check name recorded on every anomaly this check surfaces.
+_DISTRIBUTION_CHECK_NAME = "Score-Distribution Plausibility"
+
+# The default correlation method (Spearman is rank-based, so robust to the
+# monotone-but-nonlinear relationship expected between wind and score).
+CORR_METHOD_SPEARMAN = "spearman"
+CORR_METHOD_PEARSON = "pearson"
+
+# The fraction of the eligible population, ordered by descending score, treated
+# as the "top-scoring cells" for the geographic-diversity report (5.3). A
+# documented, deterministic rule: the highest-scoring decile, floored at a
+# handful of cells so a tiny population still reports a range.
+TOP_CELLS_FRACTION = 0.10
+TOP_CELLS_MIN = 5
+
+# Candidate column names a REZ label may travel under, checked in order. The
+# grid/integrated frames do not currently carry a REZ column, so this is
+# handled gracefully: absent -> reported as "not available", never fabricated
+# (5.3).
+_REZ_COLUMN_CANDIDATES = ("rez", "rez_name", "rez_id", "REZ")
+
+# The documented positive sign expectation for the wind-vs-score correlation
+# (5.4). wind_speed is a positively-weighted input criterion, so a higher wind
+# resource is expected to correspond to a higher suitability_score.
+_CORR_EXPECTATION = (
+    "Higher wind resource is expected to correspond to a higher "
+    "suitability_score (wind_speed is a positively-weighted input criterion), "
+    "so the wind-versus-score correlation is expected to be POSITIVE."
+)
+
+
+@dataclass(frozen=True)
+class DistributionCheckResult:
+    """
+    Structured result of Check 4 — Score-Distribution Plausibility (Req. 5).
+
+    All statistics are computed over the Eligible_Cell population ONLY, so
+    perturbing an Excluded_Cell value can never change them (5.1, Property 7).
+
+    ``stats`` carries ``{"min","max","mean","std","q1","median","q3"}`` of
+    ``suitability_score`` over the eligible population (5.1). ``cluster_fraction``
+    is the observed fraction of eligible scores within ``CLUSTER_EPSILON`` of 0
+    or 1; ``cluster_degenerate`` is ``True`` iff that fraction EXCEEDS
+    ``CLUSTER_FRACTION_THRESHOLD``; ``cluster_passed`` is the explicit pass/fail
+    (a NON-degenerate distribution passes) reported with the observed fraction
+    (5.2, 11.4). ``top_lat_range`` / ``top_lon_range`` are the ``(min, max)``
+    EPSG:4326 latitude/longitude of the top-scoring cells and ``rez_represented``
+    lists the REZs among them WHERE available, so a single-region concentration
+    is visible (5.3). ``wind_score_corr`` is the Spearman (default) or Pearson
+    correlation between ``wind_speed`` and ``suitability_score`` over eligible
+    cells, ``corr_method`` names which; ``corr_sign_expected_positive`` records
+    the documented positive expectation and ``corr_passed`` whether the observed
+    correlation is sensibly positive — REPORTED, never enforced (5.4).
+
+    ``anomalies`` carries an honestly-recorded :class:`CheckAnomaly` for a
+    degenerate distribution and/or a non-positive correlation, for task 8.1's
+    ``collect_issues`` to gather; the model is NEVER adjusted to alter the
+    distribution (5.5, 8.2, 8.3). ``n_eligible`` is the eligible-population size
+    the statistics were computed over, and ``notes`` records honest caveats
+    (e.g. an unavailable REZ column or an undefined correlation).
+    """
+
+    stats: dict
+    cluster_fraction: float
+    cluster_degenerate: bool
+    cluster_passed: bool
+    top_lat_range: tuple
+    top_lon_range: tuple
+    rez_represented: list
+    wind_score_corr: float | None
+    corr_method: str
+    corr_sign_expected_positive: bool
+    corr_passed: bool
+    expectation: str = _CORR_EXPECTATION
+    n_eligible: int = 0
+    anomalies: list[CheckAnomaly] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+
+def _rank_average(values: np.ndarray) -> np.ndarray:
+    """
+    Average (fractional) ranks of ``values``, ties sharing the mean rank.
+
+    Matches ``scipy.stats.rankdata(values, method="average")`` using only numpy,
+    so Spearman can be computed when scipy is unavailable (the venv does not
+    ship scipy). PURE.
+    """
+    order = np.argsort(values, kind="mergesort")
+    ranks = np.empty(values.size, dtype=float)
+    ranks[order] = np.arange(1, values.size + 1, dtype=float)
+    # Average the ranks within each group of tied values.
+    sorted_vals = values[order]
+    i = 0
+    n = sorted_vals.size
+    while i < n:
+        j = i + 1
+        while j < n and sorted_vals[j] == sorted_vals[i]:
+            j += 1
+        if j - i > 1:
+            avg = (i + 1 + j) / 2.0  # mean of ranks (i+1)..j
+            ranks[order[i:j]] = avg
+        i = j
+    return ranks
+
+
+def _correlation(x: np.ndarray, y: np.ndarray, method: str) -> float | None:
+    """
+    Correlation of ``x`` and ``y`` (``spearman`` default, or ``pearson``).
+
+    Uses ``scipy.stats`` WHERE available (matching the pipeline's stated scipy
+    usage in ``integration/analyse.py``), and falls back to a pure-numpy
+    implementation otherwise — the venv does not currently ship scipy, so the
+    numpy path is the live one. Spearman is Pearson on average ranks. Returns
+    ``None`` (an undefined correlation, reported honestly) when fewer than two
+    points remain or either input has zero variance, rather than emitting a
+    spurious value. PURE.
+    """
+    if x.size < 2 or y.size < 2:
+        return None
+
+    if method == CORR_METHOD_SPEARMAN:
+        try:
+            from scipy import stats as _scipy_stats  # type: ignore
+
+            rho = _scipy_stats.spearmanr(x, y).correlation
+            return None if rho is None or np.isnan(rho) else float(rho)
+        except Exception:
+            # Pure-numpy Spearman: Pearson correlation of the average ranks.
+            xr = _rank_average(x)
+            yr = _rank_average(y)
+            return _correlation(xr, yr, CORR_METHOD_PEARSON)
+
+    # Pearson.
+    if np.std(x) == 0.0 or np.std(y) == 0.0:
+        return None
+    try:
+        from scipy import stats as _scipy_stats  # type: ignore
+
+        r = _scipy_stats.pearsonr(x, y)[0]
+        return None if r is None or np.isnan(r) else float(r)
+    except Exception:
+        matrix = np.corrcoef(x, y)
+        r = matrix[0, 1]
+        return None if np.isnan(r) else float(r)
+
+
+def _find_rez_column(frame: pd.DataFrame) -> str | None:
+    """Return the first present REZ-label column, or ``None`` if absent (5.3)."""
+    for candidate in _REZ_COLUMN_CANDIDATES:
+        if candidate in frame.columns:
+            return candidate
+    return None
+
+
+def check_distribution(
+    eligible: pd.DataFrame, corr_method: str = CORR_METHOD_SPEARMAN
+) -> DistributionCheckResult:
+    """
+    Check 4 — characterise the eligible score distribution and its plausibility.
+
+    PURE. Over the Eligible_Cell population ONLY (Requirement 5.1):
+
+      1. Report distribution statistics of ``suitability_score`` — ``min``,
+         ``max``, ``mean``, ``std``, and quartiles ``q1`` / ``median`` / ``q3``
+         (5.1). Computed over the eligible frame the caller supplies, so
+         Excluded_Cell values can never enter (Property 7).
+      2. Compute the degenerate-clustering flag: the fraction of eligible scores
+         within ``config.CLUSTER_EPSILON`` of 0 or 1. The distribution is
+         degenerate iff that fraction EXCEEDS ``config.CLUSTER_FRACTION_THRESHOLD``.
+         Report it as an explicit pass/fail (a non-degenerate distribution
+         PASSES) alongside the observed fraction (5.2, 11.4).
+      3. Report the geographic diversity of the top-scoring cells — the
+         ``(min, max)`` latitude and longitude of the highest-scoring cells, and
+         the REZs represented WHERE a REZ column is available — so a single-
+         region concentration is visible (5.3). Centroids/REZ are read WHERE the
+         caller joined them from the grid; absent, they are reported honestly as
+         "not available", never fabricated.
+      4. Compute the ``wind_speed``-versus-``suitability_score`` correlation
+         (Spearman by default, Pearson as the documented alternative) over
+         eligible cells, with the documented POSITIVE sign expectation. Report
+         it — NOT enforce it — with an honest note when the sign is unexpected
+         (5.4). ``wind_speed`` is read WHERE the caller joined it from the
+         Integrated_Feature_Table; absent, the correlation is ``None`` with a
+         note.
+
+    A degenerate distribution and/or a non-positive (or undefined) correlation
+    is recorded HONESTLY as a :class:`CheckAnomaly` with an investigation note
+    distinguishing a likely data issue from a legitimate model result; the model
+    is NEVER adjusted to alter the distribution (5.5, 8.2, 8.3).
+
+    Args:
+        eligible: the Eligible_Cell frame (non-null ``suitability_score`` AND
+            ``rank``), carrying at least ``cell_id`` and ``suitability_score``.
+            WHERE the caller has joined them, ``centroid_lat`` / ``centroid_lon``
+            (from the Analysis_Grid) enable the geographic-diversity report and
+            ``wind_speed`` (from the Integrated_Feature_Table) enables the
+            correlation; an optional REZ column enables the REZ list. Any of
+            these that are absent are reported honestly rather than fabricated.
+        corr_method: ``"spearman"`` (default) or ``"pearson"``.
+
+    Returns:
+        A :class:`DistributionCheckResult`.
+
+    Raises:
+        ValueError: if the eligible population is empty — distribution
+            statistics over zero eligible cells are undefined, and silently
+            returning zeros would be a lie.
+    """
+    if corr_method not in (CORR_METHOD_SPEARMAN, CORR_METHOD_PEARSON):
+        raise ValueError(
+            f"check_distribution: unknown correlation method {corr_method!r}; "
+            f"expected {CORR_METHOD_SPEARMAN!r} or {CORR_METHOD_PEARSON!r}."
+        )
+
+    scores = eligible[_SCORE].to_numpy(dtype=float)
+    scores = scores[~np.isnan(scores)]
+    n_eligible = scores.size
+    if n_eligible == 0:
+        raise ValueError(
+            "check_distribution: the eligible population is empty; distribution "
+            "statistics over zero eligible cells are undefined."
+        )
+
+    notes: list[str] = []
+    anomalies: list[CheckAnomaly] = []
+
+    # --- 1. Distribution statistics over the eligible population only (5.1) ---
+    q1, median, q3 = (float(v) for v in np.percentile(scores, [25.0, 50.0, 75.0]))
+    stats = {
+        "min": float(np.min(scores)),
+        "max": float(np.max(scores)),
+        "mean": float(np.mean(scores)),
+        # Population std (ddof=0) — a descriptive spread of the whole eligible
+        # population, not an inferential sample estimate.
+        "std": float(np.std(scores)),
+        "q1": q1,
+        "median": median,
+        "q3": q3,
+    }
+
+    # --- 2. Degenerate-clustering flag (5.2) ---
+    near_zero = np.abs(scores - 0.0) <= config.CLUSTER_EPSILON
+    near_one = np.abs(scores - 1.0) <= config.CLUSTER_EPSILON
+    cluster_fraction = float(np.count_nonzero(near_zero | near_one) / n_eligible)
+    cluster_degenerate = cluster_fraction > config.CLUSTER_FRACTION_THRESHOLD
+    cluster_passed = not cluster_degenerate
+
+    if cluster_degenerate:
+        anomalies.append(
+            CheckAnomaly(
+                check=_DISTRIBUTION_CHECK_NAME,
+                description=(
+                    f"Score distribution is degenerately clustered: "
+                    f"{cluster_fraction:.1%} of eligible scores lie within "
+                    f"{config.CLUSTER_EPSILON:g} of 0 or 1, exceeding the "
+                    f"{config.CLUSTER_FRACTION_THRESHOLD:.0%} threshold."
+                ),
+                kind=ANOMALY_MODEL_RESULT,
+                investigation_note=(
+                    "Distinguish a DATA issue from a MODEL result: heavy "
+                    "clustering at the extremes usually points to a "
+                    "normalisation bound collapsing the range or a criterion "
+                    "saturating, rather than a genuine bimodal landscape. "
+                    "Investigate the normalisation and criterion inputs; the "
+                    "model is never adjusted to spread the distribution."
+                ),
+            )
+        )
+
+    # --- 3. Geographic diversity of the top-scoring cells (5.3) ---
+    n_top = max(TOP_CELLS_MIN, int(np.ceil(n_eligible * TOP_CELLS_FRACTION)))
+    n_top = min(n_top, n_eligible)
+    # Deterministic top selection: descending score, cell_id tie-break.
+    top_sort_cols = [_SCORE]
+    top_ascending = [False]
+    if _CELL_ID in eligible.columns:
+        top_sort_cols.append(_CELL_ID)
+        top_ascending.append(True)
+    top_cells = eligible.sort_values(
+        by=top_sort_cols, ascending=top_ascending, kind="mergesort"
+    ).head(n_top)
+
+    has_lat = _CENTROID_LAT in top_cells.columns
+    has_lon = _CENTROID_LON in top_cells.columns
+
+    if has_lat:
+        lat_vals = top_cells[_CENTROID_LAT].to_numpy(dtype=float)
+        lat_vals = lat_vals[~np.isnan(lat_vals)]
+    else:
+        lat_vals = np.array([], dtype=float)
+    if has_lon:
+        lon_vals = top_cells[_CENTROID_LON].to_numpy(dtype=float)
+        lon_vals = lon_vals[~np.isnan(lon_vals)]
+    else:
+        lon_vals = np.array([], dtype=float)
+
+    if lat_vals.size:
+        top_lat_range = (float(np.min(lat_vals)), float(np.max(lat_vals)))
+    else:
+        top_lat_range = (None, None)
+        notes.append(
+            "Top-cell latitude range not available: no centroid_lat column was "
+            "joined from the Analysis_Grid."
+        )
+    if lon_vals.size:
+        top_lon_range = (float(np.min(lon_vals)), float(np.max(lon_vals)))
+    else:
+        top_lon_range = (None, None)
+        notes.append(
+            "Top-cell longitude range not available: no centroid_lon column was "
+            "joined from the Analysis_Grid."
+        )
+
+    rez_column = _find_rez_column(top_cells)
+    if rez_column is not None:
+        rez_represented = sorted(
+            {
+                str(v)
+                for v in top_cells[rez_column].tolist()
+                if v is not None and not (isinstance(v, float) and np.isnan(v))
+            }
+        )
+    else:
+        rez_represented = []
+        notes.append(
+            "REZs represented among the top cells not available: no REZ column "
+            "is present on the eligible/grid frame."
+        )
+
+    # --- 4. Wind-versus-score correlation (5.4) — reported, NOT enforced ---
+    corr_sign_expected_positive = True
+    if _INT_WIND_SPEED in top_cells.columns or _INT_WIND_SPEED in eligible.columns:
+        paired = eligible[[_INT_WIND_SPEED, _SCORE]].to_numpy(dtype=float)
+        finite = ~np.isnan(paired).any(axis=1)
+        paired = paired[finite]
+        wind_vals = paired[:, 0]
+        score_vals = paired[:, 1]
+        wind_score_corr = _correlation(wind_vals, score_vals, corr_method)
+    else:
+        wind_score_corr = None
+        notes.append(
+            "Wind-versus-score correlation not available: no wind_speed column "
+            "was joined from the Integrated_Feature_Table."
+        )
+
+    if wind_score_corr is None:
+        # Undefined correlation (missing wind_speed, <2 points, or zero
+        # variance) — reported honestly, not enforced. It does NOT pass the
+        # positive expectation, but it fails the run only if we chose to enforce
+        # it — which we do NOT (5.4, 5.5).
+        corr_passed = False
+        notes.append(
+            "Wind-versus-score correlation is undefined (insufficient data or "
+            "zero variance); reported honestly, not enforced."
+        )
+    else:
+        corr_passed = wind_score_corr > 0.0
+
+    if wind_score_corr is not None and not corr_passed:
+        anomalies.append(
+            CheckAnomaly(
+                check=_DISTRIBUTION_CHECK_NAME,
+                description=(
+                    f"Wind-versus-score correlation is {wind_score_corr:+.3f} "
+                    f"({corr_method}), which is NOT sensibly positive against "
+                    f"the documented positive expectation."
+                ),
+                kind=ANOMALY_MODEL_RESULT,
+                investigation_note=(
+                    "Distinguish a DATA issue from a MODEL result: wind_speed is "
+                    "a positively-weighted criterion, so a non-positive "
+                    "wind-versus-score correlation is surprising. Check the "
+                    "wind_speed join and the criterion weighting/normalisation "
+                    "for a sign or column mix-up before concluding the model is "
+                    "wrong. Reported honestly; the model is never adjusted to "
+                    "flip the correlation."
+                ),
+            )
+        )
+
+    return DistributionCheckResult(
+        stats=stats,
+        cluster_fraction=cluster_fraction,
+        cluster_degenerate=cluster_degenerate,
+        cluster_passed=cluster_passed,
+        top_lat_range=top_lat_range,
+        top_lon_range=top_lon_range,
+        rez_represented=rez_represented,
+        wind_score_corr=wind_score_corr,
+        corr_method=corr_method,
+        corr_sign_expected_positive=corr_sign_expected_positive,
+        corr_passed=corr_passed,
+        expectation=_CORR_EXPECTATION,
+        n_eligible=n_eligible,
+        anomalies=anomalies,
+        notes=notes,
     )
