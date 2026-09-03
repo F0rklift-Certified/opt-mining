@@ -649,9 +649,10 @@ def verify_written(gpkg_path: Path, csv_path: Path, n_expected: int) -> list[dic
 
 def git_commit(cwd: Path | None = None) -> str:
     """
-    HEAD commit for the report/manifest ('-dirty' when the tree has changes);
-    'unknown' on any failure. Never raises — reproducibility metadata must not
-    be able to fail the stage.
+    HEAD commit for the report/manifest, with a '-dirty' suffix when TRACKED
+    files are modified (untracked files — such as this stage's own outputs on
+    a first run — do not count); 'unknown' on any failure. Never raises —
+    reproducibility metadata must not be able to fail the stage.
     """
     try:
         head = subprocess.run(
@@ -661,7 +662,8 @@ def git_commit(cwd: Path | None = None) -> str:
             return "unknown"
         commit = head.stdout.strip()
         status = subprocess.run(
-            ["git", "status", "--porcelain"], cwd=cwd, capture_output=True, text=True, timeout=5,
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            cwd=cwd, capture_output=True, text=True, timeout=5,
         )
         dirty = status.returncode == 0 and status.stdout.strip() != ""
         return f"{commit}-dirty" if dirty else commit

@@ -935,6 +935,29 @@ class TestGitCommit:
         assert here == "unknown" or len(here.split("-")[0]) >= 7
         assert git_commit(tmp_path) == "unknown"
 
+    def test_dirty_suffix_tracks_tracked_changes_not_untracked_outputs(self, tmp_path):
+        # A stage run creates untracked output files; that must not mark the
+        # code commit as dirty. Only modified tracked files do.
+        import subprocess
+        from pipeline.integration.merge import git_commit
+
+        def git(*args):
+            subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True,
+                           env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                                "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+                                "PATH": os.environ["PATH"], "HOME": str(tmp_path)})
+
+        git("init", "-q")
+        (tmp_path / "tracked.txt").write_text("v1\n")
+        git("add", "tracked.txt")
+        git("commit", "-q", "-m", "init")
+        clean = git_commit(tmp_path)
+        assert len(clean) == 40 and "-dirty" not in clean
+        (tmp_path / "untracked_output.csv").write_text("a,b\n")
+        assert git_commit(tmp_path) == clean
+        (tmp_path / "tracked.txt").write_text("v2\n")
+        assert git_commit(tmp_path) == clean + "-dirty"
+
 
 class TestReports:
     def test_method_report_contents(self, synthetic_pipeline, tmp_path):
