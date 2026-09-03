@@ -380,3 +380,203 @@ def merge_layers(
 
     table = table[OUTPUT_COLUMNS + [geometry_name]]
     return gpd.GeoDataFrame(table, geometry=geometry_name, crs=grid.crs), join_log
+
+
+# ---------------------------------------------------------------------------
+# Validation — no silent passes
+# ---------------------------------------------------------------------------
+
+FATAL = "fatal"
+WARN = "warn"
+
+# S1-07 recomputes these from the rasters with its own zonal code; they are
+# read (not carried) so the WARN checks below can compare them with the
+# geographic and wind layers' values for the same cells.
+EXCLUSIONS_CROSS_CHECK_COLUMNS = (
+    "protected_area", "protected_area_name", "slope_deg", "wind_speed_100m_ms",
+)
+
+
+def _name_set(value) -> frozenset:
+    """'A; B' -> {A, B}; ''/null -> {} (both layers join names with '; ')."""
+    if value is None or (not isinstance(value, str) and pd.isna(value)) or value == "":
+        return frozenset()
+    return frozenset(part.strip() for part in str(value).split(";") if part.strip())
+
+
+def validate(
+    table: gpd.GeoDataFrame,
+    grid: gpd.GeoDataFrame,
+    layers: dict[str, pd.DataFrame],
+    join_log: list[dict],
+    specs: Sequence[LayerSpec],
+    infos: dict[str, dict] | None = None,
+) -> dict:
+    """
+    Every check reports expected vs observed, even when it passes.
+
+    Returns {"checks": [{name, expected, observed, passed, severity}],
+    "passed", "total", "failed" (fatal checks that failed), "warnings"
+    (warn checks that failed)}. Fatal failures halt run(); WARN checks are
+    documentation of known upstream divergence and never halt.
+    """
+    checks: list[dict] = []
+
+    def check(name, expected, observed, passed, severity=FATAL):
+        checks.append({
+            "name": name, "expected": str(expected), "observed": str(observed),
+            "passed": bool(passed), "severity": severity,
+        })
+
+    # --- input CRS assertions (the loaders already halted on a mismatch;
+    #     recorded so the report shows the assertion per input) ---
+    if infos:
+        for name in ["grid", *(s.name for s in specs)]:
+            info = infos.get(name)
+            if info is not None:
+                check(f"{name}: CRS equals storage CRS", config.STORAGE_CRS,
+                      info["crs"], info["crs"] == config.STORAGE_CRS)
+
+    # --- per-layer join accounting ---
+    for entry in join_log:
+        layer = entry["layer"]
+        missing = entry["cell_ids_missing_from_upstream"]
+        extra = entry["cell_ids_extra_in_upstream"]
+        check(f"{layer}: cell_id set matches grid", "0 missing, 0 extra",
+              f"{missing} missing, {extra} extra", missing == 0 and extra == 0)
+        check(f"{layer}: row count unchanged after left join",
+              f"{entry['rows_before']} rows", f"{entry['rows_after']} rows",
+              entry["rows_before"] == entry["rows_after"])
+        before, after = entry["null_counts_upstream"], entry["null_counts_after"]
+        diffs = [f"{c} {before[c]}->{after[c]}" for c in before if before[c] != after[c]]
+        check(f"{layer}: null counts preserved for joined columns",
+              f"identical to upstream for {len(before)} columns",
+              "0 columns differ" if not diffs
+              else f"{len(diffs)} columns differ: {', '.join(diffs)}",
+              not diffs)
+
+    # --- table-level structure ---
+    n_grid, n_table = len(grid), len(table)
+    check("row count equals grid cell count", f"{n_grid} rows", f"{n_table} rows",
+          n_grid == n_table)
+
+    n_dup = int(table["cell_id"].duplicated().sum())
+    check("cell_id unique", "0 duplicates", f"{n_dup} duplicates", n_dup == 0)
+
+    grid_ids, table_ids = list(grid["cell_id"]), list(table["cell_id"])
+    divergence = next(
+        (i for i, (a, b) in enumerate(zip(grid_ids, table_ids)) if a != b), None,
+    )
+    if divergence is None and len(grid_ids) != len(table_ids):
+        divergence = min(len(grid_ids), len(table_ids))
+    check("cell_id order preserved from grid", "grid order",
+          "identical" if divergence is None else f"first divergence at row {divergence}",
+          divergence is None)
+
+    if n_grid == n_table:
+        same = table.geometry.reset_index(drop=True).geom_equals(
+            grid.geometry.reset_index(drop=True)
+        )
+        n_geom_diff = int((~same).sum())
+        geom_observed = f"{n_geom_diff} differing cells"
+    else:
+        n_geom_diff = abs(n_grid - n_table)
+        geom_observed = f"row counts differ ({n_grid} vs {n_table}); geometry not compared"
+    check("geometry identical to grid", "0 differing cells", geom_observed, n_geom_diff == 0)
+
+    table_crs = _crs_string(table.crs) if table.crs else "undeclared"
+    check("output CRS is storage CRS", config.STORAGE_CRS, table_crs,
+          table_crs == config.STORAGE_CRS)
+
+    expected_cols = OUTPUT_COLUMNS + ["geometry"]
+    actual_cols = list(table.columns)
+    missing_cols = [c for c in expected_cols if c not in actual_cols]
+    unexpected_cols = [c for c in actual_cols if c not in expected_cols]
+    if not missing_cols and not unexpected_cols:
+        cols_observed = "identical" if actual_cols == expected_cols else "same columns, different order"
+    else:
+        cols_observed = f"missing {missing_cols}, unexpected {unexpected_cols}"
+    check("output columns match OUTPUT_COLUMNS",
+          f"{len(OUTPUT_COLUMNS)} columns + geometry, in order",
+          cols_observed, actual_cols == expected_cols)
+
+    # --- eligibility semantics (mirrors pipeline/exclusions/apply.py validate) ---
+    if "eligible" in table.columns and "exclusion_reason" in table.columns:
+        elig = table["eligible"]
+        n_null = int(elig.isna().sum())
+        is_bool = str(elig.dtype) in ("bool", "boolean")
+        check("eligible is boolean with no nulls", "0 nulls, boolean dtype",
+              f"{n_null} nulls, dtype {elig.dtype}", n_null == 0 and is_bool)
+        eligible = elig.fillna(False).astype(bool)
+        reason = table["exclusion_reason"]
+        reason_present = reason.notna() & (reason.fillna("").astype(str).str.len() > 0)
+        inconsistent = int(((eligible & reason_present) | (~eligible & ~reason_present)).sum())
+        check("eligible/exclusion_reason consistent", "0 inconsistent rows",
+              f"{inconsistent} inconsistent rows", inconsistent == 0)
+
+    # --- derived column ---
+    if "n_missing_features" in table.columns and set(SCORED_FEATURE_COLUMNS) <= set(table.columns):
+        recount = compute_n_missing_features(table)
+        n_diff = int((recount.to_numpy() != table["n_missing_features"].to_numpy()).sum())
+        check("n_missing_features equals recount over scored columns", "0 rows differ",
+              f"{n_diff} rows differ", n_diff == 0)
+
+    # --- confidence vocabularies (a null is outside every vocabulary) ---
+    for spec in specs:
+        for column, levels in spec.enum_checks.items():
+            if column not in table.columns:
+                continue
+            outside = int((~table[column].isin(levels)).sum())
+            check(f"{column} within vocabulary", f"all in {levels}",
+                  f"{outside} rows outside {levels}", outside == 0)
+
+    # --- cross-layer consistency (WARN): S1-07's own recomputation vs the
+    #     geographic and wind layers, joined on cell_id ---
+    exclusions = layers.get("exclusions")
+    if exclusions is not None and all(c in exclusions.columns for c in EXCLUSIONS_CROSS_CHECK_COLUMNS):
+        aligned = table[["cell_id", "protected_area", "protected_area_name", "slope_deg",
+                         "wind_speed"]].merge(
+            exclusions[["cell_id", *EXCLUSIONS_CROSS_CHECK_COLUMNS]],
+            on="cell_id", how="left", suffixes=("", "_excl"),
+        )
+
+        both = aligned["protected_area"].notna() & aligned["protected_area_excl"].notna()
+        mismatches = int((aligned.loc[both, "protected_area"].astype(bool)
+                          != aligned.loc[both, "protected_area_excl"].astype(bool)).sum())
+        check("cross-layer: exclusions.protected_area == geographic.protected_area",
+              "0 mismatches", f"{mismatches} mismatches of {int(both.sum())} compared",
+              mismatches == 0, WARN)
+
+        def numeric_pair(name, ours, theirs, tolerance, unit):
+            ours_null, theirs_null = ours.isna(), theirs.isna()
+            null_pattern = int((ours_null != theirs_null).sum())
+            both_present = ~ours_null & ~theirs_null
+            n_both = int(both_present.sum())
+            value_mism = int(((ours[both_present] - theirs[both_present]).abs() > tolerance).sum())
+            check(name, "0 value mismatches, 0 null-pattern mismatches",
+                  f"{value_mism} value mismatches of {n_both} both-non-null "
+                  f"(tol {tolerance}{unit}); {null_pattern} null-pattern mismatches",
+                  value_mism == 0 and null_pattern == 0, WARN)
+
+        numeric_pair("cross-layer: exclusions.slope_deg ~ geographic.slope_deg",
+                     aligned["slope_deg"], aligned["slope_deg_excl"],
+                     config.SLOPE_TOLERANCE_DEG, "°")
+        numeric_pair("cross-layer: exclusions.wind_speed_100m_ms ~ wind.wind_speed",
+                     aligned["wind_speed"], aligned["wind_speed_100m_ms"],
+                     config.WIND_TOLERANCE_MS, " m/s")
+
+        name_mism = int((aligned["protected_area_name"].map(_name_set)
+                         != aligned["protected_area_name_excl"].map(_name_set)).sum())
+        check("cross-layer: exclusions.protected_area_name == geographic.protected_area_name",
+              "0 mismatches", f"{name_mism} mismatches of {len(aligned)} compared",
+              name_mism == 0, WARN)
+    else:
+        check("cross-layer: exclusions comparison columns present",
+              str(list(EXCLUSIONS_CROSS_CHECK_COLUMNS)),
+              "absent — cross-layer checks skipped", False, WARN)
+
+    passed = sum(1 for c in checks if c["passed"])
+    failed = sum(1 for c in checks if not c["passed"] and c["severity"] == FATAL)
+    warnings = sum(1 for c in checks if not c["passed"] and c["severity"] == WARN)
+    return {"checks": checks, "passed": passed, "total": len(checks),
+            "failed": failed, "warnings": warnings}

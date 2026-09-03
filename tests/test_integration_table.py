@@ -577,3 +577,241 @@ class TestMergeProperties:
         merged, _ = _merge(grid, layers)
         recount = merged[list(SCORED_FEATURE_COLUMNS)].isna().sum(axis=1)
         assert merged["n_missing_features"].tolist() == recount.tolist()
+
+
+# ---------------------------------------------------------------------------
+# Validation — no silent passes
+# ---------------------------------------------------------------------------
+
+CHECK_KEYS = {"name", "expected", "observed", "passed", "severity"}
+
+
+def _load_all():
+    """Read grid + five layers from the synthetic files (with info dicts)."""
+    from pipeline.integration.merge import (
+        EXCLUSIONS_CROSS_CHECK_COLUMNS, layer_specs, read_grid, read_layer,
+    )
+
+    grid, grid_info = read_grid(icfg.GRID_PATH, icfg.GRID_LAYER)
+    layers, infos = {}, {"grid": grid_info}
+    for spec in layer_specs():
+        required = spec.source_columns
+        if spec.name == "exclusions":
+            required = required + EXCLUSIONS_CROSS_CHECK_COLUMNS
+        layers[spec.name], infos[spec.name] = read_layer(
+            spec.path, spec.layer, stage=spec.stage, required_columns=required,
+        )
+    return grid, layers, infos
+
+
+def _validated(mutate_table=None, mutate_layers=None):
+    """Merge the synthetic pipeline, optionally tamper, and validate."""
+    from pipeline.integration.merge import layer_specs, merge_layers, validate
+
+    grid, layers, infos = _load_all()
+    if mutate_layers:
+        mutate_layers(layers)
+    specs = layer_specs()
+    table, log = merge_layers(grid, layers, specs)
+    if mutate_table:
+        table = mutate_table(table)
+    return validate(table, grid, layers, log, specs, infos)
+
+
+def _check(result, name):
+    matches = [c for c in result["checks"] if c["name"] == name]
+    assert len(matches) == 1, f"expected exactly one {name!r} check, got {matches}"
+    return matches[0]
+
+
+def _assert_failed(check):
+    assert check["passed"] is False
+    assert isinstance(check["expected"], str) and check["expected"] != ""
+    assert isinstance(check["observed"], str) and check["observed"] != ""
+
+
+class TestValidate:
+    def test_clean_merge_passes_every_fatal_check(self, synthetic_pipeline):
+        result = _validated()
+        assert result["failed"] == 0
+        assert result["total"] == result["passed"] + result["failed"] + result["warnings"]
+        for check in result["checks"]:
+            assert set(check) == CHECK_KEYS, check
+            assert check["severity"] in {"fatal", "warn"}
+            assert isinstance(check["expected"], str) and check["expected"]
+            assert isinstance(check["observed"], str) and check["observed"]
+        fatal_names = [c["name"] for c in result["checks"] if c["severity"] == "fatal"]
+        for expected in (
+            "grid: CRS equals storage CRS",
+            "wind: CRS equals storage CRS",
+            "exclusions: cell_id set matches grid",
+            "demand: row count unchanged after left join",
+            "geographic: null counts preserved for joined columns",
+            "row count equals grid cell count",
+            "cell_id unique",
+            "cell_id order preserved from grid",
+            "geometry identical to grid",
+            "output CRS is storage CRS",
+            "output columns match OUTPUT_COLUMNS",
+            "eligible is boolean with no nulls",
+            "eligible/exclusion_reason consistent",
+            "n_missing_features equals recount over scored columns",
+            "wind_confidence within vocabulary",
+            "demand_confidence within vocabulary",
+        ):
+            assert expected in fatal_names, expected
+
+    def test_cross_layer_checks_are_warn_and_report_the_known_wind_divergence(
+        self, synthetic_pipeline,
+    ):
+        result = _validated()
+        warn = [c for c in result["checks"] if c["severity"] == "warn"]
+        assert [c["name"] for c in warn] == [
+            "cross-layer: exclusions.protected_area == geographic.protected_area",
+            "cross-layer: exclusions.slope_deg ~ geographic.slope_deg",
+            "cross-layer: exclusions.wind_speed_100m_ms ~ wind.wind_speed",
+            "cross-layer: exclusions.protected_area_name == geographic.protected_area_name",
+        ]
+        wind = _check(result, "cross-layer: exclusions.wind_speed_100m_ms ~ wind.wind_speed")
+        _assert_failed(wind)
+        # CELL_NO_GEO: S1-07 sampled no wind, the wind layer has 7.0 m/s.
+        assert "1 null-pattern mismatch" in wind["observed"]
+        assert "0 value mismatches of 5" in wind["observed"]
+        assert result["warnings"] == 1  # only that one; never counted as failed
+        assert result["failed"] == 0
+        for name in (
+            "cross-layer: exclusions.protected_area == geographic.protected_area",
+            "cross-layer: exclusions.slope_deg ~ geographic.slope_deg",
+            "cross-layer: exclusions.protected_area_name == geographic.protected_area_name",
+        ):
+            assert _check(result, name)["passed"] is True
+
+    def test_cross_layer_value_mismatch_counted(self, synthetic_pipeline):
+        def tamper(layers):
+            excl = layers["exclusions"]
+            excl.loc[excl["cell_id"] == "CELL_PLAIN", "protected_area"] = True
+            excl.loc[excl["cell_id"] == "CELL_PLAIN", "protected_area_name"] = "Zed; Alpha"
+            excl.loc[excl["cell_id"] == "CELL_CLEAN", "slope_deg"] = 3.0 + 0.2
+
+        result = _validated(mutate_layers=tamper)
+        pa = _check(result, "cross-layer: exclusions.protected_area == geographic.protected_area")
+        _assert_failed(pa)
+        assert pa["observed"] == "1 mismatches of 6 compared"
+        names = _check(result, "cross-layer: exclusions.protected_area_name == geographic.protected_area_name")
+        assert names["observed"] == "1 mismatches of 6 compared"
+        slope = _check(result, "cross-layer: exclusions.slope_deg ~ geographic.slope_deg")
+        assert "1 value mismatches of 5" in slope["observed"]
+        assert result["failed"] == 0 and result["warnings"] == 4
+
+    def test_missing_upstream_cell_reports_set_and_null_inflation(self, synthetic_pipeline):
+        def drop_cell(layers):
+            layers["wind"] = layers["wind"][layers["wind"]["cell_id"] != "CELL_PLAIN"]
+
+        result = _validated(mutate_layers=drop_cell)
+        ids = _check(result, "wind: cell_id set matches grid")
+        _assert_failed(ids)
+        assert ids["observed"] == "1 missing, 0 extra"
+        nulls = _check(result, "wind: null counts preserved for joined columns")
+        _assert_failed(nulls)
+        assert "wind_speed 0->1" in nulls["observed"]
+        # The dropped cell also has no confidence flag, which is outside the
+        # wind vocabulary — a third, independent fatal signal.
+        vocab = _check(result, "wind_confidence within vocabulary")
+        _assert_failed(vocab)
+        assert vocab["observed"].startswith("1 rows outside")
+        assert result["failed"] == 3
+
+    def test_eligible_reason_inconsistency_detected(self, synthetic_pipeline):
+        def tamper(table):
+            table.loc[table["cell_id"] == "CELL_CLEAN", "exclusion_reason"] = "oops"
+            return table
+
+        check = _check(_validated(mutate_table=tamper), "eligible/exclusion_reason consistent")
+        _assert_failed(check)
+        assert check["observed"] == "1 inconsistent rows"
+
+    def test_confidence_vocabulary_violation_detected(self, synthetic_pipeline):
+        def tamper(layers):
+            layers["demand"].loc[0, "confidence_flag"] = "unknown"
+
+        check = _check(_validated(mutate_layers=tamper), "demand_confidence within vocabulary")
+        _assert_failed(check)
+        assert check["observed"] == "1 rows outside ('high', 'medium', 'low')"
+
+    def test_order_tampering_detected(self, synthetic_pipeline):
+        result = _validated(mutate_table=lambda t: t.iloc[::-1].reset_index(drop=True))
+        order = _check(result, "cell_id order preserved from grid")
+        _assert_failed(order)
+        assert order["observed"] == "first divergence at row 0"
+
+    def test_geometry_tampering_detected(self, synthetic_pipeline):
+        def tamper(table):
+            geoms = list(table.geometry)
+            geoms[0], geoms[1] = geoms[1], geoms[0]
+            return table.set_geometry(gpd.GeoSeries(geoms, crs=table.crs))
+
+        check = _check(_validated(mutate_table=tamper), "geometry identical to grid")
+        _assert_failed(check)
+        assert check["observed"] == "2 differing cells"
+
+    def test_duplicate_row_detected_by_count_and_uniqueness(self, synthetic_pipeline):
+        result = _validated(
+            mutate_table=lambda t: pd.concat([t, t.iloc[[0]]], ignore_index=True)
+        )
+        rows = _check(result, "row count equals grid cell count")
+        _assert_failed(rows)
+        assert rows["observed"] == "7 rows"
+        dup = _check(result, "cell_id unique")
+        _assert_failed(dup)
+        assert dup["observed"] == "1 duplicates"
+
+    def test_n_missing_recount_detected(self, synthetic_pipeline):
+        def tamper(table):
+            table.loc[2, "n_missing_features"] = 99
+            return table
+
+        check = _check(_validated(mutate_table=tamper),
+                       "n_missing_features equals recount over scored columns")
+        _assert_failed(check)
+        assert check["observed"] == "1 rows differ"
+
+    def test_missing_output_column_detected(self, synthetic_pipeline):
+        check = _check(_validated(mutate_table=lambda t: t.drop(columns=["tri"])),
+                       "output columns match OUTPUT_COLUMNS")
+        _assert_failed(check)
+        assert "missing ['tri']" in check["observed"]
+
+    def test_null_eligible_detected(self, synthetic_pipeline):
+        def tamper(layers):
+            layers["exclusions"]["eligible"] = pd.array(
+                [True, False, None, False, True, True], dtype="boolean",
+            )
+
+        check = _check(_validated(mutate_layers=tamper), "eligible is boolean with no nulls")
+        _assert_failed(check)
+        assert check["observed"].startswith("1 nulls")
+
+
+class TestValidateProperties:
+    # Feature: s1-08-create-integrated-nsw-feature-table, Property 4: the
+    # eligible/exclusion_reason consistency check counts exactly the rows
+    # made inconsistent, for any subset of rows.
+    @settings(max_examples=100, deadline=None)
+    @given(mask=_mask6)
+    def test_property_4_consistency_check_counts_injected_rows(self, mask):
+        from pipeline.integration.merge import layer_specs, merge_layers, validate
+
+        grid, layers = _in_memory_inputs()
+        specs = layer_specs()
+        table, log = merge_layers(grid, layers, specs)
+        for i, flip in enumerate(mask):
+            if not flip:
+                continue
+            if bool(table.loc[i, "eligible"]):
+                table.loc[i, "exclusion_reason"] = "injected"
+            else:
+                table.loc[i, "exclusion_reason"] = None
+        result = validate(table, grid, layers, log, specs, infos=None)
+        check = _check(result, "eligible/exclusion_reason consistent")
+        assert check["observed"] == f"{sum(mask)} inconsistent rows"
+        assert check["passed"] is (sum(mask) == 0)
