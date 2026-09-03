@@ -1,0 +1,15 @@
+[project]
+name = "opt-mining"
+version = "0.1.0"
+description = "Opt-Mining geospatial site-suitability pipeline (Sprint 1)."
+
+# Supported interpreters: 3.10 through 3.13.
+#
+# Python 3.14 is deliberately excluded. On CPython 3.14.x the S1-02 grid
+# builder (pipeline/grid/generate.py) emits degenerate zero-area cells — every
+# analysis cell collapses to a single point, invalidating the grid and every
+# feature layer that joins to it. The identical source, numpy 2.2.6 and shapely
+# 2.1.2 produce a correct 47,311-cell grid on Python 3.12/3.13, so the defect is
+# in the 3.14 interpreter rather than in this project or its dependencies.
+# Revisit this upper bound once the upstream 3.14 issue is fixed.
+requires-python = ">=3.10,<3.14"

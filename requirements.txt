@@ -1,3 +1,13 @@
+# Supported Python: >=3.10,<3.14
+#
+# DO NOT run this pipeline on Python 3.14. The grid builder
+# (pipeline/grid/generate.py, S1-02) produces degenerate zero-area cells on
+# CPython 3.14.x — every analysis cell collapses to a single point, which
+# breaks the whole grid and every feature layer that joins to it. The exact
+# same source, numpy (2.2.6) and shapely (2.1.2) work correctly on Python
+# 3.12/3.13; the fault is in the 3.14 interpreter, not this code. Use a 3.12
+# or 3.13 interpreter until the upstream issue is resolved. See pyproject.toml
+# (requires-python) which enforces this for pip installs.
 pandas==2.2.2
 requests==2.32.3
 
