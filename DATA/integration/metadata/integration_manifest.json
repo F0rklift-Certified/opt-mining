@@ -4,8 +4,8 @@
       "output_file": "DATA/integration/optmining_integrated-features_2026_nsw.gpkg",
       "csv_file": "DATA/integration/optmining_integrated-features_2026_nsw.csv",
       "stage": "integration",
-      "generated_utc": "2026-09-03T01:37:03+00:00",
-      "git_commit": "055357f8b20109a916c535b01115a46fa200f4c6",
+      "generated_utc": "2026-09-03T05:09:16+00:00",
+      "git_commit": "2e2c6375949d926579916cd12d140d6bda2f23d8",
       "rows": 47311,
       "columns": [
         "cell_id",
@@ -34,12 +34,15 @@
         "exclusion_reason",
         "triggered_rules",
         "data_flags",
-        "n_missing_features"
+        "n_missing_features",
+        "data_confidence",
+        "confidence_score",
+        "confidence_notes"
       ],
-      "sha256_gpkg": "eac0e1bfa9a31b805dd29f66d06d236b628f99744727670e424c2f954caca509",
-      "sha256_csv": "313486ed54abc461966a0ac499c9f2fa79eb59e44b0b42b36112ada57a22a4bb",
-      "bytes_gpkg": 24469504,
-      "bytes_csv": 15646087,
+      "sha256_gpkg": "b7cd3d261abfdedd613301e0e2fdd07e3381178deb8ce8aff506a066117a1e61",
+      "sha256_csv": "263d3d13efa9b221bf079358de5f20601b77cd90b0c3a6ffca4552437c6dd355",
+      "bytes_gpkg": 32821248,
+      "bytes_csv": 23132200,
       "inputs": [
         {
           "name": "grid",
@@ -95,7 +98,12 @@
           "sha256": "c5caa822647024c4b0bb62ad78735b41b0e72aa314e7e288a162233928a771ca",
           "bytes": 19959808
         }
-      ]
+      ],
+      "confidence_weights": {
+        "path": "pipeline/integration/confidence_weights.yaml",
+        "sha256": "3b34c47b8da6260b53245397491b0f60ed3df68d47434458ed93495295922f93",
+        "version": "1.0"
+      }
     }
   ]
 }

@@ -10,11 +10,12 @@
   - infrastructure: `DATA/infrastructure/optmining_infra-features_2026_nsw.gpkg` (layer `infra_features`, 47,311 rows, SHA-256 `12bca14fccc7d89f687d5026dc762b8a1d32f5f4365e8d893e0163881bbe1d8e`)
   - demand: `DATA/electricity-demand/aemo_demand-proxy_2026_nsw.gpkg` (layer `demand_proxy`, 47,311 rows, SHA-256 `8e9890bf9371de015fe3da7635515ea3e50f5713eab247c683045f0e0e92a646`)
   - exclusions: `DATA/exclusions/optmining_exclusions_2024_nsw.gpkg` (layer `optmining_exclusions_2024_nsw.gpkg`, 47,311 rows, SHA-256 `c5caa822647024c4b0bb62ad78735b41b0e72aa314e7e288a162233928a771ca`)
-- **Method:** left joins on `cell_id` from the S1-02 grid; row count asserted after every join; excluded cells retained with `eligible = False`; no reprojection, no back-filling; `data_confidence` deferred to S1-09.
+- **Method:** left joins on `cell_id` from the S1-02 grid; row count asserted after every join; excluded cells retained with `eligible = False`; no reprojection, no back-filling; composite confidence appended by the S1-09 layer (`confidence.assess()`).
+- **Confidence config:** `pipeline/integration/confidence_weights.yaml` (version `1.0`, SHA-256 `3b34c47b8da6260b53245397491b0f60ed3df68d47434458ed93495295922f93`)
 - **Regenerable:** yes — `python -m pipeline --only integration` (after the five feature stages and `exclusions`).
-- **SHA-256 (GeoPackage):** `eac0e1bfa9a31b805dd29f66d06d236b628f99744727670e424c2f954caca509`
-- **SHA-256 (CSV):** `313486ed54abc461966a0ac499c9f2fa79eb59e44b0b42b36112ada57a22a4bb`
+- **SHA-256 (GeoPackage):** `b7cd3d261abfdedd613301e0e2fdd07e3381178deb8ce8aff506a066117a1e61`
+- **SHA-256 (CSV):** `263d3d13efa9b221bf079358de5f20601b77cd90b0c3a6ffca4552437c6dd355`
 - **Rows:** 47,311
-- **Generated (UTC):** 2026-09-03T01:37:03+00:00
-- **Git commit:** `055357f8b20109a916c535b01115a46fa200f4c6`
+- **Generated (UTC):** 2026-09-03T05:09:16+00:00
+- **Git commit:** `2e2c6375949d926579916cd12d140d6bda2f23d8`
 <!-- END integration.merge derived layer (generated) -->
