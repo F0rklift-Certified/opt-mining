@@ -56,8 +56,9 @@ STAGES = [
     "geographic.features",  # S1-06 feature-builder — CONSUMES grid, so scheduled after it
     "infrastructure.features",  # per-cell infrastructure features (S1-05)
     "demand.feature",  # per-cell demand proxy (S1-04)
+    "exclusions",  # S1-07 exclusion layer — consumes grid + geographic/wind sources
     "validate",  # cross-domain integration checks
 ]
 
 # --- Domain list ---
-DOMAINS = ["wind", "geographic", "infrastructure", "demand", "grid"]
+DOMAINS = ["wind", "geographic", "infrastructure", "demand", "grid", "exclusions"]

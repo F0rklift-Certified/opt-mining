@@ -81,6 +81,9 @@ def _get_runner(stage: str):
     elif stage == "geographic.features":
         from .geographic.features import run
         return run
+    elif stage == "exclusions":
+        from .exclusions.apply import run
+        return run
     elif stage == "validate":
         from .validate import run
         return run
@@ -273,6 +276,17 @@ def parse_args() -> argparse.Namespace:
         ),
     )
 
+    # Exclusion layer options
+    parser.add_argument(
+        "--exclusion-rules",
+        type=str,
+        default=None,
+        help=(
+            "Path to a custom exclusion rules YAML for the 'exclusions' stage "
+            "(default: pipeline/exclusions/exclusion_rules.yaml)"
+        ),
+    )
+
     # Output
     parser.add_argument(
         "--verbose",
@@ -368,6 +382,9 @@ def _build_kwargs(stage: str, args: argparse.Namespace, bbox: tuple) -> dict:
     if stage == "infrastructure.features":
         kwargs["state"] = args.state
         kwargs["computation_crs"] = args.infra_features_crs
+    if stage == "exclusions":
+        if args.exclusion_rules:
+            kwargs["rules_path"] = Path(args.exclusion_rules)
 
     return kwargs
 

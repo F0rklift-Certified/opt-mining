@@ -21,3 +21,6 @@ pyproj==3.7.2
 # rasterstats deliberately NOT used — zonal statistics are implemented in-repo
 # so the pixel-inclusion rule stays explicit and auditable.
 hypothesis==6.112.1
+
+# S1-07 — Exclusion layer: configurable rules loaded from YAML, not hard-coded
+pyyaml==6.0.2

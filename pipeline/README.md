@@ -43,6 +43,10 @@ python -m pipeline --only demand --start-date 2024-01-01 --end-date 2024-12-31 -
 python -m pipeline.grid
 python -m pipeline.grid --verbose
 
+# Exclusion layer (standalone, S1-07 — requires the grid to exist already)
+python -m pipeline --only exclusions
+python -m pipeline --only exclusions --exclusion-rules path/to/custom_rules.yaml
+
 # Validation: stricter slope threshold
 python -m pipeline --max-slope 12
 
@@ -103,15 +107,22 @@ pipeline/
 ├── integration/
 │   ├── __init__.py
 │   └── analyse.py          # Task 5 evidence: grid geometry, CRS alignment
-└── demand/
-    ├── __init__.py
-    ├── __main__.py          # Demand-specific CLI
-    ├── config.py            # AEMO URLs, date defaults
-    ├── download.py          # Stage: fetch AEMO demand ZIPs
-    ├── validate.py          # Stage: quality gate
-    ├── inspect.py           # Stage: statistical summary
-    ├── aggregate.py         # Stage: annual mean demand per NEM region
-    └── feature.py           # Stage (S1-04): per-cell demand proxy
+├── demand/
+│   ├── __init__.py
+│   ├── __main__.py          # Demand-specific CLI
+│   ├── config.py            # AEMO URLs, date defaults
+│   ├── download.py          # Stage: fetch AEMO demand ZIPs
+│   ├── validate.py          # Stage: quality gate
+│   ├── inspect.py           # Stage: statistical summary
+│   ├── aggregate.py         # Stage: annual mean demand per NEM region
+│   └── feature.py           # Stage (S1-04): per-cell demand proxy
+└── exclusions/
+    ├── __init__.py           # Scope note: reads raw sources directly (see below)
+    ├── config.py             # Paths, output schema, delimiters
+    ├── rules.py              # Pure rule engine: load_rules(), evaluate_cell()
+    ├── raster_stats.py       # Reusable cell-centre-mask zonal-mean helper
+    ├── exclusion_rules.yaml  # Default configurable exclusion rules (S1-07)
+    └── apply.py              # Stage: builds the Eligibility_Table + report
 ```
 
 ## Stage Execution Order
@@ -128,6 +139,7 @@ wind.probe → wind.download → wind.inspect → wind.validate → wind.analyse
 → geographic.features (per-cell geographic feature table on the common grid, S1-06)
 → infrastructure.features (per-cell infrastructure features)
 → demand.feature (per-cell demand proxy)
+→ exclusions (S1-07 exclusion layer — eligibility per cell)
 → validate (cross-domain integration checks)
 ```
 
@@ -168,6 +180,8 @@ Note: `geographic.features` is registered in `config.STAGES` after `grid` (not i
 --max-slope DEGREES   Maximum slope for wind farm siting checks (default: 15.0)
 --prototype-path PATH Path to OptMining prototype for crosscheck
 --skip-land-sea       Skip the land/sea remote check in validate
+--exclusion-rules PATH Custom exclusion rules YAML for the 'exclusions' stage
+                       (default: pipeline/exclusions/exclusion_rules.yaml)
 --verbose             Detailed logging
 ```
 
@@ -203,6 +217,10 @@ grid_run(verbose=True)
 
 # Grid: get the GeoDataFrame directly (no I/O)
 gdf = generate_grid()
+
+# Exclusion layer (S1-07): apply the configurable rules and write the Eligibility_Table
+from pipeline.exclusions.apply import run as exclusions_run
+exclusions_run(verbose=True)
 ```
 
 ## Data Outputs
@@ -214,7 +232,9 @@ DATA/
 ├── wind-resource/          # GWA raster clips + metadata
 ├── geographic/             # Boundaries, elevation, land use, protected areas
 ├── infrastructure/         # GA power lines, substations, generators
-└── electricity-demand/     # AEMO demand data
+├── electricity-demand/     # AEMO demand data
+├── grid/                   # Common analysis cell grid (S1-02)
+└── exclusions/             # Eligibility_Table + method report (S1-07)
 ```
 
 ## Expected Outputs
@@ -306,6 +326,15 @@ A successful full pipeline run produces the following file tree under `DATA/`:
 | `nsw_analysis_grid_metadata.json` | grid | Grid metadata (CRS, origin, cell count, area stats) |
 | `decision_analysis_cell.md` | — | Architecture decision document (Option A selection) |
 
+### Exclusion Layer (`DATA/exclusions/`) — S1-07
+
+| File | Stage | Description |
+|------|-------|-------------|
+| `optmining_exclusions_2024_nsw.gpkg` | exclusions | Eligibility_Table: one row per grid `cell_id` with `eligible`, `exclusion_reason`, `triggered_rules`, the raw per-cell fields the rules evaluated (`protected_area`, `protected_area_name`, `slope_deg`, `urban_area`, `wind_speed_100m_ms`), and a non-exclusionary `data_flags` column (GeoPackage, EPSG:4326) |
+| `metadata/exclusion_summary.md` | exclusions | Method report: exclusion summary stats (total/eligible/excluded, by-reason breakdown), the data-source coverage caveat, and the rule configuration used for that run |
+
+**Scope note:** this stage is blocked by S1-06 (geographic features) and depends on S1-03 (wind features), neither of which is implemented in code yet — only design-documented under `Sprint-1-Tasks/`. It therefore reads the raw CAPAD, slope, ABS urban-centre and GWA wind-speed sources directly instead of joining a Feature_Table. See `pipeline/exclusions/__init__.py` for the full rationale and the migration note for when S1-06/S1-03 land. Because the wind-speed, slope and urban sources currently cover only the New England REZ window (not the full NSW grid), the large majority of the 47,311-cell grid is excluded today with reason "Missing wind data" — this reflects real, documented Sprint 1 data coverage, not a bug.
+
 ### Cross-Domain Validation (`DATA/geographic/metadata/`)
 
 | File | Stage | Description |
@@ -350,6 +379,7 @@ Validation is structured in two tiers:
 | Wind | `pipeline.wind.validate` | GWA raster sampling at known wind farm locations; percentile ranking; crosscheck windowed clips against independent downloads |
 | Geographic | `pipeline.geographic.validate` | CAPAD area (Kosciuszko NP extent); DEM spot-elevation (Armidale, Glen Innes); NLUM class decode completeness; ABS state area cross-check |
 | Demand | `pipeline.demand.validate` | Duplicate detection; 30-min timestamp continuity; regional completeness (5 NEM regions); non-null numeric demand values |
+| Exclusions | `pipeline.exclusions.apply.validate` | Row count == grid cell count; exact `cell_id` set match; required output columns present; `eligible`/`exclusion_reason` consistency; eligible + excluded == total |
 
 **Cross-domain integration** (`pipeline.validate`):
 
@@ -385,6 +415,7 @@ geopandas>=1.1
 shapely>=2.1
 pyogrio>=0.13
 pyproj>=3.7
+pyyaml>=6.0
 ```
 
 See `requirements.txt` for pinned versions. GeoPandas and its spatial stack were introduced at S1-02 (grid generation) and are used by all downstream feature-layer tasks (S1-03–S1-08).
