@@ -431,19 +431,25 @@ A successful full pipeline run produces the following file tree under `DATA/`:
 
 ### Infrastructure (`DATA/infrastructure/`)
 
-| File | Stage | Description |
-|------|-------|-------------|
-| `transmission-lines/ga_power_lines_2026_australia.geojson` | download | National transmission network (GA) |
-| `transmission-lines/ga_power_lines_2026_nsw.geojson` | download | NSW transmission lines (state-filtered) |
-| `substations/ga_substations_2026_australia.geojson` | download | National substations (GA) |
-| `substations/ga_substations_2026_nsw.geojson` | download | NSW substations (state-filtered) |
-| `generators/ga_powerstations_2026_australia.geojson` | download | National power stations (GA) |
-| `generators/ga_wind_generators_2026_australia.geojson` | download | Wind generators (national) |
-| `generators/ga_wind_generators_2026_nsw.geojson` | download | Wind generators (NSW) |
-| `connection-points/aemo_kci_2026.xlsx` | download | AEMO key connection information |
-| `renewable-energy-zones/aemo_indicative_rez_boundaries_2026.kmz` | download | AEMO indicative REZ boundaries |
-| `metadata/*_inspection.md` | inspect | Feature counts, schema summaries, spatial extent |
-| `optmining_infra-features_2026_nsw.gpkg` | infrastructure.features | Per-cell infrastructure distances and REZ membership; distances use EPSG:3577 from cell centroids |
+Infrastructure data is pre-downloaded, so the `download` stage is a presence check rather than a fetch. The files it **requires** are exactly the seven listed in `EXPECTED_FILES` (`pipeline/infrastructure/config.py`); a missing one fails the stage. National GA layers are the raw inputs that the NSW-filtered layers are derived from, and the AEMO REZ KMZ is a reference/comparison layer — neither is a required input to `infrastructure.features`.
+
+| File | Stage | Required? | Description |
+|------|-------|-----------|-------------|
+| `transmission-lines/ga_power_lines_2026_nsw.geojson` | download | ✅ required | NSW transmission lines (state-filtered); distance source for `infrastructure.features` |
+| `transmission-lines/ga_power_lines_2026_australia.geojson` | download | raw input | National transmission network (GA); source the NSW file is filtered from |
+| `transmission-lines/ga_power_lines_2026_part_00{1,2}.geojson` | download | raw input | Paginated GA download parts merged into the national file |
+| `substations/ga_substations_2026_nsw.geojson` | download | ✅ required | NSW substations (state-filtered); distance source for `infrastructure.features` |
+| `substations/ga_substations_2026_australia.geojson` | download | raw input | National substations (GA); source the NSW file is filtered from |
+| `generators/ga_powerstations_2026_australia.geojson` | download | ✅ required | National power stations (GA); generator distance source |
+| `generators/ga_wind_generators_2026_nsw.geojson` | download | reference | NSW wind generators; ground-truth for the S1-12 `sanity` stage (`--wind-generators` default) |
+| `generators/ga_wind_generators_2026_australia.geojson` | download | reference | National wind generators (GA) |
+| `connection-points/aemo_kci_2026.xlsx` | download | ✅ required | AEMO key connection information (read via `openpyxl`) |
+| `renewable-energy-zones/energyco-nsw/energyco_new_england_rez_boundary.zip` | download | ✅ required | EnergyCo New England REZ boundary; REZ-membership source |
+| `renewable-energy-zones/energyco-nsw/energyco_central_west_orana_rez_boundary.zip` | download | ✅ required | EnergyCo Central-West Orana REZ boundary |
+| `renewable-energy-zones/energyco-nsw/energyco_hunter_central_coast_rez_boundary.zip` | download | ✅ required | EnergyCo Hunter-Central Coast REZ boundary |
+| `renewable-energy-zones/aemo_indicative_rez_boundaries_2026.kmz` | download | reference | AEMO indicative/ISP REZ boundaries; national comparison only, not used by `infrastructure.features` |
+| `metadata/*_inspection.md` | inspect | — | Feature counts, schema summaries, spatial extent |
+| `optmining_infra-features_2026_nsw.gpkg` | infrastructure.features | output | Per-cell infrastructure distances and REZ membership; distances use EPSG:3577 from cell centroids, REZ membership from the three EnergyCo boundaries |
 
 ### Electricity Demand (`DATA/electricity-demand/`)
 
