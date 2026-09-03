@@ -333,3 +333,247 @@ class TestReadLayer:
         _write_layer(path, _wind_frame(), "second")
         with pytest.raises(ValueError, match="2 layers"):
             read_layer(path, None, stage="exclusions")
+
+
+# ---------------------------------------------------------------------------
+# Merge core
+# ---------------------------------------------------------------------------
+
+EXPECTED_OUTPUT_COLUMNS = [
+    "cell_id", "centroid_lat", "centroid_lon", "area_km2",
+    "wind_speed", "wind_confidence",
+    "demand_proxy", "source_region", "demand_confidence",
+    "dist_transmission_km", "dist_substation_km", "dist_connection_km",
+    "inside_rez", "rez_name", "infra_confidence",
+    "elevation_m", "slope_deg", "tri", "land_use", "protected_area",
+    "protected_area_name", "geo_confidence",
+    "eligible", "exclusion_reason", "triggered_rules", "data_flags",
+    "n_missing_features",
+]
+EXPECTED_SCORED = (
+    "wind_speed", "demand_proxy", "dist_transmission_km", "dist_substation_km",
+    "dist_connection_km", "inside_rez", "elevation_m", "slope_deg", "land_use",
+    "protected_area",
+)
+# Nulls among the ten scored columns per synthetic cell (dist_connection_km is
+# null everywhere; CELL_NO_GEO also lacks elevation/slope/land_use; CELL_NO_NEM
+# lacks demand_proxy).
+EXPECTED_N_MISSING = [1, 1, 1, 4, 2, 1]
+
+
+def _in_memory_inputs():
+    """Grid GeoDataFrame + the five attribute frames, no file I/O."""
+    grid = gpd.GeoDataFrame(_grid_frame(), geometry=_geoms(), crs=STORAGE_CRS)
+    layers = {
+        "wind": _wind_frame(),
+        "geographic": _geographic_frame(),
+        "infrastructure": _infra_frame(),
+        "demand": _demand_frame(),
+        "exclusions": _exclusions_frame(),
+    }
+    return grid, layers
+
+
+def _merge(grid=None, layers=None):
+    from pipeline.integration.merge import layer_specs, merge_layers
+
+    if grid is None or layers is None:
+        grid, layers = _in_memory_inputs()
+    return merge_layers(grid, layers, layer_specs())
+
+
+class TestSchema:
+    def test_output_columns_exact_order(self):
+        from pipeline.integration.merge import OUTPUT_COLUMNS, SCORED_FEATURE_COLUMNS
+
+        assert list(OUTPUT_COLUMNS) == EXPECTED_OUTPUT_COLUMNS
+        assert "geometry" not in OUTPUT_COLUMNS
+        assert tuple(SCORED_FEATURE_COLUMNS) == EXPECTED_SCORED
+        assert set(SCORED_FEATURE_COLUMNS) <= set(OUTPUT_COLUMNS)
+
+
+class TestMergeLayers:
+    def test_preserves_count_set_and_order(self):
+        merged, _ = _merge()
+        assert isinstance(merged, gpd.GeoDataFrame)
+        assert str(merged.crs) == STORAGE_CRS
+        assert len(merged) == 6
+        assert list(merged["cell_id"]) == CELL_IDS
+        assert list(merged.columns) == EXPECTED_OUTPUT_COLUMNS + ["geometry"]
+
+    def test_values_land_in_ticket_named_columns(self):
+        merged, _ = _merge()
+        row = merged.set_index("cell_id")
+        assert row.loc["CELL_CLEAN", "wind_speed"] == 7.5
+        assert row.loc["CELL_CLEAN", "wind_confidence"] == "valid"
+        assert row.loc["CELL_CLEAN", "centroid_lon"] == pytest.approx(150.95)
+        assert row.loc["CELL_CLEAN", "inside_rez"] == True  # noqa: E712
+        assert row.loc["CELL_CLEAN", "rez_name"] == "New England REZ"
+        assert row.loc["CELL_NO_GEO", "geo_confidence"] == "low"
+        assert pd.isna(row.loc["CELL_NO_GEO", "elevation_m"])
+        assert row.loc["CELL_PROTECTED", "eligible"] == False  # noqa: E712
+        assert "Protected area" in row.loc["CELL_PROTECTED", "exclusion_reason"]
+        assert row.loc["CELL_PROTECTED", "protected_area"] == True  # noqa: E712
+        assert row.loc["CELL_PLAIN", "protected_area_name"] == ""
+        assert row.loc["CELL_NO_NEM", "demand_confidence"] == "low"
+        assert pd.isna(row.loc["CELL_NO_NEM", "demand_proxy"])
+
+    def test_constant_and_duplicate_upstream_columns_not_carried(self):
+        merged, _ = _merge()
+        for col in ("units", "data_source", "allocation_method", "confidence_flag",
+                    "wind_speed_100m", "urban_area", "wind_speed_100m_ms"):
+            assert col not in merged.columns, col
+
+    def test_n_missing_features_arithmetic(self):
+        merged, _ = _merge()
+        assert merged["n_missing_features"].tolist() == EXPECTED_N_MISSING
+        assert merged["n_missing_features"].dtype == "int64"
+
+    def test_join_log_shows_nulls_preserved(self):
+        _, log = _merge()
+        assert [e["layer"] for e in log] == [
+            "wind", "geographic", "infrastructure", "demand", "exclusions",
+        ]
+        for entry in log:
+            assert entry["rows_before"] == entry["rows_after"] == 6
+            assert entry["cell_ids_missing_from_upstream"] == 0
+            assert entry["cell_ids_extra_in_upstream"] == 0
+            assert entry["null_counts_after"] == entry["null_counts_upstream"]
+        geo = next(e for e in log if e["layer"] == "geographic")
+        assert geo["null_counts_upstream"]["elevation_m"] == 1
+        assert geo["null_counts_upstream"]["tri"] == 5
+
+    def test_upstream_missing_cell_yields_null_and_is_logged(self):
+        grid, layers = _in_memory_inputs()
+        layers["wind"] = layers["wind"][layers["wind"]["cell_id"] != "CELL_PLAIN"]
+        merged, log = _merge(grid, layers)
+        assert len(merged) == 6
+        assert list(merged["cell_id"]) == CELL_IDS
+        assert pd.isna(merged.set_index("cell_id").loc["CELL_PLAIN", "wind_speed"])
+        wind = next(e for e in log if e["layer"] == "wind")
+        assert wind["cell_ids_missing_from_upstream"] == 1
+        assert wind["null_counts_upstream"]["wind_speed"] == 0
+        assert wind["null_counts_after"]["wind_speed"] == 1  # the inflation validate() flags
+
+    def test_upstream_extra_cell_is_dropped_by_left_join(self):
+        grid, layers = _in_memory_inputs()
+        extra = layers["demand"].iloc[[0]].assign(cell_id="CELL_X")
+        layers["demand"] = pd.concat([layers["demand"], extra], ignore_index=True)
+        merged, log = _merge(grid, layers)
+        assert len(merged) == 6 and "CELL_X" not in set(merged["cell_id"])
+        assert next(e for e in log if e["layer"] == "demand")["cell_ids_extra_in_upstream"] == 1
+
+    def test_duplicate_key_in_upstream_raises_naming_layer(self):
+        grid, layers = _in_memory_inputs()
+        dup = layers["demand"].iloc[[1]]
+        layers["demand"] = pd.concat([layers["demand"], dup], ignore_index=True)
+        with pytest.raises(RuntimeError, match="demand"):
+            _merge(grid, layers)
+
+    def test_bool_with_nulls_becomes_nullable_boolean(self):
+        grid, layers = _in_memory_inputs()
+        layers["infrastructure"]["inside_rez"] = pd.array(
+            [True, False, None, False, False, False], dtype="boolean",
+        )
+        merged, _ = _merge(grid, layers)
+        assert str(merged["inside_rez"].dtype) == "boolean"
+        assert pd.isna(merged.set_index("cell_id").loc["CELL_STEEP", "inside_rez"])
+        assert merged["n_missing_features"].tolist() == [1, 1, 2, 4, 2, 1]
+
+    def test_bool_without_nulls_stays_numpy_bool(self):
+        merged, _ = _merge()
+        for col in ("inside_rez", "protected_area", "eligible"):
+            assert merged[col].dtype == bool, col
+
+
+class TestComputeNMissingFeatures:
+    def test_counts_only_scored_columns(self):
+        from pipeline.integration.merge import compute_n_missing_features
+
+        frame = pd.DataFrame({
+            "wind_speed": [1.0, np.nan],
+            "demand_proxy": [np.nan, np.nan],
+            "dist_transmission_km": [1.0, 1.0],
+            "dist_substation_km": [1.0, 1.0],
+            "dist_connection_km": [np.nan, np.nan],
+            "inside_rez": [True, False],
+            "elevation_m": [1.0, 1.0],
+            "slope_deg": [1.0, np.nan],
+            "land_use": ["a", None],
+            "protected_area": [False, False],
+            "tri": [np.nan, np.nan],              # not scored: ignored
+            "protected_area_name": ["", ""],      # "" is not missing
+            "rez_name": [None, None],             # not scored: ignored
+        })
+        assert compute_n_missing_features(frame).tolist() == [2, 5]
+
+
+# ---------------------------------------------------------------------------
+# Property-based tests (hypothesis)
+# ---------------------------------------------------------------------------
+
+hypothesis = pytest.importorskip("hypothesis")
+from hypothesis import given, settings, strategies as st  # noqa: E402
+
+_perm6 = st.permutations(list(range(6)))
+_mask6 = st.lists(st.booleans(), min_size=6, max_size=6)
+
+
+class TestMergeProperties:
+    # Feature: s1-08-create-integrated-nsw-feature-table, Property 1: the
+    # integrated table keeps the grid's row count, cell_id set and order,
+    # and every cell's values, whatever order the upstream layers arrive in.
+    @settings(max_examples=100, deadline=None)
+    @given(perms=st.lists(_perm6, min_size=5, max_size=5))
+    def test_property_1_order_independent_of_upstream_row_order(self, perms):
+        grid, layers = _in_memory_inputs()
+        reference, _ = _merge(grid, layers)
+        for (name, frame), perm in zip(list(layers.items()), perms):
+            layers[name] = frame.iloc[perm].reset_index(drop=True)
+        merged, _ = _merge(grid, layers)
+        assert list(merged["cell_id"]) == CELL_IDS
+        pd.testing.assert_frame_equal(
+            merged.drop(columns="geometry"), reference.drop(columns="geometry"),
+        )
+
+    # Feature: s1-08-create-integrated-nsw-feature-table, Property 2: per-column
+    # null counts after the join equal the upstream null counts (no inflation,
+    # no back-filling) for any pattern of upstream nulls.
+    @settings(max_examples=100, deadline=None)
+    @given(wind=_mask6, elev=_mask6, dist=_mask6, dem=_mask6)
+    def test_property_2_null_counts_preserved(self, wind, elev, dist, dem):
+        grid, layers = _in_memory_inputs()
+        layers["wind"].loc[wind, "wind_speed_100m"] = np.nan
+        layers["geographic"].loc[elev, "elevation_m"] = np.nan
+        layers["infrastructure"].loc[dist, "dist_transmission_km"] = np.nan
+        layers["demand"].loc[dem, "demand_proxy"] = np.nan
+        # Expected = nulls in the (masked) upstream frame, which already
+        # contains the fixture's own nulls; the mask may overlap them.
+        expected = {
+            "wind_speed": int(layers["wind"]["wind_speed_100m"].isna().sum()),
+            "elevation_m": int(layers["geographic"]["elevation_m"].isna().sum()),
+            "dist_transmission_km": int(layers["infrastructure"]["dist_transmission_km"].isna().sum()),
+            "demand_proxy": int(layers["demand"]["demand_proxy"].isna().sum()),
+        }
+        merged, log = _merge(grid, layers)
+        observed = {col: int(merged[col].isna().sum()) for col in expected}
+        assert observed == expected
+        for entry in log:
+            assert entry["null_counts_after"] == entry["null_counts_upstream"]
+
+    # Feature: s1-08-create-integrated-nsw-feature-table, Property 3:
+    # n_missing_features equals the row-wise count of nulls over exactly the
+    # scored feature columns.
+    @settings(max_examples=100, deadline=None)
+    @given(wind=_mask6, elev=_mask6, land=_mask6, dem=_mask6)
+    def test_property_3_n_missing_equals_recount(self, wind, elev, land, dem):
+        from pipeline.integration.merge import SCORED_FEATURE_COLUMNS
+
+        grid, layers = _in_memory_inputs()
+        layers["wind"].loc[wind, "wind_speed_100m"] = np.nan
+        layers["geographic"].loc[elev, "elevation_m"] = np.nan
+        layers["geographic"].loc[land, "land_use"] = None
+        layers["demand"].loc[dem, "demand_proxy"] = np.nan
+        merged, _ = _merge(grid, layers)
+        recount = merged[list(SCORED_FEATURE_COLUMNS)].isna().sum(axis=1)
+        assert merged["n_missing_features"].tolist() == recount.tolist()

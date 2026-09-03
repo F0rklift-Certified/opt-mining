@@ -261,3 +261,122 @@ def read_grid(path: Path, layer: str) -> tuple[gpd.GeoDataFrame, dict]:
         path, layer, stage="grid",
         required_columns=GRID_REQUIRED_COLUMNS, read_geometry=True,
     )
+
+
+# ---------------------------------------------------------------------------
+# Output schema
+# ---------------------------------------------------------------------------
+
+# Grid identity columns carried verbatim (S1-02); geometry is appended last.
+GRID_COLUMNS = ("cell_id", "centroid_lat", "centroid_lon", "area_km2")
+
+# Column order of the integrated table. Names follow the S1-08 ticket (and the
+# S1-10 weights config); the source of each is in LayerSpec.columns and is
+# tabulated in the method report.
+OUTPUT_COLUMNS = [
+    "cell_id", "centroid_lat", "centroid_lon", "area_km2",
+    "wind_speed", "wind_confidence",
+    "demand_proxy", "source_region", "demand_confidence",
+    "dist_transmission_km", "dist_substation_km", "dist_connection_km",
+    "inside_rez", "rez_name", "infra_confidence",
+    "elevation_m", "slope_deg", "tri", "land_use", "protected_area",
+    "protected_area_name", "geo_confidence",
+    "eligible", "exclusion_reason", "triggered_rules", "data_flags",
+    "n_missing_features",
+]
+
+# The ten feature columns downstream scoring consumes (the ticket's feature
+# rows). n_missing_features counts nulls over exactly these. `tri` is excluded
+# for the same reason S1-06 keeps it out of its confidence flag (Glen-Innes
+# only by design); names, regions and confidence flags are not features.
+SCORED_FEATURE_COLUMNS = (
+    "wind_speed", "demand_proxy", "dist_transmission_km", "dist_substation_km",
+    "dist_connection_km", "inside_rez", "elevation_m", "slope_deg", "land_use",
+    "protected_area",
+)
+
+# Boolean columns: numpy bool when null-free, pandas nullable boolean otherwise
+# (so a null is a null in both the GeoPackage and the CSV, never "<NA>").
+BOOL_COLUMNS = ("inside_rez", "protected_area", "eligible")
+
+
+def compute_n_missing_features(frame: pd.DataFrame) -> pd.Series:
+    """Row-wise count of nulls over SCORED_FEATURE_COLUMNS (int64)."""
+    return frame[list(SCORED_FEATURE_COLUMNS)].isna().sum(axis=1).astype("int64")
+
+
+def _normalise_bool(series: pd.Series) -> pd.Series:
+    if series.isna().any():
+        return series.astype("boolean")
+    return series.astype(bool)
+
+
+# ---------------------------------------------------------------------------
+# Merge core (pure)
+# ---------------------------------------------------------------------------
+
+
+def merge_layers(
+    grid: gpd.GeoDataFrame,
+    layers: dict[str, pd.DataFrame],
+    specs: Sequence[LayerSpec],
+) -> tuple[gpd.GeoDataFrame, list[dict]]:
+    """
+    Left-join every layer onto the grid by `cell_id`, in spec order.
+
+    Returns (integrated GeoDataFrame in OUTPUT_COLUMNS + geometry order,
+    join_log). The row count is asserted unchanged after every join and the
+    join is validated one-to-one, so a duplicated upstream key or a row
+    inflation halts with a RuntimeError naming the layer. Nothing is
+    back-filled: a grid cell absent from a layer simply gets nulls, and the
+    join_log records upstream vs post-join null counts per column so
+    validate() can flag that inflation.
+    """
+    geometry_name = grid.geometry.name
+    table = grid[list(GRID_COLUMNS) + [geometry_name]].reset_index(drop=True)
+    grid_ids = set(table["cell_id"])
+    join_log: list[dict] = []
+
+    for spec in specs:
+        if spec.name not in layers:
+            raise KeyError(f"no frame supplied for layer {spec.name!r}")
+        upstream = layers[spec.name]
+        absent = [c for c in spec.source_columns if c not in upstream.columns]
+        if absent:
+            raise ValueError(f"{spec.name} layer lacks column(s) {absent}")
+
+        selected = upstream[["cell_id", *spec.source_columns]].rename(
+            columns={source: target for target, source in spec.columns.items()}
+        )
+        upstream_ids = set(upstream["cell_id"])
+        null_upstream = {t: int(selected[t].isna().sum()) for t in spec.columns}
+
+        rows_before = len(table)
+        try:
+            table = table.merge(selected, on="cell_id", how="left", validate="one_to_one")
+        except pd.errors.MergeError as exc:
+            raise RuntimeError(
+                f"{spec.name} layer cannot be joined one-to-one on cell_id: {exc}"
+            ) from exc
+        if len(table) != rows_before:
+            raise RuntimeError(
+                f"{spec.name} join changed the row count {rows_before} -> {len(table)}"
+            )
+
+        join_log.append({
+            "layer": spec.name,
+            "rows_before": rows_before,
+            "rows_after": int(len(table)),
+            "upstream_rows": int(len(upstream)),
+            "cell_ids_missing_from_upstream": len(grid_ids - upstream_ids),
+            "cell_ids_extra_in_upstream": len(upstream_ids - grid_ids),
+            "null_counts_upstream": null_upstream,
+            "null_counts_after": {t: int(table[t].isna().sum()) for t in spec.columns},
+        })
+
+    for column in BOOL_COLUMNS:
+        table[column] = _normalise_bool(table[column])
+    table["n_missing_features"] = compute_n_missing_features(table)
+
+    table = table[OUTPUT_COLUMNS + [geometry_name]]
+    return gpd.GeoDataFrame(table, geometry=geometry_name, crs=grid.crs), join_log
