@@ -5,8 +5,8 @@
       "csv_file": "DATA/scoring/optmining_suitability-score_2026_nsw.csv",
       "stage": "scoring",
       "product_type": "derived",
-      "generated_utc": "2026-09-10T09:20:23+00:00",
-      "git_commit": "48562888ae1fb13631e234024d0cbaa424e3e837-dirty",
+      "generated_utc": "2026-09-03T11:00:43+00:00",
+      "git_commit": "0898ac2af8515ee245e4aeea01e69f0576b5030e-dirty",
       "rows": 47311,
       "columns": [
         "cell_id",
@@ -22,7 +22,7 @@
         "contrib_slope_deg",
         "contrib_inside_rez"
       ],
-      "sha256_gpkg": "29006b53630ec39c3f4f7477d557f7ca5e1c659f5b3b556131e74582bc9cabef",
+      "sha256_gpkg": "586f64d29d7f5ca681930bc508f29156f5ef31b95e15a56bee6a8ad91f58ff14",
       "sha256_csv": "91a463eb501efb31887c17fe499a876f99751da6b7d97f6da47578f1c82ba286",
       "bytes_gpkg": 13877248,
       "bytes_csv": 3146338,
