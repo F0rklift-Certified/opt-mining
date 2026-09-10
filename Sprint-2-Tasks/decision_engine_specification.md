@@ -546,11 +546,153 @@ rather than only described here.
 
 ## §6 Frozen decisions + change-control locations
 
-_Placeholder — authored in task 6._
+This section names every parameter this specification treats as a **Frozen_Decision**,
+states the governance process that any change must follow, and enumerates every location
+each frozen parameter is recorded so a change can be applied consistently and no location is
+left stale. It is the governance backbone that lets a later change to a scored Criterion, a
+Direction, the Normalisation_Method, the Scoring_Formula, or a Default_Weight be applied in
+lock-step across the repository rather than drifting silently — the known duplication hazard
+the project's holistic-awareness rule calls out.
 
-Which parameters are Frozen_Decisions; the data-specification section-8 process governs
-any change; enumeration of every recording location (this specification,
-`pipeline/scoring/scoring_weights.yaml`, data-specification §4.5).
+Nothing here changes a value. The values themselves are fixed in §2–§5; this section fixes
+**how they may change** and **where the change must land**. Consistent with the rest of this
+document, it uses Screening_Language: the parameters below configure how the engine surfaces
+**higher-ranked candidate cells under the selected assumptions and criteria**, never a "best
+site" (§1.4).
+
+### §6.1 Which parameters are Frozen_Decisions (Requirement 6.1)
+
+The parameters below are the Frozen_Decisions of this specification. They divide into two
+distinct **freeze classes**, because the project already governs them differently and this
+section must not blur that distinction:
+
+- **Contract-frozen** — the *shape* of the decision engine: which Criteria are scored, each
+  Criterion's integrated-table column, units and Direction, the Normalisation_Method and its
+  policies, and the Scoring_Formula with its rules. These are fixed by this specification (the
+  Checkpoint-A contract) and every downstream Sprint 2/3 task builds against them. A change to
+  any of these is a specification change governed by §6.2.
+
+- **User-input defaults** — the six **Default_Weight values** (§4.1). By constitutional rule
+  ("Criteria weights are user inputs, never hard-coded constants") and by the
+  Existing_Implementation's design, the weights live in a runtime config file
+  (`pipeline/scoring/scoring_weights.yaml`) and carry **no literal in `pipeline/scoring/`
+  code**. Retuning a weight is a **config edit**, not a code or §2 change. They are listed
+  here as Frozen_Decisions because they are the **documented default assumptions** shipped at
+  Checkpoint A: the *shipped default set* is frozen and its rationale reviewed, even though any
+  consumer may supply a different weights file at run time (`--scoring-weights PATH`).
+
+| # | Frozen_Decision | Value (fixed in) | Freeze class |
+| --- | --- | --- | --- |
+| F1 | The scored Criteria set — exactly the six of §2 (`wind_speed`, `demand_proxy`, `dist_transmission_km`, `dist_substation_km`, `slope_deg`, `inside_rez`); adding or removing a scored Criterion | §2, §4.1 | Contract-frozen |
+| F2 | Each Criterion's integrated-table column name and units | §2.1–§2.4 | Contract-frozen |
+| F3 | Each Criterion's Direction (`higher_is_better` / `lower_is_better`) | §2, §4.1, §5.1 | Contract-frozen |
+| F4 | The wind variable + hub height (GWA `wind-speed`, 100 m mean) — itself resting on data-spec frozen decisions Q1 (mean) and Q2 (100 m) | §2.1 | Contract-frozen (also data-spec Q1/Q2) |
+| F5 | The Scoring_Formula (weighted MCDA, `S_i = Σ_k w_k·n_k(i) / W_i`) | §3.1 | Contract-frozen |
+| F6 | The weight-normalisation rule (division by the applied weight sum `W_i`) | §3.2 | Contract-frozen |
+| F7 | The eligible-only rule and null score/rank/contributions for excluded cells | §3.3 | Contract-frozen |
+| F8 | The not-circular guarantee (wind is an input Criterion only, never a prediction target) | §3.4 | Contract-frozen |
+| F9 | The Normalisation_Method — directional linear min-max, clamped `[0, 1]` | §5.1 | Contract-frozen |
+| F10 | Bounds computed from the Eligible_Cell population, fixed per run (not per UI filter) | §5.2 | Contract-frozen |
+| F11 | The outlier policy — no separate outlier treatment; true population min/max | §5.3 | Contract-frozen |
+| F12 | The missing-value policy — null preserved, excluded from `W_i`, never zero-/worst-imputed | §5.4 | Contract-frozen |
+| F13 | The constant-criterion rule — `CONSTANT_CRITERION_VALUE = 1.0`, flagged, no divide-by-zero | §5.5 | Contract-frozen |
+| F14 | The boolean definitional mapping — `{False → 0.0, True → 1.0}` domain | §5.6 | Contract-frozen |
+| F15 | The six shipped Default_Weight **values** (0.35 / 0.20 / 0.15 / 0.10 / 0.10 / 0.10) | §4.1 | User-input default |
+
+The slope-scoring statistic (**mean**, per data-spec frozen decision **Q3**) and the "no
+infrastructure hard-exclusion — continuous penalty only" stance (data-spec frozen decision
+**Q7**) are inherited frozen decisions from the Data_Specification §2 rather than newly frozen
+here; F1/F3 (slope as a `lower_is_better` scored Criterion) and §2.4/§3.3 (slope penalty
+complements, never replaces, the S1-07 hard gate) build directly on them, and a change to Q3
+or Q7 is governed by the Data_Specification's own §8 "Modifying a Frozen Parameter" process.
+
+### §6.2 The change-control process (Requirement 6.2)
+
+Any change to a Frozen_Decision above is governed by the **Data_Specification §8 change-control
+process** (`DATA/data-specification/sprint1_data_specification.md` §8, titled *Change Control*).
+The applicable sub-process depends on the freeze class:
+
+- **Contract-frozen parameters (F1–F14)** follow the §8 **"Modifying a Frozen Parameter"**
+  sub-process: (1) team consensus, (2) documented rationale — why the original decision no
+  longer holds, with evidence, (3) impact assessment — which downstream stages and results are
+  affected, and (4) a document version bump. Because these parameters are the Checkpoint-A
+  contract, a change also requires re-review at (or a documented amendment to) Checkpoint A,
+  and the two documentation-consistency checks (P1 column-name, P2 reconciliation completeness)
+  must pass again.
+
+- **User-input default weights (F15)** are, by the Existing_Implementation's design and the
+  Data_Specification's own §8 record (the §4.7 v1.5 entry), a **runtime user input**, not a
+  data-spec §2 frozen parameter (Q1–Q7). Retuning a weight for a single run is a config edit
+  that needs no specification change. But **changing the shipped default set** — the assumptions
+  presented and signed off at Checkpoint A — is a change to a documented default and MUST be
+  applied consistently across all three recording locations in §6.3 under the same §8 discipline
+  (rationale + impact assessment + version bump), so the shipped defaults never drift between the
+  specification, the YAML, and the Data_Specification. This is the mechanism task 8.2 exercises
+  if the §8 reconciliation surfaces a value that must change.
+
+In all cases the governing principle is Requirement 6.4: **if a Frozen_Decision changes, the
+change is reflected in every enumerated location so that no location records a stale value.**
+
+### §6.3 Recording locations for every Frozen_Decision (Requirement 6.3)
+
+Every Frozen_Decision is recorded in **at least these three locations**, which must be kept in
+lock-step:
+
+1. **This specification** — `Sprint-2-Tasks/decision_engine_specification.md` (the authoritative
+   Checkpoint-A decision design; §2–§5 as tabulated in §6.1).
+2. **The Existing_Implementation weights/config** — `pipeline/scoring/scoring_weights.yaml` for
+   the Criteria set, Directions, Default_Weight values and rationales; the normalisation and
+   formula rules are additionally realised in `pipeline/scoring/` (`config.py`, `normalise.py`,
+   `score.py`, `report.py`) as tabulated in §5.7.
+3. **The Data_Specification** — `DATA/data-specification/sprint1_data_specification.md`, in the
+   **§4.7 Baseline Suitability Score** entry (which records the formula, the six default
+   weights + Directions, the normalisation/boolean/constant rules and the change-control note)
+   and, for the inherited resource decisions, the **§2 frozen-decisions table** (Q1 wind
+   statistic, Q2 hub height, Q3 slope statistic, Q7 infrastructure penalty-not-exclusion).
+
+> **Documented gap — §4.5 vs §4.7 (to be resolved under task 8.2 / task 7).** This spec's
+> upstream requirement and design refer to the scoring criteria/weights/normalisation as living
+> in Data_Specification **§4.5**. In the current Data_Specification, **§4.5 is the *Integrated
+> Feature Table*** (the S1-08 scoring *input*), and the scoring parameters — formula, the six
+> default weights, Directions and the normalisation method — are actually recorded in **§4.7
+> Baseline Suitability Score** (added under §8 as v1.5). The enumeration above therefore cites
+> **§4.7** as the true present-day location. This mismatch is flagged here rather than silently
+> "corrected": task 7 adds the cross-reference from the Data_Specification back to this
+> Decision_Engine_Spec (the §1.5 stub names §4.5 as the anchor point), and task 8.2 applies any
+> frozen-value change across all locations under the §8 process. Until then, a reader following
+> the §4.5 pointer must be directed on to §4.7 for the scoring parameters. Both section numbers
+> are recorded here so neither pointer goes stale.
+
+### §6.4 Frozen-decision enumeration audit (Property P4)
+
+**Property P4 — frozen decisions are fully enumerated.** Every Frozen_Decision in §6.1 lists at
+least the three recording locations of §6.3. The audit below confirms this parameter by
+parameter: "this spec" is the §6.1 *Value (fixed in)* section; "weights YAML / `pipeline/scoring/`"
+is location 2; "Data_Spec" is location 3 (§4.7 for the scoring contract, plus the §2 Q-decision
+where one is inherited).
+
+| Frozen_Decision | 1. This spec | 2. `scoring_weights.yaml` / `pipeline/scoring/` | 3. Data_Specification | ≥ 3 locations? |
+| --- | --- | --- | --- | --- |
+| F1 Criteria set | §2, §4.1 | `criteria:` list (six entries) | §4.7 (Variables / Criteria weights rows) | yes |
+| F2 Columns + units | §2.1–§2.4 | `feature:` keys; units in comments | §4.7 (Units row) + §4.5 (source columns) | yes |
+| F3 Directions | §2, §4.1, §5.1 | `direction:` per criterion | §4.7 (Criteria weights row) | yes |
+| F4 Wind variable + 100 m | §2.1 | `feature: wind_speed` + rationale | §4.7; §2 Q1/Q2; §4.1.1 | yes |
+| F5 Scoring_Formula | §3.1 | header comment + `score.py` `score_frame` | §4.7 (Method row) | yes |
+| F6 Weight-normalisation rule | §3.2 | header comment (`/ SUM(weights applied)`) + `score.py` | §4.7 (Method row, `W_cell`) | yes |
+| F7 Eligible-only / null-excluded | §3.3 | header comment + `score.py` | §4.7 (Method / Coverage rows); §4.6 | yes |
+| F8 Not-circular | §3.4 | header comment ("no circular modelling") + absence of any wind-prediction step | §4.7 (Method / Role rows) | yes |
+| F9 Directional min-max | §5.1 | `normalise.py`; `config.py` directions | §4.7 (Method row) | yes |
+| F10 Eligible-population bounds, per run | §5.2 | `normalise.py` `compute_bounds`; `score.py` | §4.7 (Method row, "computed from the eligible population on each run") | yes |
+| F11 Outlier policy | §5.3 | `normalise.py` (no trim/winsorise) | §4.7 (Method / Known-limitations rows) | yes |
+| F12 Missing-value policy | §5.4 | `normalise.py` / `score.py` (null preserved, per-cell `W`) | §4.7 (Method row); §8 v1.5 deviation note | yes |
+| F13 Constant-criterion `1.0` | §5.5 | `config.py` `CONSTANT_CRITERION_VALUE`; `normalise.py` | §4.7 (Method row) | yes |
+| F14 Boolean `{0,1}` mapping | §5.6 | `config.py` `BOOLEAN_BOUNDS`; `normalise.py` | §4.7 (Method row, "definitional {0, 1} domain") | yes |
+| F15 Six default weights | §4.1 | `weight:` per criterion (0.35/0.20/0.15/0.10/0.10/0.10) | §4.7 (Criteria weights row: "Defaults: …") | yes |
+
+**Result.** All fifteen Frozen_Decisions list at least the three required recording locations
+(this specification, `pipeline/scoring/scoring_weights.yaml` / `pipeline/scoring/`, and the
+Data_Specification), with the §4.5→§4.7 pointer discrepancy explicitly recorded in §6.3 so no
+location silently goes stale. Property P4 therefore holds.
 
 ---
 
