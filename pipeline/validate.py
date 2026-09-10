@@ -47,6 +47,18 @@ from rasterio.windows import from_bounds
 from . import config
 from .common.geo import apply_vsicurl_env, atomic_write_text, banner
 from .geographic import config as geo_config
+from .integration import config as integration_config
+from .integration.config import (
+    COMPUTATION_CRS,
+    INTEGRATION_DIR,
+    INTEGRATION_META_DIR,
+    INTEGRATION_VINTAGE,
+    OUTPUT_FILENAME,
+    OUTPUT_LAYER,
+    SCORED_FEATURE_COLUMNS,
+    STORAGE_CRS,
+)
+from .integration.merge import BOOL_COLUMNS, COLUMN_UNITS, OUTPUT_COLUMNS
 from .wind import config as wind_config
 from .wind.gwa import resolve_source
 
@@ -64,6 +76,57 @@ STRIP_BBOX = config.COAST_BBOX
 
 # Siting constraint defaults
 DEFAULT_MAX_SLOPE_DEG = 15.0
+
+
+# ---------------------------------------------------------------------------
+# S2-02 — Sprint 1 integrated-table input contract
+# ---------------------------------------------------------------------------
+#
+# The schema this tier validates is *read* from the Schema_Authority
+# (`OUTPUT_COLUMNS` / `COLUMN_UNITS` / `BOOL_COLUMNS` in
+# `pipeline/integration/merge.py`; `SCORED_FEATURE_COLUMNS` /
+# `INTEGRATION_DIR` / `OUTPUT_FILENAME` / `OUTPUT_LAYER` /
+# `INTEGRATION_VINTAGE` / `INTEGRATION_META_DIR` and the re-exported
+# `STORAGE_CRS` / `COMPUTATION_CRS` in `pipeline/integration/config.py`) and is
+# never re-typed as literals, so a schema, path or CRS change upstream
+# propagates into this gate rather than drifting (KAN-38 cross-cutting note).
+
+# Default path to the frozen Sprint 1 integrated table. Derived from the
+# integration config — never a hard-coded literal — so an upstream rename of
+# the output directory or filename flows through to the validator.
+DEFAULT_INTEGRATED_PATH = INTEGRATION_DIR / OUTPUT_FILENAME
+
+# Per-scored-column input-contract Sanity_Range (design Model 3, checks 8–9).
+#
+# These are *input-contract sanity bounds* — the plausible physical range a
+# stored value must fall within to be a well-formed input to the decision
+# engine. They are DISTINCT from the S2-01 §5.2 per-run scoring bounds, which
+# are computed from the eligible population at scoring time; a value inside its
+# Sanity_Range here still gets min–max normalised downstream. The bounds are
+# consistent with the `COLUMN_UNITS` entry for each column and the S2-01 §2
+# units / Directions:
+#
+#   wind_speed            m/s              [0, 25]        higher_is_better
+#   demand_proxy          normalised 0–1   [0, 1]         higher_is_better
+#   dist_transmission_km  km (EPSG:3577)   [0, 2000]      lower_is_better
+#   dist_substation_km    km (EPSG:3577)   [0, 2000]      lower_is_better
+#   slope_deg             degrees          [0, 90]        lower_is_better
+#   elevation_m           metres           [-20, 3000]    context
+#   inside_rez            boolean          {false, true}  higher_is_better
+#   protected_area        boolean          {false, true}  hard-constraint context
+#
+# Out-of-range values are reported (expected vs observed) and fail their check;
+# they are never clamped or coerced silently.
+SANITY_RANGES: dict[str, tuple[float, float] | frozenset[bool]] = {
+    "wind_speed": (0.0, 25.0),
+    "demand_proxy": (0.0, 1.0),
+    "dist_transmission_km": (0.0, 2000.0),
+    "dist_substation_km": (0.0, 2000.0),
+    "slope_deg": (0.0, 90.0),
+    "elevation_m": (-20.0, 3000.0),
+    "inside_rez": frozenset({False, True}),
+    "protected_area": frozenset({False, True}),
+}
 
 
 # ---------------------------------------------------------------------------
