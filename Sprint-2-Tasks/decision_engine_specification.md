@@ -160,13 +160,36 @@ Criterion be agreed at Checkpoint A, it is added here and to §4 under §6 chang
 
 ### §2.5 Column-name verification (Property P1)
 
-Every Criterion column named in §2.1–§2.4 is a member of the integrated feature-table
-schema (`pipeline/integration/merge.py` `BASE_COLUMNS`; the six scored Criteria are all
-within `SCORED_FEATURE_COLUMNS`). No Criterion required a name correction under Requirement
-2.7 — the six scored Criteria (`wind_speed`, `demand_proxy`, `dist_transmission_km`,
-`dist_substation_km`, `slope_deg`, `inside_rez`) match the Existing_Implementation weights
-file (`pipeline/scoring/scoring_weights.yaml`) and the integrated schema exactly. This
-correspondence is recorded in the §8 reconciliation log.
+**Property P1 — every criterion resolves to a real column.** Every `integrated-table
+column` value named in §2.1–§2.4 was verified, column by column, against the authoritative
+integrated feature-table schema: `pipeline/integration/merge.py` `BASE_COLUMNS` (the full
+column order) and the ten `SCORED_FEATURE_COLUMNS` re-exported from
+`pipeline/integration/config.py`. Units and source strings were cross-checked against
+`COLUMN_UNITS` and the per-layer `LayerSpec.columns` maps in `merge.py`. The audit below
+records, for every column referenced in §2, the schema constant it was found in.
+
+| §2 column | Role in §2 | In `BASE_COLUMNS`? | In `SCORED_FEATURE_COLUMNS`? | Verification result |
+| --- | --- | --- | --- | --- |
+| `wind_speed` | Scored Criterion (§2.1 wind) | yes | yes | Confirmed present — no correction needed |
+| `demand_proxy` | Scored Criterion (§2.2 demand) | yes | yes | Confirmed present — no correction needed |
+| `dist_transmission_km` | Scored Criterion (§2.3 infra) | yes | yes | Confirmed present — no correction needed |
+| `dist_substation_km` | Scored Criterion (§2.3 infra) | yes | yes | Confirmed present — no correction needed |
+| `inside_rez` | Scored Criterion (§2.3 infra) | yes | yes | Confirmed present — no correction needed |
+| `slope_deg` | Scored Criterion (§2.4 geographic) | yes | yes | Confirmed present — no correction needed |
+| `dist_connection_km` | Context column (§2.3, not scored) | yes | yes | Confirmed present — no correction needed |
+| `source_region` | Allocation key (§2.2 notes) | yes | no | Confirmed present — no correction needed |
+| `rez_name` | REZ label (§2.3 notes) | yes | no | Confirmed present — no correction needed |
+| `elevation_m` | Context column (§2.4 notes) | yes | yes | Confirmed present — no correction needed |
+| `tri` | Context column (§2.4 notes) | yes | no | Confirmed present — no correction needed |
+| `land_use` | Context column (§2.4 notes) | yes | yes | Confirmed present — no correction needed |
+| `protected_area` | Hard-constraint context (§2.4 notes) | yes | yes | Confirmed present — no correction needed |
+
+**Result.** All thirteen columns referenced in §2 are members of the integrated schema; **no
+Criterion required a name correction** under Requirement 2.7. The six scored Criteria
+(`wind_speed`, `demand_proxy`, `dist_transmission_km`, `dist_substation_km`, `slope_deg`,
+`inside_rez`) additionally match the feature names in the Existing_Implementation weights
+file (`pipeline/scoring/scoring_weights.yaml`) exactly; that correspondence is recorded in
+the §8 reconciliation log. Property P1 therefore holds.
 
 ---
 
