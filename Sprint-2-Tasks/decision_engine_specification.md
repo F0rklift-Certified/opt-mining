@@ -38,15 +38,18 @@ for client sign-off.
 
 ### 1.3 Jira / PR references
 
-_The following references are recorded at Checkpoint A review (task 9)._
+_Recorded at Checkpoint A review (task 9). Jira references confirmed against optmining.atlassian.net._
 
 | Reference | Identifier |
 | --- | --- |
 | Sprint task | S2-01 — Decision-Engine Specification & Frozen Configuration |
-| Jira issue | _TBD — recorded at Checkpoint A_ |
-| Pull request | _TBD — recorded at Checkpoint A_ |
+| Sprint epic | KAN-35 — Sprint 2 — Transparent NSW Wind-Site Decision Engine |
+| Jira issue | [KAN-37](https://optmining.atlassian.net/browse/KAN-37) — S2-01 (Task) |
+| Related | [KAN-38](https://optmining.atlassian.net/browse/KAN-38) — S2-02 Freeze & Validate the Sprint 1 Integrated Dataset (blocked by S2-01) |
+| Branch | `sprint-2-and-3-kickoff` |
+| Pull request | _Pending — open from `sprint-2-and-3-kickoff` when raised_ |
 | Checkpoint | Client Checkpoint A (Decision design) |
-| Sign-off date | _TBD — recorded at Checkpoint A_ |
+| Sign-off date | 2026-09-10 |
 
 ### 1.4 Screening language commitment
 
