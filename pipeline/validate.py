@@ -1333,6 +1333,7 @@ def run(
     verbose: bool = False,
     skip_land_sea: bool = False,
     max_slope: float = DEFAULT_MAX_SLOPE_DEG,
+    integrated_path: Path | None = None,
 ) -> dict:
     """
     Run cross-domain integration validation.
@@ -1346,10 +1347,89 @@ def run(
     max_slope : float
         Maximum allowable slope in degrees for wind farm siting checks.
         Default: 15.0 degrees.
+    integrated_path : Path | None
+        Override for the frozen Sprint 1 integrated table so fixtures can point
+        the S2-02 input-contract checks at a test table (requirement 11.4).
+        Defaults to ``DEFAULT_INTEGRATED_PATH`` when ``None``.
 
     Returns a summary dict with output paths and check results.
+
+    The S2-02 input-contract gate runs FIRST (before the wind / scoring /
+    shortlist cross-checks) because the input contract gates the downstream
+    checks (requirement 11.3). ``run()`` stays a PURE reporter: it never raises
+    on a data-quality failure — it returns ``all_passed=False`` so the caller
+    (the decision engine, S2-03+) makes the Halt_Or_Flag decision (requirement
+    9.1). New return keys:
+
+      results["baseline"]                 -> freeze_baseline() record (or a
+                                             minimal placeholder when the table
+                                             is absent)
+      results["integrated_input_checks"]  -> list[Check_Record]
+      results["integrated_input_result"]  -> Path to the JSON sidecar
+      results["all_passed"]               -> bool (True iff every input-contract
+                                             Check_Record passed AND the baseline
+                                             hash matched)
     """
     results: dict[str, object] = {}
+
+    # --- S2-02 input-contract gate (runs FIRST — it gates downstream) -------
+    # The input contract must be verified before the wind / scoring / shortlist
+    # cross-checks because those checks are only meaningful on a table that has
+    # already passed the input contract (requirement 11.3).
+    print("  [0/2] Integrated-input contract checks (S2-02)...")
+    resolved_integrated_path = (
+        DEFAULT_INTEGRATED_PATH if integrated_path is None else Path(integrated_path)
+    )
+
+    # Build the Check_Records first. `_run_integrated_input_checks` returns [] —
+    # never a silent pass — when the integrated table is absent (requirement
+    # 8.2, 8.3). The empty-battery case is turned into all_passed=False by
+    # `_verdict` inside the emitter, so the "[] + all_passed=False" pair is
+    # produced as a single combined operation (requirement 8.3).
+    integrated_checks = _run_integrated_input_checks(
+        verbose, integrated_path=resolved_integrated_path
+    )
+
+    # Determine the baseline record for the Validation_Result. `freeze_baseline`
+    # calls path.stat()/sha256_file, which RAISE when the file does not exist —
+    # so only call it when the table is present. When it is absent, pass a
+    # minimal placeholder baseline (with just the resolved path) so the emitter
+    # (which reads baseline.get(...) defensively) still writes both output files
+    # with all_passed=False rather than crashing or reporting a missing dataset
+    # as passing.
+    if resolved_integrated_path.exists():
+        baseline = freeze_baseline(resolved_integrated_path)
+    else:
+        try:
+            rel_path = str(
+                resolved_integrated_path.resolve().relative_to(
+                    integration_config.PROJECT_ROOT
+                )
+            )
+        except ValueError:
+            rel_path = str(resolved_integrated_path)
+        baseline = {
+            "artefact": "s1-08 integrated feature table",
+            "path": rel_path,
+        }
+
+    # Emit BOTH the JSON sidecar and the markdown report (requirement 10.1,
+    # 10.4A, 10.5). write_validation_outputs is a pure writer — it never raises
+    # on a data-quality failure — and returns (result, json_path, report_path).
+    input_result, input_json_path, _input_report_path = write_validation_outputs(
+        baseline, integrated_checks
+    )
+
+    input_passed = sum(1 for c in integrated_checks if c["passed"])
+    print(f"    {input_passed}/{len(integrated_checks)} input-contract checks passed")
+
+    results["baseline"] = baseline
+    results["integrated_input_checks"] = integrated_checks
+    results["integrated_input_result"] = input_json_path
+    # all_passed is the emitter's verdict: the conjunction over the checks for a
+    # present table (with the hash-match folded in as check 1, not double
+    # counted), and False for an absent table (requirement 9.2, 10.3).
+    results["all_passed"] = input_result["all_passed"]
 
     print("  [1/2] Cross-domain wind farm checks (land, CAPAD, slope)...")
     checks = _run_cross_domain_checks(verbose, max_slope=max_slope)
