@@ -1,8 +1,9 @@
 # Decision-Engine Specification & Frozen Configuration
 
 > **Status:** Draft — authored under spec `s2-01-decision-engine-specification`.
-> Sections §1–§7 are authored; §8 (reconciliation log) is a scaffolded placeholder authored
-> in task 8 of this spec.
+> Sections §1–§8 are authored. §8 (reconciliation log) was completed in task 8.1: every
+> criterion in `pipeline/scoring/scoring_weights.yaml` reconciled as `consistent` — no
+> divergence, so no frozen value required a change (task 8.2 has no value to propagate).
 
 ---
 
@@ -811,9 +812,159 @@ claims. Property P5 holds.
 
 ## §8 Reconciliation log
 
-_Placeholder — authored in task 8._
+This section records the **line-by-line reconciliation** of this specification against the
+Existing_Implementation — `pipeline/scoring/scoring_weights.yaml` (the authoritative weights
+file) and the `pipeline/scoring/` code that consumes it (`score.py`, `normalise.py`,
+`config.py`, `weights.py`, `report.py`). It is the core of Requirement 4.3 (reconcile and
+record any difference and its resolution) and Requirement 4.4 (where consistent, state the
+consistency explicitly). Each row states the **spec value**, the **implementation value**,
+a **status** of `consistent` or `resolved`, and a **resolution** note.
 
-Line-by-line reconciliation against `pipeline/scoring/scoring_weights.yaml` and
-`pipeline/scoring/`. One row per criterion: parameter, spec value, implementation value,
-status (`consistent` | `resolved`), resolution. Where consistent, that consistency is
-stated explicitly.
+Consistent with the rest of this document, the reconciliation concerns how the engine
+surfaces **higher-ranked candidate cells under the selected assumptions and criteria**
+(Screening_Language, §1.4), never a "best site".
+
+> **Headline result.** Every one of the six scored Criteria and every non-criterion
+> parameter reconciled to **`consistent` — no divergence**. This specification restates a
+> design already realised in code; the reconciliation found **no frozen value that must
+> change**, so **task 8.2 has no frozen-decision change to apply** across the recording
+> locations. The one documented mismatch in the repository — the Data_Specification
+> **§4.5 vs §4.7** scoring-parameter pointer — is a *cross-reference-location* discrepancy,
+> already recorded in §1.5 and §6.3; it is **not** a divergence in any scoring parameter
+> (feature, weight, direction, formula, or normalisation rule) and changes no value in this
+> spec, the YAML, or the code. It is carried into §8.4 as a `resolved` documentation item
+> (pointer directs §4.5 → §4.7) rather than a frozen-value change.
+
+### §8.1 Per-Criterion reconciliation (Requirement 4.3, 4.4)
+
+For each of the six criteria in `scoring_weights.yaml`, the four scored attributes —
+**feature** (integrated-table column), **weight**, **direction**, and **rationale** — are
+reconciled against the corresponding spec statements in §2 and §4. The spec reproduces the
+YAML faithfully (§4 is a verbatim restatement of the YAML rationales, whitespace-normalised),
+so each attribute reconciles as `consistent`.
+
+#### `wind_speed`
+
+| Parameter | Spec value (this document) | Implementation value (`scoring_weights.yaml`) | Status | Resolution |
+| --- | --- | --- | --- | --- |
+| feature (column) | `wind_speed` (§2.1, §4.1) | `feature: wind_speed` | `consistent` | No divergence — identical column name; verified present in the integrated schema in §2.5 (P1). |
+| weight | 0.35 (§4.1) | `weight: 0.35` | `consistent` | No divergence — identical default weight (F15). |
+| direction | `higher_is_better` (§2.1, §4.1) | `direction: higher_is_better` | `consistent` | No divergence — identical Direction (F3). |
+| rationale | Primary resource indicator; cubic yield; largest weight; GWA 100 m mean; input only / not circular (§4.1) | `rationale:` (same text) | `consistent` | No divergence — §4.1 reproduces the YAML rationale faithfully; P3 non-empty. |
+
+#### `dist_transmission_km`
+
+| Parameter | Spec value (this document) | Implementation value (`scoring_weights.yaml`) | Status | Resolution |
+| --- | --- | --- | --- | --- |
+| feature (column) | `dist_transmission_km` (§2.3, §4.1) | `feature: dist_transmission_km` | `consistent` | No divergence — identical column name; verified in §2.5 (P1). |
+| weight | 0.20 (§4.1) | `weight: 0.20` | `consistent` | No divergence — identical default weight (F15). |
+| direction | `lower_is_better` (§2.3, §4.1) | `direction: lower_is_better` | `consistent` | No divergence — identical Direction (F3). |
+| rationale | Connection cost scales with line length; second-strongest discriminator; ≥132 kV; EPSG:3577 (§4.1) | `rationale:` (same text) | `consistent` | No divergence — faithful restatement; P3 non-empty. |
+
+#### `demand_proxy`
+
+| Parameter | Spec value (this document) | Implementation value (`scoring_weights.yaml`) | Status | Resolution |
+| --- | --- | --- | --- | --- |
+| feature (column) | `demand_proxy` (§2.2, §4.1) | `feature: demand_proxy` | `consistent` | No divergence — identical column name; verified in §2.5 (P1). |
+| weight | 0.15 (§4.1) | `weight: 0.15` | `consistent` | No divergence — identical default weight (F15). |
+| direction | `higher_is_better` (§2.2, §4.1) | `direction: higher_is_better` | `consistent` | No divergence — identical Direction (F3). |
+| rationale | Proximity to demand improves offtake; weighted below grid distances; NEM-region mean allocated uniformly (§4.1) | `rationale:` (same text) | `consistent` | No divergence — faithful restatement; the "proxy, not measured local demand" framing (§2.2) matches the YAML's "allocated uniformly to every cell" wording. P3 non-empty. |
+
+#### `dist_substation_km`
+
+| Parameter | Spec value (this document) | Implementation value (`scoring_weights.yaml`) | Status | Resolution |
+| --- | --- | --- | --- | --- |
+| feature (column) | `dist_substation_km` (§2.3, §4.1) | `feature: dist_substation_km` | `consistent` | No divergence — identical column name; verified in §2.5 (P1). |
+| weight | 0.10 (§4.1) | `weight: 0.10` | `consistent` | No divergence — identical default weight (F15). |
+| direction | `lower_is_better` (§2.3, §4.1) | `direction: lower_is_better` | `consistent` | No divergence — identical Direction (F3). |
+| rationale | Substation proximity reduces interconnection complexity; half the transmission weight (partly collinear) (§4.1) | `rationale:` (same text) | `consistent` | No divergence — faithful restatement; P3 non-empty. |
+
+#### `slope_deg`
+
+| Parameter | Spec value (this document) | Implementation value (`scoring_weights.yaml`) | Status | Resolution |
+| --- | --- | --- | --- | --- |
+| feature (column) | `slope_deg` (§2.4, §4.1) | `feature: slope_deg` | `consistent` | No divergence — identical column name; verified in §2.5 (P1). |
+| weight | 0.10 (§4.1) | `weight: 0.10` | `consistent` | No divergence — identical default weight (F15). |
+| direction | `lower_is_better` (§2.4, §4.1) | `direction: lower_is_better` | `consistent` | No divergence — identical Direction (F3). |
+| rationale | Flatter terrain lowers civil-works cost; continuous penalty complementing the S1-07 hard exclusion above 15°; derived Horn slope from SRTM (§4.1) | `rationale:` (same text) | `consistent` | No divergence — faithful restatement; the "complements, never replaces, the hard gate" stance (§2.4, §3.3) matches the YAML. P3 non-empty. |
+
+#### `inside_rez`
+
+| Parameter | Spec value (this document) | Implementation value (`scoring_weights.yaml`) | Status | Resolution |
+| --- | --- | --- | --- | --- |
+| feature (column) | `inside_rez` (§2.3, §4.1) | `feature: inside_rez` | `consistent` | No divergence — identical column name; verified in §2.5 (P1). |
+| weight | 0.10 (§4.1) | `weight: 0.10` | `consistent` | No divergence — identical default weight (F15). |
+| direction | `higher_is_better` (§2.3, §4.1) | `direction: higher_is_better` | `consistent` | No divergence — identical Direction (F3). |
+| rationale | Declared NSW REZ benefits from coordinated planning; boolean `{False → 0.0, True → 1.0}`; modest weight (policy signal) (§4.1) | `rationale:` (same text) | `consistent` | No divergence — faithful restatement; the boolean definitional mapping (§5.6) matches the YAML's `{False -> 0.0, True -> 1.0}` note. P3 non-empty. |
+
+**§8.1 result.** All six criteria reconcile as **`consistent`** across all four scored
+attributes (feature, weight, direction, rationale). No criterion required a name correction
+(§2.5), no weight differs from the shipped default (F15), and no Direction differs. The
+weights additionally sum to 1.00 in both the spec (§4.1) and the YAML, which the
+weight-normalisation rule (§3.2) treats as immaterial to the ranking.
+
+### §8.2 Non-criterion parameter reconciliation (formula, normalisation, policies)
+
+The §3/§5 parameters that are not per-criterion values are reconciled against the code that
+implements them. Each is `consistent`.
+
+| Parameter | Spec value (§) | Implementation value | Status | Resolution |
+| --- | --- | --- | --- | --- |
+| Scoring_Formula | `S_i = Σ_k w_k·n_k(i) / W_i`, weighted MCDA (§3.1) | `score.py` `score_frame`: `share = weight · norm / applied`; `raw = Σ share`; YAML header comment states the same | `consistent` | No divergence — the code computes exactly the weight-normalised weighted sum §3.1 states. |
+| Weight-normalisation rule | Division by the **applied** weight sum `W_i`; weights relative/scale-invariant (§3.2) | `score.py`: `applied` accumulates `present · weight` per cell; `share = weight·norm/applied` | `consistent` | No divergence — `W_i` is the per-cell applied-weight denominator, matching §3.2 (including the missing-value exclusion). |
+| Eligible-only rule + null for excluded | Only `eligible = True` scored; excluded → null score/rank/contributions; excluded take no part in bounds (§3.3) | `score.py` `eligible_mask` (nulls → not eligible); `compute_bounds` uses `eligible` rows only; non-scorable cells masked to null | `consistent` | No divergence — code masks excluded cells to null and excludes them from bounds exactly as §3.3 states. |
+| Not-circular guarantee | Wind is an input Criterion only; no wind prediction target (§3.4) | `score.py` docstring "NOT CIRCULAR"; no wind-prediction step or column anywhere in `pipeline/scoring/` | `consistent` | No divergence — structurally enforced by the absence of any wind-prediction step. |
+| Directional linear min-max, clamped `[0, 1]` | `(v−lo)/(hi−lo)` / `1 − …`, clamped (§5.1) | `normalise.py` `normalise_value` / `normalise_series`; `clip(0, 1)` | `consistent` | No divergence — identical directional min-max with `[0, 1]` clamp. |
+| Bounds from eligible population, fixed per run | Eligible-cell min/max, computed fresh each run, not per UI filter (§5.2) | `normalise.py` `compute_bounds(eligible, …)`; `score.py` computes bounds once per run | `consistent` | No divergence — bounds are the eligible-population extremes, computed per run, never hard-coded. |
+| Outlier policy | No separate outlier treatment; true population min/max; only the `[0, 1]` clamp (§5.3) | `normalise.py` (no trim/winsorise/quantile-cap; genuine `min`/`max`); `report.py` "Normalisation is LINEAR" note | `consistent` | No divergence — code applies no outlier transform, matching §5.3. |
+| Missing-value policy | Null preserved, excluded from `W_i`, never zero-/worst-imputed (§5.4) | `normalise.py` `as_float`/`normalise_series` (nulls preserved as NaN); `score.py` per-cell applied weight; unscorable → null | `consistent` | No divergence — a missing value is excluded from that cell's weighted average, never scored as zero. |
+| Constant-criterion rule | `CONSTANT_CRITERION_VALUE = 1.0`, flagged, no divide-by-zero (§5.5) | `config.py` `CONSTANT_CRITERION_VALUE = 1.0`; `normalise.py` `compute_bounds` (`is_constant`) / `normalise_value` / `normalise_series`; `report.py` flags constants | `consistent` | No divergence — the fill value is `1.0` in both spec and code; no division on a constant criterion. |
+| Boolean definitional mapping | `{False → 0.0, True → 1.0}` definitional domain, direction applied after (§5.6) | `config.py` `BOOLEAN_BOUNDS = (0.0, 1.0)`; `normalise.py` `is_boolean_series` / `compute_bounds` | `consistent` | No divergence — booleans use `(0.0, 1.0)` not observed min/max, matching §5.6. |
+| Contributions-sum-to-score contract | `contrib_{feature}` sum back to `S_i` within `1e-9` (§3.1) | `config.py` `RECONCILE_TOLERANCE = 1e-9`; `score.py` writes `contrib_{feature}` and reconstructs `raw_score` | `consistent` | No divergence — the tolerance and contribution-column contract match. |
+| Optional confidence discount | Disabled by default; identical multiplier on score and contributions; not part of the core formula (§3.1 note) | `scoring_weights.yaml` `confidence_discount: false`; `score.py` applies `factor` to score and contributions identically | `consistent` | No divergence — default is `false`; when enabled the factor scales score and contributions together, preserving the explainability contract. |
+
+**§8.2 result.** Every non-criterion parameter of §3 and §5 reconciles as **`consistent`**
+with the code that realises it. The §5.7 method-summary table already cross-maps each
+normalisation policy to its implementation location; this §8.2 confirms the *values and
+rules* agree, not merely that a location exists.
+
+### §8.3 Confidence-vocabulary and file-independence notes (informational, `consistent`)
+
+Two implementation facts are recorded so a reader is not surprised by them; both are
+`consistent` with this specification rather than divergences.
+
+| Item | Spec position | Implementation | Status | Resolution |
+| --- | --- | --- | --- | --- |
+| Confidence vocabulary | This spec's scoring contract is silent on the discount's vocabulary beyond §3.1's "carried-through S1-09 `data_confidence`" | `config.py` `CONFIDENCE_LEVELS = ("high","medium","low")` — the S1-09 three-level vocabulary carried through verbatim (the S1-10 ticket assumed two levels) | `consistent` | No divergence with this spec — the discount is disabled by default and is explicitly not part of the core formula (§3.1); the three-level vocabulary is the upstream S1-09 value carried through, documented in the scoring method report. |
+| Weights-file independence | §6.3 notes `scoring_weights.yaml` is the recording location for the scored weights | `pipeline/integration/confidence_weights.yaml` reuses the same six default weights for the S1-09 confidence score, but is an **independent** file — changing scoring weights does not change the confidence layer | `consistent` | No divergence — the two files are independent by design; this reconciliation governs only `scoring_weights.yaml`. A future default-set change (F15) under §6.2 must consider whether the confidence-weights file should track it, but that is a separate governance decision, not a stale-value divergence here. |
+
+### §8.4 Reconciliation completeness audit (Property P2)
+
+**Property P2 — reconciliation is complete.** Every criterion present in
+`pipeline/scoring/scoring_weights.yaml` has a row in the §8 reconciliation log with a status
+of `consistent` or `resolved`. The YAML declares exactly six criteria under its `criteria:`
+key; the audit below lists each and confirms its §8.1 reconciliation block exists.
+
+| # | Criterion in `scoring_weights.yaml` | Has a §8 reconciliation block? | Overall status |
+| --- | --- | --- | --- |
+| 1 | `wind_speed` | yes — §8.1 `wind_speed` (4 rows) | `consistent` |
+| 2 | `dist_transmission_km` | yes — §8.1 `dist_transmission_km` (4 rows) | `consistent` |
+| 3 | `demand_proxy` | yes — §8.1 `demand_proxy` (4 rows) | `consistent` |
+| 4 | `dist_substation_km` | yes — §8.1 `dist_substation_km` (4 rows) | `consistent` |
+| 5 | `slope_deg` | yes — §8.1 `slope_deg` (4 rows) | `consistent` |
+| 6 | `inside_rez` | yes — §8.1 `inside_rez` (4 rows) | `consistent` |
+
+**Non-criterion parameters** additionally reconciled (beyond P2's per-criterion requirement):
+the Scoring_Formula, weight-normalisation rule, eligible-only/null rule, not-circular
+guarantee, and all six normalisation policies (§8.2), plus the confidence-vocabulary and
+file-independence notes (§8.3). The one repository documentation discrepancy — the
+Data_Specification **§4.5 vs §4.7** scoring-parameter pointer — is recorded as `resolved`
+(the §4.5 pointer directs the reader on to §4.7; both numbers recorded in §1.5 and §6.3 so
+neither goes stale). It changes no scoring value and therefore triggers no §6.2 frozen-value
+change.
+
+**Result.** All **six** criteria in `scoring_weights.yaml` have a §8 reconciliation row and a
+terminal status of `consistent`; none is `resolved` by a value change. Property P2 therefore
+holds, and — because no criterion or non-criterion parameter diverged — **task 8.2 has no
+frozen-decision value to propagate.** The specification and the Existing_Implementation are
+consistent (Requirement 4.4), and the reconciliation is complete (Requirement 4.3, P2).
