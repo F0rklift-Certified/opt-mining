@@ -303,10 +303,79 @@ wind-prediction step (`pipeline/scoring/score.py`, `pipeline/scoring/__init__.py
 
 ## §4 Default weights (assumptions + rationale)
 
-_Placeholder — authored in task 4._
+This section records the **Default_Weights** — the starting weight assigned to each of the
+six scored Criteria (§2) in the Scoring_Formula (§3). The values, Directions, and rationale
+text below reproduce the Existing_Implementation weights file
+(`pipeline/scoring/scoring_weights.yaml`) faithfully; that file is the authoritative source
+and this section restates it, it does not redefine it. Because weights are **user inputs,
+never hard-coded constants** (the constitution rule realised by that YAML file carrying no
+weight literal in code), any consumer may retune them — the table below is the shipped
+starting point, not a fixed law.
 
-Table of the default Criteria with weight, Direction and a non-empty written rationale
-each, labelled as documented assumptions rather than objectively correct business values.
+> **These are documented assumptions, not objectively correct business values.**
+> The six weights below encode one reasonable, defensible ordering of screening priorities
+> for the MVP. They are **not** claimed to be optimal, uniquely correct, or the "right"
+> business weighting — no such objective answer exists for a screening exercise. They are a
+> transparent, interrogable starting point that a reviewer can question and change. Weights
+> are relative (§3.2): they sum to 1.00 purely for readability, and multiplying them all by a
+> constant changes no score and no ranking. The engine surfaces **higher-ranked candidate
+> cells under the selected assumptions and criteria** (Screening_Language, §1.4) — a
+> different, equally documented weighting would surface a different ranking, and that is a
+> feature of the design, not a defect.
+
+### §4.1 Default_Weights table
+
+| Criterion (integrated-table column) | Weight | Direction | Rationale (documented assumption) |
+| --- | --- | --- | --- |
+| Mean wind speed (`wind_speed`) | **0.35** | `higher_is_better` | Primary resource indicator. Energy yield scales roughly with the cube of wind speed, so it dominates project viability more than any other screening variable and carries the largest single weight. Source: GWA 100 m mean wind speed (spec §4.1.1) — an **input** feature only; the model never predicts wind from wind-derived features (no circular modelling, §3.4). |
+| Distance to transmission (`dist_transmission_km`) | **0.20** | `lower_is_better` | Connection cost is a major capex component and scales with line length, so distance to the nearest ≥132 kV line is the second-strongest discriminator between otherwise similar cells. Source: spec §4.3.1; centroid distance computed in EPSG:3577. |
+| Demand proxy (`demand_proxy`) | **0.15** | `higher_is_better` | Proximity to electrical demand improves offtake prospects and reduces transmission losses. Weighted below the physical grid distances because the MVP proxy is a NEM-region annual mean allocated uniformly to every cell (spec §4.2.3), so it discriminates between regions rather than between neighbouring cells. |
+| Distance to substation (`dist_substation_km`) | **0.10** | `lower_is_better` | Substation proximity reduces interconnection complexity and works scope. Weighted at half the transmission-line criterion because it is partly collinear with it — a cell near a substation is usually near a line — and double-counting the same effect would inflate it. Source: spec §4.3.2. |
+| Terrain slope (`slope_deg`) | **0.10** | `lower_is_better` | Flatter terrain lowers civil-works, access-road and crane-pad cost and widens turbine-siting options within a cell. A continuous penalty here complements the S1-07 hard exclusion above 15 degrees: cells that pass the gate are still separated by how steep they are. Source: derived Horn slope from SRTM (spec §4.4.6). |
+| Inside a declared NSW REZ (`inside_rez`) | **0.10** | `higher_is_better` | Cells inside a declared NSW Renewable Energy Zone benefit from coordinated network planning, committed transmission investment and an established access regime. Boolean, so it maps to its definitional `{false → 0.0, true → 1.0}` domain (§5.6). Weighted modestly because it is a policy signal rather than a physical measurement, and REZ boundaries change between planning cycles. Source: spec §4.3.3. |
+| **Sum** | **1.00** | — | Sums to 1.00 for readability only; the weight-normalisation rule (§3.2) divides by the applied weight sum, so the absolute total is immaterial to the ranking. |
+
+### §4.2 Weight-ordering assumptions (Requirement 4.2)
+
+The **relative** ordering above encodes the documented screening priorities and is the part
+worth reviewing at Checkpoint A. In words:
+
+1. **Wind dominates (0.35).** The cubic yield relationship makes the resource the single most
+   consequential screening variable, so it carries more than a third of the weight — larger
+   than any two other Criteria combined except the two grid-distance terms.
+2. **Grid connection is second (0.20 + 0.10).** Transmission distance (0.20) outranks
+   substation distance (0.10); substation distance is deliberately halved to avoid
+   double-counting the largely collinear "near the grid" signal.
+3. **Demand proxy is mid-weight (0.15).** Ranked below the physical grid distances precisely
+   because it is a region-level **proxy** (§2.2), not a cell-level measurement.
+4. **Slope and REZ membership are the light touches (0.10 each).** Slope is a continuous
+   penalty on top of the hard exclusion, and REZ membership is a policy signal that shifts
+   between planning cycles, so neither is allowed to swamp the physical resource and
+   connection terms.
+
+Each of these is an **assumption open to revision**. Changing any weight is a
+Frozen_Decision governed by §6 and must be applied consistently across every recording
+location (this specification §4.1, `pipeline/scoring/scoring_weights.yaml`, and the
+data-specification §4.5); the reconciliation against the current YAML values is recorded in
+§8.
+
+### §4.3 Rationale-completeness verification (Property P3)
+
+**Property P3 — every default weight carries a rationale.** Every one of the six default
+Criteria in §4.1 has a non-empty written rationale, reproduced faithfully from the
+Existing_Implementation. The audit below confirms this column by column.
+
+| Criterion | Weight present? | Direction present? | Rationale non-empty? |
+| --- | --- | --- | --- |
+| `wind_speed` | yes (0.35) | yes (`higher_is_better`) | yes |
+| `dist_transmission_km` | yes (0.20) | yes (`lower_is_better`) | yes |
+| `demand_proxy` | yes (0.15) | yes (`higher_is_better`) | yes |
+| `dist_substation_km` | yes (0.10) | yes (`lower_is_better`) | yes |
+| `slope_deg` | yes (0.10) | yes (`lower_is_better`) | yes |
+| `inside_rez` | yes (0.10) | yes (`higher_is_better`) | yes |
+
+**Result.** All six default Criteria carry a weight, a Direction, and a non-empty rationale;
+none is left unexplained. Property P3 therefore holds.
 
 ---
 
