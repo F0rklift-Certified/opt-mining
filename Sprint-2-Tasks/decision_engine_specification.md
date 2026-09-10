@@ -3,7 +3,9 @@
 > **Status:** Draft — authored under spec `s2-01-decision-engine-specification`.
 > Sections §1–§8 are authored. §8 (reconciliation log) was completed in task 8.1: every
 > criterion in `pipeline/scoring/scoring_weights.yaml` reconciled as `consistent` — no
-> divergence, so no frozen value required a change (task 8.2 has no value to propagate).
+> divergence, so no frozen value required a change. Task 8.2 executed and recorded the
+> propagation outcome in §8.5: no frozen-decision value changed, so no cross-location
+> propagation was performed.
 
 ---
 
@@ -968,3 +970,41 @@ terminal status of `consistent`; none is `resolved` by a value change. Property 
 holds, and — because no criterion or non-criterion parameter diverged — **task 8.2 has no
 frozen-decision value to propagate.** The specification and the Existing_Implementation are
 consistent (Requirement 4.4), and the reconciliation is complete (Requirement 4.3, P2).
+
+### §8.5 Frozen-decision propagation outcome (task 8.2) — no change required
+
+_Recorded 2025-06-12 under spec `s2-01-decision-engine-specification`, task 8.2 (Requirement 6.4). This is a documented **no-op**, kept so the outcome is auditable at Checkpoint A._
+
+Task 8.2 applies any frozen-decision **value** change surfaced by the §8 reconciliation
+across all three recording locations of §6.3 — this specification
+(`Sprint-2-Tasks/decision_engine_specification.md`), the Existing_Implementation weights file
+(`pipeline/scoring/scoring_weights.yaml`), and the Data_Specification
+(`DATA/data-specification/sprint1_data_specification.md` §4.7) — under the Data_Specification
+§8 change-control process, so no location records a stale value.
+
+**Outcome: no propagation was performed, because no frozen value changed.** The task-8.1
+reconciliation (§8.1–§8.4) found **every** scored Criterion (feature, weight, direction,
+rationale) and **every** non-criterion parameter (Scoring_Formula, weight-normalisation rule,
+eligible-only/null rule, not-circular guarantee, and all six normalisation policies) to be
+`consistent` — no divergence. There is therefore no Frozen_Decision (F1–F15, §6.1) whose value
+differs across the three locations, and nothing to reconcile under §6.2. An independent
+spot-check performed for this task re-confirmed the two facts task 8.2 depends on:
+
+| Independent spot-check (task 8.2) | Location checked | Result |
+| --- | --- | --- |
+| The six default weights + Directions in the YAML match §4.1 | `pipeline/scoring/scoring_weights.yaml` `criteria:` (`wind_speed` 0.35 `higher_is_better`; `dist_transmission_km` 0.20 `lower_is_better`; `demand_proxy` 0.15 `higher_is_better`; `dist_substation_km` 0.10 `lower_is_better`; `slope_deg` 0.10 `lower_is_better`; `inside_rez` 0.10 `higher_is_better`) | ✅ Identical to §4.1 (F3, F15) — no value differs |
+| The §4.5 → §4.7 scoring-parameter pointer added in task 7 is present | Data_Specification §4.5 ("Scoring parameters are not here … documented in **§4.7 Baseline Suitability Score** and frozen in the Decision-Engine Specification … added v1.8") and the §4.7 change-control note tying the spec, the YAML and §4.7 together under §8 | ✅ Present — cross-reference-location matter, resolved in task 7 |
+
+**The only repository discrepancy — the Data_Specification §4.5-vs-§4.7 scoring-parameter
+pointer — is a cross-reference-location matter, not a frozen-value change, and was already
+resolved in task 7** under the Data_Specification §8 process (v1.8): a pointer from §4.5 directs
+the reader on to §4.7, both section numbers are recorded (§1.5, §6.3) so neither pointer goes
+stale, and the §8 change-control entry was recorded in the data-spec. It changes **no** scoring
+value (no feature, weight, Direction, formula, or normalisation rule) in this specification, the
+YAML, or the code, so it triggers **no** §6.2 frozen-value propagation.
+
+**§8.5 result.** Task 8.2 executed; **no frozen-decision value required a change**, so **no
+cross-location propagation was performed**. The specification, `pipeline/scoring/scoring_weights.yaml`,
+and the Data_Specification §4.7 remain consistent and none records a stale value (Requirement 6.4).
+Had a genuine frozen-value divergence been found, it would have been applied across all three
+locations under the §6.2 / Data_Specification §8 process rather than recorded here as a no-op.
