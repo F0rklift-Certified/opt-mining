@@ -1,0 +1,85 @@
+{
+  "derived_features": [
+    {
+      "output_file": "DATA/scoring/optmining_suitability-score_2026_nsw.gpkg",
+      "csv_file": "DATA/scoring/optmining_suitability-score_2026_nsw.csv",
+      "stage": "scoring",
+      "product_type": "derived",
+      "generated_utc": "2026-09-03T11:00:43+00:00",
+      "git_commit": "0898ac2af8515ee245e4aeea01e69f0576b5030e-dirty",
+      "rows": 47311,
+      "columns": [
+        "cell_id",
+        "centroid_lat",
+        "centroid_lon",
+        "suitability_score",
+        "rank",
+        "confidence",
+        "contrib_wind_speed",
+        "contrib_dist_transmission_km",
+        "contrib_demand_proxy",
+        "contrib_dist_substation_km",
+        "contrib_slope_deg",
+        "contrib_inside_rez"
+      ],
+      "sha256_gpkg": "586f64d29d7f5ca681930bc508f29156f5ef31b95e15a56bee6a8ad91f58ff14",
+      "sha256_csv": "91a463eb501efb31887c17fe499a876f99751da6b7d97f6da47578f1c82ba286",
+      "bytes_gpkg": 13877248,
+      "bytes_csv": 3146338,
+      "inputs": [
+        {
+          "name": "integrated_feature_table",
+          "path": "DATA/integration/optmining_integrated-features_2026_nsw.gpkg",
+          "layer": "integrated_features",
+          "rows": 47311,
+          "crs": "EPSG:4326",
+          "sha256": "b7cd3d261abfdedd613301e0e2fdd07e3381178deb8ce8aff506a066117a1e61",
+          "bytes": 32821248
+        }
+      ],
+      "weights_config": {
+        "path": "pipeline/scoring/scoring_weights.yaml",
+        "weights_config_id": "d20abaef361f2a1c4c7bf251e8d6dadf189a0111526ea7d245d898db04b13f7f",
+        "version": "1.0",
+        "criteria": [
+          {
+            "feature": "wind_speed",
+            "weight": 0.35,
+            "direction": "higher_is_better"
+          },
+          {
+            "feature": "dist_transmission_km",
+            "weight": 0.2,
+            "direction": "lower_is_better"
+          },
+          {
+            "feature": "demand_proxy",
+            "weight": 0.15,
+            "direction": "higher_is_better"
+          },
+          {
+            "feature": "dist_substation_km",
+            "weight": 0.1,
+            "direction": "lower_is_better"
+          },
+          {
+            "feature": "slope_deg",
+            "weight": 0.1,
+            "direction": "lower_is_better"
+          },
+          {
+            "feature": "inside_rez",
+            "weight": 0.1,
+            "direction": "higher_is_better"
+          }
+        ],
+        "confidence_discount": false
+      },
+      "counts": {
+        "n_cells": 47311,
+        "n_scored": 1233,
+        "n_excluded": 46078
+      }
+    }
+  ]
+}

@@ -38,6 +38,22 @@ def _output_name(variable: str, height: int | None, area: str) -> str:
     return f"gwa_v4_{variable}{suffix}_{area}.tif"
 
 
+def _merge_manifest_samples(existing: list[dict], new: list[dict]) -> list[dict]:
+    """
+    Merge sample records from an existing manifest with a new run's records.
+
+    Records are keyed by ``output_file``: a re-downloaded clip replaces its
+    old record in place, records for other clips (e.g. a different study
+    window) are preserved, and genuinely new records are appended. Keeps the
+    manifest a complete audit trail across runs instead of describing only
+    the latest invocation.
+    """
+    new_by_file = {rec["output_file"]: rec for rec in new}
+    merged = [new_by_file.pop(rec["output_file"], rec) for rec in existing]
+    merged.extend(new_by_file.values())
+    return merged
+
+
 def _clip_gwa_sample(variable, height, bbox, area, out_dir, verbose=False):
     """Read the bbox window from the remote GWA raster and write it locally."""
     provenance = resolve_source(variable, height)
@@ -154,16 +170,26 @@ def run(
             print(f"    {label} FAILED: {exc}")
             failures.append({"variable": variable, "height_m": height, "error": str(exc)})
 
+    config.WIND_META_DIR.mkdir(parents=True, exist_ok=True)
+    manifest_path = config.WIND_META_DIR / "download_manifest.json"
+    existing_samples: list[dict] = []
+    if manifest_path.exists():
+        try:
+            existing_samples = json.loads(manifest_path.read_text()).get("samples", [])
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"existing manifest {manifest_path} is not valid JSON — fix or "
+                f"remove it before downloading (refusing to overwrite an audit trail)"
+            ) from exc
+
     manifest = {
         "retrieved_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "dataset": "Global Wind Atlas v4 (country GeoTIFF set)",
         "country": config.GWA_COUNTRY,
         "study_window": {"name": area_name, "bbox_epsg4326": list(bbox)},
-        "samples": records,
+        "samples": _merge_manifest_samples(existing_samples, records),
         "failures": failures,
     }
-    config.WIND_META_DIR.mkdir(parents=True, exist_ok=True)
-    manifest_path = config.WIND_META_DIR / "download_manifest.json"
     atomic_write_text(manifest_path, json.dumps(manifest, indent=2) + "\n")
 
     print(f"    {len(records)} samples, {len(failures)} failures")

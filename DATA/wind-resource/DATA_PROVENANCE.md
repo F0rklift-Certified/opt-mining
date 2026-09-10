@@ -13,7 +13,7 @@
 | **Source URL used** | `https://gwa.cdn.nazkamapps.com/country_tifs_v4/AUS_<variable>[_<height>m].tif` |
 | **Access endpoint** | `https://globalwindatlas.info/api/gis/country/AUS/<variable>[/<height>]` (302 redirect to the CDN) |
 | **Format** | GeoTIFF, single band, float32, internally tiled (512x512), zstd compressed, 6 overview levels |
-| **Retrieval method** | `scripts/download_gwa_sample.py` — windowed read over GDAL `/vsicurl/`; the full rasters are never downloaded |
+| **Retrieval method** | `pipeline/wind/download.py` (`--only wind.download`) — windowed read over GDAL `/vsicurl/`; the full rasters are never downloaded |
 | **Server file date** | 2025-06-12 (HTTP `Last-Modified` on every layer retrieved) |
 | **Vintage verified stable** | Yes — bit-for-bit identical to rasters downloaded independently on 2026-08-06 by the OptMining prototype, whose SHA-256 sidecars still verify. See `metadata/crosscheck_prototype.md`. |
 | **Authentication** | None. No registration, no API key, no download limit encountered. |
@@ -87,11 +87,15 @@ The Global Wind Atlas application states, on its GIS files and API access page:
 > "This API service is not to be used for bulk downloads of all countries or datasets. Please
 > contact the GWA team through the Contact page if you have such a request."
 
-Our retrieval reads a single country's rasters and transfers only the ~2 MB window each — around
-11 MB in total, against ~3 GB if the five layers had been downloaded in full. If the project later
-needs national coverage across many layers, **contact the GWA team first** rather than scaling this
-script up. The alternative sanctioned route is the DTU repository, which hosts the global rasters
-directly (6–16 GB per layer).
+Our retrieval reads a single country's rasters and transfers only the requested window each: the
+five New-England-REZ study clips are ~2 MB apiece (~11 MB total), and the three NSW-wide clips
+added for Sprint 1 (S1-03, per data-spec §8's "extend GWA windowed reads to NSW bbox"
+prerequisite) are ~60 MB apiece (~185 MB total) — against ~3 GB if the layers had been downloaded
+in full. The NSW window is snapped to the GWA lattice at the exact analysis-grid extent
+(141.01125, −37.51125, 153.66125, −28.16125), so every 0.05° analysis cell is a clean 20×20
+native-pixel block. If the project later needs national coverage across many layers, **contact the
+GWA team first** rather than scaling this script up. The alternative sanctioned route is the DTU
+repository, which hosts the global rasters directly (6–16 GB per layer).
 
 ## Method (summary)
 
@@ -104,9 +108,10 @@ Version 4 adds updated air density, and new stability and geostrophic wind shear
 1. **The Atlas is an input, never a prediction target.** Per the AI Development Constitution, no
    model in this platform may be trained to predict Atlas values from features derived from the
    Atlas.
-2. Wind speed at **150 m** is treated as the most representative height for current utility-scale
-   Australian wind development. See the Task 1 findings for the evidence; the platform must keep
-   the height configurable rather than fixing it.
+2. Wind speed at **100 m** is the primary hub height for scoring, per frozen decision Q2 of the
+   Sprint 1 data specification (consistent with the capacity-factor layers' 100 m hub); 150 m is
+   retained for sensitivity analysis only. The platform keeps the height configurable rather than
+   fixing it.
 3. Capacity factor IEC2 is retained as the most directly interpretable resource layer, with the
    caveat that it is modelled for one specific turbine (100 m hub, 136 m rotor) and is not a
    yield estimate for any real project.
@@ -131,3 +136,14 @@ measurement, not a yield prediction, and not a bankable resource assessment.**
    breakdown, and no information about future conditions.
 5. **Capacity-factor layers assume one turbine model each** at a fixed hub height of 100 m. They
    are comparative indicators between locations, not energy yield estimates.
+
+<!-- BEGIN wind.features derived layer (generated) -->
+## Derived layer — wind feature table (S1-03)
+
+- **File:** `DATA/wind-resource/features/gwa_v4_wind-feature_2025_nsw.gpkg`
+- **Derived from:** `DATA/wind-resource/gwa_v4_wind-speed_100m_nsw.tif` (GWA v4)
+- **Method:** mean of the 20×20 native GWA pixels per 0.05° analysis cell (cell-centre inclusion; NoData excluded; zero-valid cells flagged `no_data` with a null value).
+- **Regenerable:** yes — fully derived from the GWA raster and the S1-02 analysis grid via `python -m pipeline --only wind.features`.
+- **SHA-256:** `3af9d313051cf7dee2e34c3db2a3f3b703c73f47741865b72c730dc2b1b7ece4`
+- **Generated (UTC):** 2026-09-03T11:01:52+00:00
+<!-- END wind.features derived layer (generated) -->

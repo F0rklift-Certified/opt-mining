@@ -45,5 +45,19 @@ AGGREGATED_CSV_NAME = "demand_annual_summary.csv"
 AGGREGATED_META_NAME = "demand_annual_summary.meta.json"
 INSPECTION_SUMMARY_NAME = "inspection_summary.txt"
 
+# --- Demand feature layer (S1-04) ---
+GRID_PATH = PROJECT_ROOT / "DATA" / "grid" / "nsw_analysis_grid.gpkg"
+NEM_REGIONS_PATH = PROJECT_ROOT / "DATA" / "geographic" / "derived" / "nem_regions_asgs2021_national.geojson"
+FEATURE_TABLE_NAME = "aemo_demand-proxy_2026_nsw.gpkg"
+FEATURE_TABLE_LAYER = "demand_proxy"
+METHOD_REPORT_NAME = "demand_feature_method.md"
+FEATURE_MANIFEST_NAME = "download_manifest.json"
+STORAGE_CRS = "EPSG:4326"
+COMPUTATION_CRS = "EPSG:3577"
+DEFAULT_ALLOCATION_METHOD = "uniform"
+CONFIDENCE_LEVELS = ("high", "medium", "low")
+DEMAND_INPUT_COLUMN = "MEAN_DEMAND_MW"
+CONSERVATION_TOLERANCE_MW = 1e-6
+
 # --- Pipeline stages (in execution order) ---
-STAGES = ["download", "validate", "inspect", "aggregate"]
+STAGES = ["download", "validate", "inspect", "aggregate", "feature"]

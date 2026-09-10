@@ -5,17 +5,17 @@ Consolidated pipeline for downloading, validating, inspecting and aggregating AE
 ## Quick Start
 
 ```bash
-# Full pipeline (download → validate → inspect → aggregate)
-python -m pipelines.demand
+# Full pipeline (download → validate → inspect → aggregate → feature)
+python -m pipeline.demand
 
 # Skip download, use existing CSV
-python -m pipelines.demand --skip-download --input-csv path/to/existing.csv
+python -m pipeline.demand --skip-download --input-csv path/to/existing.csv
 
 # Run only the aggregation stage
-python -m pipelines.demand --only aggregate --input-csv path/to/existing.csv
+python -m pipeline.demand --only aggregate --input-csv path/to/existing.csv
 
 # Custom date range
-python -m pipelines.demand --start-date 2023-07-01 --end-date 2026-06-30
+python -m pipeline.demand --start-date 2023-07-01 --end-date 2026-06-30
 ```
 
 ## Stages
@@ -25,14 +25,15 @@ python -m pipelines.demand --start-date 2023-07-01 --end-date 2026-06-30
 | 1 | **download** | Fetch half-hourly ZIPs from AEMO NEMWeb, consolidate into single CSV | `aemo_operational_demand_YYYYMMDD_YYYYMMDD.csv` |
 | 2 | **validate** | Strict quality gate (6 checks). Halts pipeline on failure. | Pass/fail (no file) |
 | 3 | **inspect** | Statistical summary: regional stats, temporal completeness, data quality | `inspection_summary.txt` |
-| 4 | **aggregate** | Annual mean demand per NEM region — clean output for Task 5 | `demand_annual_summary.csv` + `.meta.json` |
+| 4 | **aggregate** | Annual mean demand per NEM region | `demand_annual_summary.csv` + `.meta.json` |
+| 5 | **feature** | Uniformly allocate regional demand to the common grid (proxy) | `aemo_demand-proxy_2026_nsw.gpkg` + method report |
 
 ## CLI Options
 
 ```
 --start-date      Start date YYYY-MM-DD (default: 2025-07-01)
 --end-date        End date YYYY-MM-DD (default: 2026-06-30)
---only <stage>    Run only one stage: download, validate, inspect, aggregate
+--only <stage>    Run only one stage: download, validate, inspect, aggregate, feature
 --skip-download   Skip download (use existing CSV)
 --skip-validate   Skip validation
 --skip-inspect    Skip inspection
@@ -61,7 +62,7 @@ One row per NEM region. This is the primary output for downstream use (Task 5 sp
 ## Architecture
 
 ```
-pipelines/demand/
+pipeline/demand/
 ├── __init__.py      # Package docstring
 ├── __main__.py      # CLI orchestrator (argparse, stage routing, error handling)
 ├── config.py        # Shared constants (paths, URLs, defaults)
@@ -75,8 +76,8 @@ pipelines/demand/
 Each module exposes a `run()` function that can be imported independently:
 
 ```python
-from pipelines.demand.validate import run as validate
-from pipelines.demand.aggregate import run as aggregate
+from pipeline.demand.validate import run as validate
+from pipeline.demand.aggregate import run as aggregate
 
 result = validate(csv_path=Path("data.csv"))
 agg_csv, meta = aggregate(csv_path=Path("data.csv"), output_dir=Path("."), ...)

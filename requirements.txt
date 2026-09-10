@@ -1,8 +1,25 @@
-pandas==2.2.2
+# Supported Python: 3.13 only (>=3.13,<3.14)
+#
+# The project standardises on Python 3.13 — this is the single interpreter that
+# CI (.github/workflows/ci.yml) tests, so support matches verification.
+#
+# DO NOT run this pipeline on Python 3.14. The grid builder
+# (pipeline/grid/generate.py, S1-02) produces degenerate zero-area cells on
+# CPython 3.14.x — every analysis cell collapses to a single point, which
+# breaks the whole grid and every feature layer that joins to it. The exact
+# same source, numpy (2.2.6) and shapely (2.1.2) work correctly on Python
+# 3.13; the fault is in the 3.14 interpreter, not this code. See pyproject.toml
+# (requires-python) which enforces this for pip installs.
+# Bumped 2.2.2 -> 2.2.3 (same 2.2.x line): pandas 2.2.2 ships no cp313 wheel,
+# so on the Python 3.13 CI runner pip fell back to building it from source and
+# the C++ compile failed under the runner's GCC. 2.2.3 provides cp313 wheels.
+pandas==2.2.3
 requests==2.32.3
 
 # Task 1 — Wind Resource (Global Wind Atlas GeoTIFF handling)
-rasterio==1.4.3
+# Bumped from 1.4.3 to 1.4.4 (same 1.4.x line): Python 3.14 has no 1.4.3 wheel
+# and there is no local gdal-config to build from source. 1.4.4 ships a 3.14 wheel.
+rasterio==1.4.4
 numpy==2.2.6
 
 # Sprint 1 — Grid generation and feature layers (S1-02 onwards)
@@ -14,3 +31,15 @@ geopandas==1.1.4
 shapely==2.1.2
 pyogrio==0.13.0
 pyproj==3.7.2
+
+# Test-only: property-based testing for feature-layer stages (S1-03 onwards).
+# rasterstats deliberately NOT used — zonal statistics are implemented in-repo
+# so the pixel-inclusion rule stays explicit and auditable.
+hypothesis==6.112.1
+
+# S1-07 — Exclusion layer: configurable rules loaded from YAML, not hard-coded
+pyyaml==6.0.2
+
+# S1-05 — Infrastructure features: AEMO KCI connection points ship as .xlsx,
+# read via pandas.read_excel which requires openpyxl as the engine.
+openpyxl==3.1.5

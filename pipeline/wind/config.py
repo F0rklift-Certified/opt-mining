@@ -103,3 +103,30 @@ GWA_FLAT_VARIABLES = [
 DEFAULT_AGGREGATION_FACTOR = 20
 AGGREGATION_FACTOR = DEFAULT_AGGREGATION_FACTOR  # backward compat for direct imports
 NATIVE_PIXEL_DEG = 0.0025  # GWA native pixel size
+
+# --- Wind feature-builder (S1-03) ---
+WIND_FEATURES_DIR = WIND_DIR / "features"
+
+# Source raster for the per-cell wind feature. Frozen decisions Q1 (statistic =
+# mean) and Q2 (primary hub height = 100 m) select mean wind speed at 100 m.
+# DEVIATION from the S1-03 design.md filename (new-england-rez clip): the
+# feature layer covers every NSW analysis cell, so it reads the NSW-wide clip
+# produced per data-spec §8's "extend GWA windowed reads to NSW bbox"
+# prerequisite. Recorded in the spec Change History (v1.1).
+WIND_FEATURE_SOURCE = "gwa_v4_wind-speed_100m_nsw.tif"
+WIND_VARIABLE = "wind_speed_100m"          # output value column name
+WIND_VARIABLE_UNITS = "m/s"                # Req 4.2
+WIND_DATA_SOURCE = "GWA v4"                # Req 4.3
+WIND_AGG_STATISTIC = "mean"                # Req 2.2 (frozen decision Q1)
+
+# Output vintage token: GWA 4.0 country GeoTIFF set was published June 2025
+# (download manifest last_modified 2025-06-12; DTU DOI record).
+WIND_FEATURE_VINTAGE = "2025"
+
+# Plausible range for validation (Req 10.2). Mean wind speed at 100 m.
+WIND_PLAUSIBLE_MIN = 0.0
+WIND_PLAUSIBLE_MAX = 25.0                  # m/s; generous upper bound for a cell mean
+
+# Enumerated confidence values (Req 5.1)
+CONF_VALID = "valid"
+CONF_NODATA = "no_data"

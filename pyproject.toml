@@ -1,0 +1,22 @@
+[project]
+name = "opt-mining"
+version = "0.1.0"
+description = "Opt-Mining geospatial site-suitability pipeline (Sprint 1)."
+
+# Supported interpreter: Python 3.13 only.
+#
+# The project standardises on a single interpreter so that what CI verifies and
+# what the package claims to support are identical. CI (.github/workflows/ci.yml)
+# tests exactly 3.13.
+#
+# Python 3.14 is deliberately excluded (it is the reason the upper bound is
+# <3.14). On CPython 3.14.x the S1-02 grid builder (pipeline/grid/generate.py)
+# emits degenerate zero-area cells — every analysis cell collapses to a single
+# point, invalidating the grid and every feature layer that joins to it. The
+# identical source, numpy 2.2.6 and shapely 2.1.2 produce a correct 47,311-cell
+# grid on Python 3.13, so the defect is in the 3.14 interpreter rather than in
+# this project or its dependencies.
+#
+# If the team later needs to support additional interpreters, widen this bound
+# and the CI matrix together so the two never diverge.
+requires-python = ">=3.13,<3.14"

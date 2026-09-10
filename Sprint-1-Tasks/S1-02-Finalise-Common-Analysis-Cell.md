@@ -8,6 +8,7 @@
 **Blocks:** S1-03, S1-04, S1-05, S1-06, S1-07, S1-08  
 **Status:** Complete  
 **Completed:** 2026-08-27
+**PR** https://github.com/F0rklift-Certified/opt-mining/pull/7
 
 ---
 

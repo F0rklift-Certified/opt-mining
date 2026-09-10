@@ -6,6 +6,9 @@ Domain subpackages:
     pipeline.geographic     — Boundaries, elevation, land use, protected areas
     pipeline.infrastructure — Geoscience Australia Electricity Infrastructure
     pipeline.demand         — AEMO NEM operational demand
+    pipeline.grid           — Common analysis cell grid (S1-02)
+    pipeline.exclusions     — Exclusion layer / Eligibility_Table (S1-07)
+    pipeline.integration    — Integrated NSW Feature Table (S1-08) + Task 5 analysis
 
 Shared utilities:
     pipeline.common.geo     — ArcGIS REST, atomic writes, banners, human_bytes
@@ -16,6 +19,7 @@ Each domain subpackage exposes stage modules with a run() entry point:
     from pipeline.wind.probe import run as wind_probe
     from pipeline.geographic.download import run as geo_download
     from pipeline.infrastructure.inspect import run as infra_inspect
+    from pipeline.integration.merge import run as integration_run
 
 Usage:
     python -m pipeline                       # run all stages

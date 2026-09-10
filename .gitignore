@@ -34,6 +34,10 @@ build/
 # Python virtual environment
 .venv/
 
+# Hypothesis: property-based test example database / cache, created when
+# property-based tests run. Reproducible and machine-local; never committed.
+.hypothesis/
+
 # Raw data files (large ZIPs and CSVs)
 Sprint-0-Tasks/Electricity Demand Data Investigation/raw/
 Sprint-0-Tasks/Electricity Demand Data Investigation/*.csv
