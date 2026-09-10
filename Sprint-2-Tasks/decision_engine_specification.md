@@ -73,18 +73,100 @@ is completed in task 7; the target locations are listed here.)_
 
 ## §2 Criteria feature contract
 
-_Placeholder — authored in task 2._
+This section defines the exact per-cell features (Criteria) the decision engine consumes,
+organised into the four client-defined Criteria_Groups: **wind**, **demand proxy**,
+**infrastructure**, and **geographic / environmental**. For every Criterion it records the
+integrated-table column name, units, source, beneficial/adverse Direction, and notes.
 
-One table per Criteria_Group (wind, demand proxy, infrastructure,
-geographic/environmental). Columns: Criterion, integrated-table column, units, source,
-Direction, notes. Every Criterion column name is verified against
-`pipeline/integration/config.py` (`OUTPUT_COLUMNS` / `SCORED_FEATURE_COLUMNS`).
+Every `integrated-table column` value below is a real column of the integrated feature
+table. The authoritative schema is `pipeline/integration/merge.py` `BASE_COLUMNS` and the
+ten `SCORED_FEATURE_COLUMNS` re-exported from `pipeline/integration/config.py`; units and
+source strings are taken from `COLUMN_UNITS` and the per-layer `LayerSpec.columns` map in
+the same module. These Criteria are the inputs to the Scoring_Formula (§3) and the
+Default_Weights (§4). Names, units and directions here are Frozen_Decisions governed by §6.
 
-- **§2.1** Wind Criteria_Group
-- **§2.2** Demand-proxy Criteria_Group
-- **§2.3** Infrastructure Criteria_Group
-- **§2.4** Geographic / environmental Criteria_Group
-- **§2.5** Column-name verification (Property P1)
+Direction is recorded as exactly `higher_is_better` or `lower_is_better`, per the
+Existing_Implementation (`pipeline/scoring/scoring_weights.yaml`). The engine ranks
+**higher-ranked candidate cells under the selected assumptions and criteria**; it does not
+identify a "best site" (Screening_Language, §1.4).
+
+### §2.1 Wind Criteria_Group
+
+The wind resource is the primary screening variable. It is a single Global Wind Atlas
+(GWA) resource Criterion.
+
+| Criterion | Integrated-table column | Units | Source | Direction | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Mean wind speed at 100 m hub height | `wind_speed` | m/s | GWA v4 (`wind-speed` layer, DTU Global Wind Atlas), sampled per analysis cell | `higher_is_better` | Named GWA resource variable is the `wind-speed` raster at the 100 m height layer (`gwa_v4_wind-speed_100m_nsw.tif`). Aggregated to the cell as the **mean** of valid pixels. |
+
+**Justification of the hub-height and variable choice (Requirement 2.3).** The chosen GWA
+variable is `wind-speed` (mean wind speed), and the chosen hub height is **100 m**. Both are
+Frozen_Decisions from the Sprint 1 data specification — frozen decision Q1 fixes the
+aggregation **statistic = mean** and frozen decision Q2 fixes the **primary hub height =
+100 m** (recorded at `pipeline/wind/config.py`, `WIND_FEATURE_SOURCE` /
+`WIND_AGG_STATISTIC`). 100 m is selected because it sits within the hub-height band of the
+utility-scale turbine classes GWA itself publishes capacity factors for (IEC1/IEC2/IEC3 are
+modelled at a 100 m hub), so the resource value is representative of the machines a screened
+site would host, while remaining a single consistent height across every cell. Mean wind
+speed is used rather than power density or a turbine-specific capacity factor so the
+Criterion stays a transparent, turbine-agnostic resource indicator. This is an **input
+Criterion only**: the model never predicts wind from wind-derived features, so the model is
+not circular (see §3).
+
+### §2.2 Demand-proxy Criteria_Group
+
+The demand Criterion is explicitly a **Demand_Proxy**, allocated below the AEMO (NEM)
+region. It is **not** measured local demand — no cell-level metered demand exists in the
+MVP; the proxy allocates a NEM-region annual figure and so discriminates between regions
+rather than between neighbouring cells.
+
+| Criterion | Integrated-table column | Units | Source | Direction | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Demand proxy (allocated below the AEMO/NEM region) | `demand_proxy` | normalised 0–1 (uniform allocation of the NEM-region annual mean demand, MW) | AEMO NEM-region annual operational-demand mean, allocated to each cell by its `source_region` | `higher_is_better` | Explicitly a **proxy**, never "measured local demand". Allocated uniformly to every cell within a NEM region (NSW1 = NSW + ACT convention), so it separates regions, not adjacent cells. `source_region` records the region a cell inherits from; the value is null outside every region. |
+
+### §2.3 Infrastructure Criteria_Group
+
+The infrastructure dimension is expressed as **measurable indicators**, not an undefined
+aggregate "infrastructure score". Three indicators participate in the score: distance to
+transmission, distance to substation, and REZ membership.
+
+| Criterion | Integrated-table column | Units | Source | Direction | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Distance to nearest transmission line (≥132 kV) | `dist_transmission_km` | km (EPSG:3577 centroid distance) | Geoscience Australia electricity transmission lines, filtered to ≥132 kV | `lower_is_better` | Connection-cost discriminator; closer to a high-voltage line is better. |
+| Distance to nearest substation | `dist_substation_km` | km (EPSG:3577 centroid distance) | Geoscience Australia electricity substations | `lower_is_better` | Interconnection-complexity discriminator; partly collinear with transmission distance (§4). |
+| Inside a declared NSW Renewable Energy Zone | `inside_rez` | boolean (`true` / `false`) | EnergyCo NSW REZ boundaries | `higher_is_better` | REZ membership indicator; `rez_name` records the declared REZ(s). Boolean Criterion — maps to its definitional `{false → 0.0, true → 1.0}` domain (§5). |
+
+A fourth infrastructure column, `dist_connection_km` (distance to nearest connection
+point), is carried in the integrated table for context but is **not** a scored Criterion in
+the Default_Weights. There is no aggregate "infrastructure score" column — the dimension is
+represented only by the measurable indicators above.
+
+### §2.4 Geographic / environmental Criteria_Group
+
+The geographic/environmental dimension contributes agreed **non-hard-constraint** features.
+Hard constraints (for example slope above the exclusion threshold, protected areas) are
+applied by the S1-07 exclusion stage and remove a cell from scoring entirely; they are
+**not** Criteria here. The single scored Criterion in this group is terrain slope, which
+separates cells that pass the hard gate by how steep they still are.
+
+| Criterion | Integrated-table column | Units | Source | Direction | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Terrain slope | `slope_deg` | degrees (mean of valid Horn-slope pixels) | Horn slope derived from SRTM elevation | `lower_is_better` | Flatter terrain lowers civil-works and turbine-siting cost. A continuous penalty that complements — and never replaces — the S1-07 hard exclusion above the slope threshold. |
+
+Other geographic/environmental columns present in the integrated table (`elevation_m`,
+`tri`, `land_use`, `protected_area`) are context or hard-constraint inputs, not agreed
+scored Criteria in the Default_Weights. Should a further non-hard-constraint geographic
+Criterion be agreed at Checkpoint A, it is added here and to §4 under §6 change control.
+
+### §2.5 Column-name verification (Property P1)
+
+Every Criterion column named in §2.1–§2.4 is a member of the integrated feature-table
+schema (`pipeline/integration/merge.py` `BASE_COLUMNS`; the six scored Criteria are all
+within `SCORED_FEATURE_COLUMNS`). No Criterion required a name correction under Requirement
+2.7 — the six scored Criteria (`wind_speed`, `demand_proxy`, `dist_transmission_km`,
+`dist_substation_km`, `slope_deg`, `inside_rez`) match the Existing_Implementation weights
+file (`pipeline/scoring/scoring_weights.yaml`) and the integrated schema exactly. This
+correspondence is recorded in the §8 reconciliation log.
 
 ---
 
