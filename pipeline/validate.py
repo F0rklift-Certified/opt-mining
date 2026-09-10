@@ -111,6 +111,31 @@ DEFAULT_INTEGRATED_PATH = INTEGRATION_DIR / OUTPUT_FILENAME
 BASELINE_MANIFEST_FILENAME = "integrated_baseline_manifest.json"
 DEFAULT_BASELINE_MANIFEST_PATH = INTEGRATION_META_DIR / BASELINE_MANIFEST_FILENAME
 
+# The Validation_Result (design Model 2) and its sibling Validation_Report are
+# written alongside the Baseline_Manifest under INTEGRATION_META_DIR, following
+# the same file-naming convention. Defined here as module constants — never
+# hard-coded literals at the write sites — so a path change lands in one place,
+# mirroring the BASELINE_MANIFEST_FILENAME pattern. Tests redirect writes by
+# monkeypatching INTEGRATION_META_DIR (the writers derive their default path
+# from it), consistent with DEFAULT_BASELINE_MANIFEST_PATH.
+VALIDATION_RESULT_FILENAME = "integrated_input_validation.json"
+VALIDATION_REPORT_FILENAME = "integrated_input_validation.md"
+DEFAULT_VALIDATION_RESULT_PATH = INTEGRATION_META_DIR / VALIDATION_RESULT_FILENAME
+DEFAULT_VALIDATION_REPORT_PATH = INTEGRATION_META_DIR / VALIDATION_REPORT_FILENAME
+
+# Screening_Language purpose sentence (S2-01 §1.4, requirement 8A). Reused in
+# the Validation_Report and any diagnostic output so the validator only ever
+# describes its purpose as preliminary screening — never as identifying a
+# "best site". Kept as a single constant so the phrasing cannot drift between
+# outputs.
+SCREENING_PURPOSE = (
+    "This gate is a precondition on preliminary screening: it verifies the "
+    "frozen integrated input contract so the decision engine only screens data "
+    "it has verified. The engine surfaces higher-ranked candidate cells under "
+    "the selected assumptions and criteria — preliminary screening, never a "
+    "\"best site\"."
+)
+
 # Per-scored-column input-contract Sanity_Range (design Model 3, checks 8–9).
 #
 # These are *input-contract sanity bounds* — the plausible physical range a
@@ -664,6 +689,235 @@ def _run_integrated_input_checks(
         for entry in checks:
             print(f"    [{'PASS' if entry['passed'] else 'FAIL'}] {entry['name']}")
     return checks
+
+
+# ---------------------------------------------------------------------------
+# Validation_Result sidecar + Validation_Report emitter (design Component 3)
+# ---------------------------------------------------------------------------
+#
+# These are PURE writers: they compute the Validation_Result from a baseline
+# record + a list of Check_Records and write the two output files. They never
+# raise on a data-quality failure — the Halt_Or_Flag decision lives at the
+# engine boundary (S2-03+), which reads `all_passed`. Wiring into run() is
+# task 7.1; these functions are standalone so task 6.2 can test them
+# hermetically by monkeypatching the module output-path constants.
+
+
+def _verdict(checks: list[dict]) -> bool:
+    """
+    The `all_passed` verdict over a list of Check_Records.
+
+    Semantics (requirements 9.2 / 10.3):
+
+    - When ``checks`` is non-empty, ``all_passed`` is the conjunction of every
+      Check_Record's ``passed``. The baseline hash match is represented as
+      check 1 in a present-table battery, so the hash is already folded into
+      this conjunction — no separate hash term is needed here.
+    - When ``checks`` is empty (the Integrated_Dataset is absent, so
+      ``_run_integrated_input_checks`` returned ``[]``), there is **no** hash
+      check and nothing was verified. An empty ``all(...)`` is vacuously
+      ``True`` in Python, which would report a missing dataset as passing — a
+      silent pass this gate forbids. So a missing/empty battery is forced to
+      ``all_passed = False`` (requirement 4A.1 → 10.4A, 8.3).
+    """
+    if not checks:
+        return False
+    return all(bool(c["passed"]) for c in checks)
+
+
+def build_validation_result(baseline: dict, checks: list[dict]) -> dict:
+    """
+    Build the Validation_Result object (design Model 2) from a baseline record
+    and a list of Check_Records.
+
+    Shape::
+
+        {
+          "generated_at_utc": "…",              # common.geo.utc_now
+          "generator": "pipeline.validate",
+          "baseline": { …Model 1 record…,       # incl. verified_at_utc, hash_ok
+                        "verified_at_utc": "…", "hash_ok": bool },
+          "all_passed": bool,
+          "n_checks": int,
+          "n_passed": int,
+          "checks": [ {name, expected, observed, passed}, … ],
+        }
+
+    Invariants enforced (requirement 10.3):
+
+    - ``all_passed == all(c["passed"] for c in checks)`` for a non-empty
+      battery, and ``all_passed == False`` for an empty one (see ``_verdict``).
+    - ``n_passed == sum(1 for c in checks if c["passed"])``.
+    - ``n_checks == len(checks)``.
+
+    ``checks`` is copied into the exact ``{name, expected, observed, passed}``
+    shape (with ``passed`` coerced to a plain ``bool``) so the emitted result
+    is JSON-clean and cannot carry incidental extra keys.
+    """
+    normalised = [
+        {
+            "name": c["name"],
+            "expected": c["expected"],
+            "observed": c["observed"],
+            "passed": bool(c["passed"]),
+        }
+        for c in checks
+    ]
+    n_passed = sum(1 for c in normalised if c["passed"])
+    return {
+        "generated_at_utc": utc_now(),
+        "generator": "pipeline.validate",
+        "baseline": baseline,
+        "all_passed": _verdict(normalised),
+        "n_checks": len(normalised),
+        "n_passed": n_passed,
+        "checks": normalised,
+    }
+
+
+def write_validation_result(result: dict, meta_dir: Path | None = None) -> Path:
+    """
+    Atomically write the Validation_Result JSON sidecar (requirement 10.1,
+    12.1).
+
+    Writes to ``meta_dir / VALIDATION_RESULT_FILENAME`` via
+    ``common.geo.atomic_write_json``. ``meta_dir`` defaults to the module's
+    ``INTEGRATION_META_DIR`` (resolved at call time so a monkeypatched
+    constant is honoured in tests). Returns the written path.
+
+    Written even when ``result["checks"]`` is empty (requirement 4A.1 → 10.4A):
+    a missing/absent table still yields a written result with
+    ``all_passed = False``.
+    """
+    directory = INTEGRATION_META_DIR if meta_dir is None else Path(meta_dir)
+    out_path = directory / VALIDATION_RESULT_FILENAME
+    atomic_write_json(out_path, result)
+    return out_path
+
+
+def render_validation_report(result: dict) -> str:
+    """
+    Render the Validation_Report markdown for a Validation_Result.
+
+    Layout (requirements 8A.1, 8A.1A, 8A.2, 10.5, 10.6):
+
+    1. ``banner("validate")`` as the FIRST content (do-not-edit stamp, 10.6).
+    2. A title and the Screening_Language purpose sentence (preliminary
+       screening — never "best site"), so the report and any diagnostic output
+       describe the validator's purpose in Screening_Language.
+    3. An overall verdict line (PASS/FAIL, n_passed/n_checks).
+    4. The expected/observed/result table — one row per Check_Record with a
+       PASS/FAIL result column (10.5). When there are zero Check_Records the
+       table is rendered with an explicit "no checks executed" note so the
+       absence is visible rather than silent (4A.1 → 10.4A).
+    5. A baseline summary (path, version, sha256, hash_ok).
+    """
+    baseline = result.get("baseline") or {}
+    lines: list[str] = []
+
+    # 1. Banner FIRST (requirement 10.6).
+    lines.append(banner("validate"))
+    lines.append("")
+
+    # 2. Title + Screening_Language purpose (requirements 8A.1/8A.1A/8A.2).
+    lines.append("# Integrated-input contract validation")
+    lines.append("")
+    lines.append(SCREENING_PURPOSE)
+    lines.append("")
+
+    # 3. Overall verdict.
+    verdict = "PASS" if result.get("all_passed") else "FAIL"
+    lines.append(
+        f"**Result:** {verdict} "
+        f"({result.get('n_passed', 0)}/{result.get('n_checks', 0)} checks passed)"
+    )
+    lines.append("")
+
+    # 4. Expected / observed / result table (requirement 10.5).
+    lines.append("## Checks")
+    lines.append("")
+    checks = result.get("checks") or []
+    if not checks:
+        lines.append(
+            "_No checks executed — the integrated table was absent, so this "
+            "validation fails as a matter of contract (nothing was verified)._"
+        )
+        lines.append("")
+    else:
+        lines.append("| Check | Expected | Observed | Result |")
+        lines.append("| --- | --- | --- | --- |")
+        for c in checks:
+            result_cell = "PASS" if c["passed"] else "FAIL"
+            # Escape pipes so a stray "|" in an observed value cannot break the
+            # markdown table layout.
+            name = str(c["name"]).replace("|", "\\|")
+            expected = str(c["expected"]).replace("|", "\\|")
+            observed = str(c["observed"]).replace("|", "\\|")
+            lines.append(
+                f"| {name} | {expected} | {observed} | {result_cell} |"
+            )
+        lines.append("")
+
+    # 5. Baseline summary.
+    lines.append("## Baseline")
+    lines.append("")
+    lines.append(f"- Artefact: {baseline.get('artefact', 'n/a')}")
+    lines.append(f"- Path: `{baseline.get('path', 'n/a')}`")
+    lines.append(f"- Layer: {baseline.get('layer', 'n/a')}")
+    lines.append(f"- Version: {baseline.get('version', 'n/a')}")
+    lines.append(f"- SHA-256: `{baseline.get('sha256', 'n/a')}`")
+    lines.append(f"- Bytes: {baseline.get('bytes_human', 'n/a')}")
+    lines.append(f"- Storage CRS: {baseline.get('storage_crs', 'n/a')}")
+    lines.append(f"- Computation CRS: {baseline.get('computation_crs', 'n/a')}")
+    lines.append(f"- Verified at (UTC): {baseline.get('verified_at_utc', 'n/a')}")
+    hash_ok = baseline.get("hash_ok")
+    lines.append(
+        f"- Hash matches frozen reference: {'yes' if hash_ok else 'no'}"
+    )
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def write_validation_report(result: dict, meta_dir: Path | None = None) -> Path:
+    """
+    Render and atomically write the Validation_Report markdown (requirements
+    10.5, 10.6, 12.2).
+
+    Writes to ``meta_dir / VALIDATION_REPORT_FILENAME`` via
+    ``common.geo.atomic_write_text``. ``meta_dir`` defaults to the module's
+    ``INTEGRATION_META_DIR`` (resolved at call time so a monkeypatched constant
+    is honoured in tests). Returns the written path.
+
+    Written even when the checks list is empty (requirement 4A.1 → 10.4A).
+    """
+    directory = INTEGRATION_META_DIR if meta_dir is None else Path(meta_dir)
+    out_path = directory / VALIDATION_REPORT_FILENAME
+    atomic_write_text(out_path, render_validation_report(result))
+    return out_path
+
+
+def write_validation_outputs(
+    baseline: dict,
+    checks: list[dict],
+    meta_dir: Path | None = None,
+) -> tuple[dict, Path, Path]:
+    """
+    Build the Validation_Result and write BOTH output files (JSON + report).
+
+    Convenience seam for run() (task 7.1) and for hermetic tests (task 6.2):
+    a single call that builds the result, writes the JSON sidecar and the
+    markdown report, and returns ``(result, json_path, report_path)``.
+
+    Both files are always written — including when ``checks`` is empty — so a
+    missing/absent table still yields written outputs with ``all_passed=False``
+    (requirement 4A.1 → 10.4A, 8.3). This function is a PURE writer: it never
+    raises on a data-quality failure.
+    """
+    result = build_validation_result(baseline, checks)
+    json_path = write_validation_result(result, meta_dir=meta_dir)
+    report_path = write_validation_report(result, meta_dir=meta_dir)
+    return result, json_path, report_path
 
 
 # ---------------------------------------------------------------------------
