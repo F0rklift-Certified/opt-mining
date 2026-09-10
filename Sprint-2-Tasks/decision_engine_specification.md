@@ -195,12 +195,109 @@ the §8 reconciliation log. Property P1 therefore holds.
 
 ## §3 Scoring formula + weight-normalisation rule
 
-_Placeholder — authored in task 3._
+This section states the Scoring_Formula in full and the four rules that make its output
+interpretable: the weight-normalisation rule, the eligible-only rule, the null score for
+excluded cells, and the not-circular guarantee. It restates the design already realised in
+the Existing_Implementation (`pipeline/scoring/score.py` `score_frame`,
+`pipeline/scoring/scoring_weights.yaml`, and the pipeline README's `scoring` stage notes);
+it does not invent a new one. Every rule below is a Frozen_Decision governed by §6.
 
-Scoring_Formula `S_i = Σ_k w_k · n_k(i)`; the weight-normalisation rule (division by the
-sum of the applied weights); the eligible-only rule and null score for excluded cells;
-and the not-circular guarantee (wind is an input Criterion only, never a prediction
-target).
+The engine surfaces **higher-ranked candidate cells under the selected assumptions and
+criteria**; it does not identify a "best site" (Screening_Language, §1.4). The formula is a
+transparent, deterministic **weighted multi-criteria decision analysis (MCDA)** — not a
+machine-learning model.
+
+### §3.1 The Scoring_Formula
+
+For a cell `i`, the suitability score `S_i` is the weight-normalised sum of that cell's
+directional min-max normalised Criterion values:
+
+```
+        Σ_k  w_k · n_k(i)
+S_i  =  ─────────────────
+             W_i
+```
+
+where, for each configured Criterion `k` (the six of §2 / §4):
+
+- `w_k` — the Default_Weight of Criterion `k` (a user input from
+  `pipeline/scoring/scoring_weights.yaml`; see §4).
+- `n_k(i)` — the value of Criterion `k` at cell `i` after directional linear min-max
+  normalisation to `[0, 1]`, where 1 is most favourable and 0 least favourable (the
+  Normalisation_Method; see §5). Direction is honoured inside `n_k`: for a
+  `higher_is_better` Criterion `n_k = (v − lo) / (hi − lo)`, and for a `lower_is_better`
+  Criterion `n_k = 1 − (v − lo) / (hi − lo)`.
+- `W_i` — the **applied weight sum** for cell `i` (the weight-normalisation denominator;
+  see §3.2).
+
+The additive term `contrib_k(i) = w_k · n_k(i) / W_i` is written to the scored table as
+`contrib_{feature}`, and the six contributions sum back to `S_i` (verified to a
+`1e-9` tolerance on every run). This is the explainability contract: `contrib_wind_speed`
+is literally how many points of a cell's score came from wind, so a reviewer can interrogate
+why one cell outranked another. `S_i` lies in `[0, 1]`; rank 1 is the highest-scoring
+eligible cell, ties broken by ascending `cell_id`.
+
+_(An optional confidence discount multiplies `S_i` and every `contrib_k(i)` by a single
+per-cell factor drawn from the carried-through S1-09 `data_confidence` value. It is disabled
+by default — on the current NSW data every eligible cell is `high` confidence, so a discount
+would be an identical multiplier on every scored cell and would change no ranking. The
+discount preserves the contributions-sum-to-score contract because it scales the score and
+its contributions identically. It is a confidence treatment, not part of the core
+weight-normalised MCDA formula above.)_
+
+### §3.2 Weight-normalisation rule (division by the applied weight sum)
+
+**The weights are relative, not absolute.** `S_i` divides the weighted sum by `W_i`, the sum
+of the weights **actually applied** to cell `i`:
+
+```
+W_i  =  Σ_{k applied to i}  w_k
+```
+
+Two consequences follow, and both are deliberate:
+
+1. **Scale invariance.** Because the numerator and `W_i` scale together, multiplying every
+   weight by a constant leaves every score and every ranking unchanged. Only the *relative*
+   sizes of the weights matter. The Default_Weights (§4) sum to 1.00 purely for readability,
+   not because the formula requires it — the division normalises whatever they sum to.
+
+2. **Per-cell denominator for missing values.** A Criterion with no value for a given cell
+   (a null `n_k(i)`) contributes **neither** a numerator term **nor** a share of `W_i` for
+   that cell. Each score is therefore a weighted average over the evidence that exists for
+   that cell, never a sum in which a data gap is silently scored as the worst possible value.
+   On the current NSW data no eligible cell is missing a scored Criterion, so `W_i` equals
+   the full weight sum for every scored cell; the per-cell rule is the honest general case
+   (see §5.4 for the missing-value policy). A cell with no usable Criterion has `W_i = 0` and
+   is left unscored (null) rather than divided by zero; validation reports any such cell
+   explicitly.
+
+### §3.3 Eligible-only rule and null score for excluded cells
+
+Only **Eligible_Cells** are scored. A cell is eligible when the S1-07 exclusion layer sets
+`eligible = True`; a cell with `eligible = False` — or a null/unknown eligibility — is
+**not** eligible and receives:
+
+- a **null** `suitability_score`,
+- a **null** `rank`, and
+- **null** contributions.
+
+Excluded cells also take **no part** in the normalisation bounds (§5.2): an ineligible
+cell's extreme value must not stretch the scale the candidate cells are measured on. This is
+the hard-exclusion boundary — hard constraints (protected areas, slope above the exclusion
+threshold, offshore, and so on) are applied upstream by S1-07 and remove a cell from scoring
+entirely, rather than being expressed as a Criterion here. **Ineligible land is never ranked
+as if it were developable.**
+
+### §3.4 Not-circular guarantee
+
+The model is **not circular**. The wind Criterion (`wind_speed`, §2.1) enters the formula
+**only as an input** `n_k(i)` term. Nothing in the engine predicts wind from wind-derived
+features, and no wind-prediction column is emitted. The score is a transparent weighted
+combination of independently-sourced input features (wind resource, demand proxy,
+infrastructure distances, REZ membership, slope) — the wind feature is never both an input
+and a prediction target. This upholds the constitution's "never build a circular model" rule
+and is enforced structurally: the Existing_Implementation contains no weight literal and no
+wind-prediction step (`pipeline/scoring/score.py`, `pipeline/scoring/__init__.py`).
 
 ---
 
