@@ -325,10 +325,34 @@ def freeze_baseline(
 #
 # Consumer contract (holistic note): S2-05 scoring (KAN-42) and the S2-08
 # decision service (KAN-45) read the Validation_Result JSON sidecar this tier
-# emits and gate on its `all_passed` verdict — they never re-run validation.
-# This is a preliminary-screening precondition (Screening_Language): the engine
-# only screens data it has verified. This function is the source of the
-# Check_Records that feed that verdict.
+# emits (`integrated_input_validation.json`, written under INTEGRATION_META_DIR)
+# and gate on it — they never re-run validation (req 10.4). This is a
+# preliminary-screening precondition (Screening_Language): the engine only
+# screens data it has verified; it never claims a "best site". This function is
+# the source of the Check_Records that feed that verdict.
+#
+# The consumers gate on TWO conditions read directly from the sidecar:
+#   (a) `all_passed` — the conjunction of every input-contract Check_Record, and
+#   (b) `≥ 1` Eligible_Cell — surfaced as check 12 ("at least one Eligible_Cell")
+#       and reflected in `all_passed` (zero eligible cells fails that check).
+#
+# Gating behaviour the consumers MUST honour:
+#   - req 9.3:  if `all_passed` is False, the downstream engine SHALL NOT emit a
+#               ranking — invalid input never produces a screening ranking.
+#   - req 9.3A: if there are zero Eligible_Cells, the engine SHALL NOT emit a
+#               ranking even when `all_passed` is True — there is nothing valid
+#               to screen.
+#   - req 9.4:  batch mode (S2-05 scoring) ABORTS the run when `all_passed` is
+#               False — it does not fall through to scoring.
+#   - req 9.5:  service mode (the S2-08 decision service) surfaces a
+#               data-quality banner when `all_passed` is False rather than
+#               returning a ranking.
+#   - req 9.6:  zero Eligible_Cells is flagged as "no eligible cells" — never an
+#               empty ranking presented as a valid preliminary-screening result.
+#
+# This tier stays a pure reporter (it writes the sidecar and never raises on a
+# data-quality failure); the Halt_Or_Flag decision above lives entirely with
+# these consumers.
 
 
 def _run_integrated_input_checks(
