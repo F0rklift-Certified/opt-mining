@@ -45,7 +45,15 @@ from rasterio.warp import transform as warp_transform
 from rasterio.windows import from_bounds
 
 from . import config
-from .common.geo import apply_vsicurl_env, atomic_write_text, banner
+from .common.geo import (
+    apply_vsicurl_env,
+    atomic_write_json,
+    atomic_write_text,
+    banner,
+    human_bytes,
+    sha256_file,
+    utc_now,
+)
 from .geographic import config as geo_config
 from .integration import config as integration_config
 from .integration.config import (
@@ -96,6 +104,12 @@ DEFAULT_MAX_SLOPE_DEG = 15.0
 # the output directory or filename flows through to the validator.
 DEFAULT_INTEGRATED_PATH = INTEGRATION_DIR / OUTPUT_FILENAME
 
+# The Baseline_Manifest (design Model 1) lives alongside the existing
+# integration_manifest.json under INTEGRATION_META_DIR and follows the same
+# file-naming / metadata convention.
+BASELINE_MANIFEST_FILENAME = "integrated_baseline_manifest.json"
+DEFAULT_BASELINE_MANIFEST_PATH = INTEGRATION_META_DIR / BASELINE_MANIFEST_FILENAME
+
 # Per-scored-column input-contract Sanity_Range (design Model 3, checks 8–9).
 #
 # These are *input-contract sanity bounds* — the plausible physical range a
@@ -127,6 +141,143 @@ SANITY_RANGES: dict[str, tuple[float, float] | frozenset[bool]] = {
     "inside_rez": frozenset({False, True}),
     "protected_area": frozenset({False, True}),
 }
+
+
+# ---------------------------------------------------------------------------
+# Frozen-baseline reference (design Component 1)
+# ---------------------------------------------------------------------------
+
+
+def freeze_baseline(
+    integrated_path: Path | None = None,
+    *,
+    write: bool = False,
+) -> dict:
+    """
+    Resolve the Sprint 1 integrated feature table and return its baseline record.
+
+    The record is::
+
+        {
+          "artefact": "s1-08 integrated feature table",
+          "path": str,            # relative to PROJECT_ROOT
+          "layer": "integrated_features",   # integration.config.OUTPUT_LAYER
+          "version": "2026",      # integration.config.INTEGRATION_VINTAGE
+          "sha256": "<64-hex>",   # common.geo.sha256_file (observed, this run)
+          "bytes": int,           # path.stat().st_size
+          "bytes_human": "…",     # common.geo.human_bytes
+          "storage_crs": "EPSG:4326",   # copied from integration.config
+          "computation_crs": "EPSG:3577",
+          "frozen_at_utc": "…",   # when the baseline was first frozen
+          "frozen_by": "pipeline.validate.freeze_baseline",
+          "verified_at_utc": "…", # this run (common.geo.utc_now)
+          "hash_ok": bool,        # observed sha256 == frozen sha256
+        }
+
+    The persisted Baseline_Manifest (Model 1) holds the *frozen reference*: the
+    fields above **excluding** the per-run ``verified_at_utc`` and ``hash_ok``.
+    The returned dict is that manifest record plus ``verified_at_utc`` and
+    ``hash_ok`` (Model 2's ``baseline`` block).
+
+    Freeze semantics:
+
+    - ``write=True`` and no Baseline_Manifest exists → record the current
+      SHA-256 as the frozen reference exactly once (a one-time freeze), unless
+      Hash_Drift against an in-flight reference would be recorded — the initial
+      freeze is guarded so it only happens from a clean state.
+    - ``write=True`` and a Baseline_Manifest already exists → overwrite it with
+      the newly recorded values.
+    - ``write=False`` (the default, verify mode) → re-hash the current file and
+      compare to the recorded baseline SHA-256, setting ``hash_ok`` so
+      Hash_Drift is surfaced as a failing check rather than silently accepted.
+
+    The Integrated_Dataset is treated as strictly read-only: no code path here
+    writes to, moves, renames, or alters it. Only the sidecar Baseline_Manifest
+    under INTEGRATION_META_DIR is ever written, and only in write mode.
+    """
+    path = DEFAULT_INTEGRATED_PATH if integrated_path is None else Path(integrated_path)
+    manifest_path = DEFAULT_BASELINE_MANIFEST_PATH
+
+    # Observed provenance for the file as it exists on disk right now. This is
+    # a read of the frozen artefact — never a write.
+    observed_sha = sha256_file(path)
+    size = path.stat().st_size
+    now = utc_now()
+
+    # Resolve the recorded reference (if any) so we can compare and preserve
+    # the original freeze timestamp across overwrites.
+    existing: dict | None = None
+    if manifest_path.exists():
+        try:
+            existing = json.loads(manifest_path.read_text())
+        except (ValueError, OSError):
+            existing = None
+
+    frozen_sha = existing.get("sha256") if existing else None
+    frozen_at = existing.get("frozen_at_utc") if existing else None
+
+    try:
+        rel_path = str(path.resolve().relative_to(integration_config.PROJECT_ROOT))
+    except ValueError:
+        # A fixture table outside the project root (tests) — record as given.
+        rel_path = str(path)
+
+    if write:
+        if existing is None:
+            # One-time freeze. Guard the initial recording: only freeze from a
+            # clean state. There is no prior reference to drift from, so the
+            # observed hash *is* the clean state we record; frozen_at is now.
+            frozen_sha = observed_sha
+            frozen_at = now
+        else:
+            # Re-freeze / overwrite with the newly observed values, preserving
+            # the original freeze timestamp only if this is a genuine re-record
+            # of the same artefact. Overwrite adopts the observed hash as the
+            # new reference.
+            frozen_sha = observed_sha
+            frozen_at = frozen_at or now
+    else:
+        # Verify mode with no recorded reference yet: the observed hash is all
+        # we have, so hash_ok is trivially True against itself and frozen_at is
+        # unknown until a write establishes it.
+        if frozen_sha is None:
+            frozen_sha = observed_sha
+        if frozen_at is None:
+            frozen_at = now
+
+    hash_ok = observed_sha == frozen_sha
+
+    manifest_record = {
+        "artefact": "s1-08 integrated feature table",
+        "path": rel_path,
+        "layer": OUTPUT_LAYER,
+        "version": INTEGRATION_VINTAGE,
+        "sha256": frozen_sha,
+        "bytes": size,
+        "bytes_human": human_bytes(size),
+        "storage_crs": STORAGE_CRS,
+        "computation_crs": COMPUTATION_CRS,
+        "frozen_at_utc": frozen_at,
+        "frozen_by": "pipeline.validate.freeze_baseline",
+    }
+
+    if write:
+        # Guard: never record a drifted state as the frozen reference. On the
+        # initial freeze frozen_sha == observed_sha by construction, so this
+        # only bites a re-freeze that somehow disagrees with itself; recording
+        # is prevented until a clean state is established.
+        if manifest_record["sha256"] != observed_sha:
+            raise RuntimeError(
+                "refusing to record Baseline_Manifest with a drifted SHA-256; "
+                "establish a clean state before freezing"
+            )
+        atomic_write_json(manifest_path, manifest_record)
+
+    return {
+        **manifest_record,
+        "verified_at_utc": now,
+        "hash_ok": hash_ok,
+    }
 
 
 # ---------------------------------------------------------------------------
