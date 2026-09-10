@@ -55,6 +55,7 @@ from .common.geo import (
     utc_now,
 )
 from .geographic import config as geo_config
+from .grid.config import NSW_BBOX
 from .integration import config as integration_config
 from .integration.config import (
     COMPUTATION_CRS,
@@ -141,6 +142,19 @@ SANITY_RANGES: dict[str, tuple[float, float] | frozenset[bool]] = {
     "inside_rez": frozenset({False, True}),
     "protected_area": frozenset({False, True}),
 }
+
+
+def _format_bound(bound: tuple[float, float] | frozenset[bool]) -> str:
+    """Human-readable Sanity_Range for a Check_Record expected value.
+
+    Numeric bounds render as a closed interval ``[lo, hi]``; boolean bounds
+    render as the allowed set ``{false, true}``. Used only for reporting — the
+    check logic reads the raw ``bound`` from ``SANITY_RANGES``.
+    """
+    if isinstance(bound, frozenset):
+        return "{" + ", ".join(str(v).lower() for v in sorted(bound)) + "}"
+    lo, hi = bound
+    return f"[{lo:g}, {hi:g}]"
 
 
 # ---------------------------------------------------------------------------
@@ -388,9 +402,263 @@ def _run_integrated_input_checks(
         not missing_scored,
     )
 
-    # --- Checks 4–12 slot in here, appending to `checks` in order -----------
-    # (cell_id integrity → coordinate/geometry/CRS → units-ranges/missing →
-    #  eligibility). Added by tasks 4.3, 4.5 and 4.7; they read `gdf` above.
+    # --- Check 4 — cell_id non-null (3.1, 3.2) ------------------------------
+    # Expected zero nulls; observed the null count; FAIL if any. Degrade
+    # gracefully if the column is somehow absent (checks 2/3 already report a
+    # missing required column) rather than raising.
+    if "cell_id" not in observed_columns:
+        check(
+            "cell_id non-null",
+            "0 null cell_id values",
+            "unavailable: cell_id column absent",
+            False,
+        )
+    else:
+        null_cell_ids = int(gdf["cell_id"].isna().sum())
+        check(
+            "cell_id non-null",
+            "0 null cell_id values",
+            f"{null_cell_ids:,} null cell_id values",
+            null_cell_ids == 0,
+        )
+
+    # --- Check 5 — cell_id unique (3.3, 3.4) --------------------------------
+    # Expected zero duplicates; observed the duplicate count (rows beyond the
+    # first occurrence of each value); FAIL if any.
+    if "cell_id" not in observed_columns:
+        check(
+            "cell_id unique",
+            "0 duplicate cell_id values",
+            "unavailable: cell_id column absent",
+            False,
+        )
+    else:
+        duplicate_cell_ids = int(gdf["cell_id"].duplicated(keep="first").sum())
+        check(
+            "cell_id unique",
+            "0 duplicate cell_id values",
+            f"{duplicate_cell_ids:,} duplicate cell_id values",
+            duplicate_cell_ids == 0,
+        )
+
+    # --- Check 6 — coordinates valid & in the NSW envelope (4.1, 4.2) -------
+    # Expected: every centroid_lat ∈ [-90, 90], centroid_lon ∈ [-180, 180], and
+    # every centroid within the NSW analysis bounding box (NSW_BBOX, read from
+    # grid.config as (west, south, east, north) — never re-typed). Observed the
+    # out-of-range count; FAIL if any. This is a coordinate-range test on the
+    # stored EPSG:4326 lat/lon columns — no reprojection, no distance/area math.
+    coord_cols_present = "centroid_lat" in observed_columns and "centroid_lon" in observed_columns
+    if not coord_cols_present:
+        check(
+            "Coordinates valid and within the NSW analysis bounding box",
+            "centroid_lat ∈ [-90, 90], centroid_lon ∈ [-180, 180], "
+            "centroid within NSW_BBOX",
+            "unavailable: centroid_lat/centroid_lon column absent",
+            False,
+        )
+    else:
+        west, south, east, north = NSW_BBOX
+        lat = gdf["centroid_lat"]
+        lon = gdf["centroid_lon"]
+        lat_ok = lat.between(-90.0, 90.0)
+        lon_ok = lon.between(-180.0, 180.0)
+        in_box = lat.between(south, north) & lon.between(west, east)
+        out_of_range = int((~(lat_ok & lon_ok & in_box)).sum())
+        check(
+            "Coordinates valid and within the NSW analysis bounding box",
+            "centroid_lat ∈ [-90, 90], centroid_lon ∈ [-180, 180], "
+            f"centroid within NSW_BBOX {NSW_BBOX}",
+            f"{out_of_range:,} out-of-range centroids",
+            out_of_range == 0,
+        )
+
+    # --- Check 7 — geometry validity & storage CRS (4.3, 4.4, 4.5, 4.6) -----
+    # Two conditions in one Check_Record: every geometry is valid AND the table
+    # is stored in STORAGE_CRS (EPSG:4326). The observed CRS is recorded
+    # regardless of pass/fail (4.4). The gdf is never reprojected — this is a
+    # pure inspection of the stored geometry column and its CRS; any downstream
+    # distance/area logic uses COMPUTATION_CRS explicitly (4.6).
+    #
+    # Compare gdf.crs to STORAGE_CRS robustly: gdf.crs is a pyproj CRS object,
+    # so match its authority tuple against STORAGE_CRS ("EPSG:4326"). A crs of
+    # None is a failing CRS assertion (unknown storage frame).
+    if gdf.crs is None:
+        observed_crs = "None"
+        crs_ok = False
+    else:
+        observed_crs = gdf.crs.to_string()
+        try:
+            crs_ok = gdf.crs.to_authority() == tuple(STORAGE_CRS.split(":"))
+        except Exception:
+            crs_ok = observed_crs == STORAGE_CRS
+
+    geom = gdf.geometry
+    invalid_geom = int((~geom.is_valid | geom.is_empty | geom.isna()).sum())
+
+    check(
+        "Geometry valid and stored in the storage CRS",
+        f"all geometries valid and crs == {STORAGE_CRS}",
+        f"{invalid_geom:,} invalid geometries; crs={observed_crs}",
+        invalid_geom == 0 and crs_ok,
+    )
+
+    # --- Check 8 — units/ranges per scored column (5.3, 5.4, 5.5) -----------
+    # One Check_Record per scored column that HAS a Sanity_Range bound (read
+    # from SANITY_RANGES). Only 8 of the 10 SCORED_FEATURE_COLUMNS have a bound;
+    # dist_connection_km and land_use have none and are not range-checked here.
+    # Expected is the column's Sanity_Range; observed is the out-of-range count.
+    # Out-of-range values are REPORTED (expected vs observed) and fail the check
+    # — they are never clamped, coerced, or silently modified (5.5). For numeric
+    # bounds a non-numeric entry (coerced to NaN by to_numeric) counts as
+    # out-of-range rather than being silently dropped; for boolean bounds any
+    # value not in {False, True} counts as out-of-range.
+    import pandas as pd
+
+    for column in SCORED_FEATURE_COLUMNS:
+        bound = SANITY_RANGES.get(column)
+        if bound is None:
+            # No input-contract range for this scored column (e.g.
+            # dist_connection_km, land_use) — nothing to range-check.
+            continue
+
+        if column not in observed_columns:
+            # Absence is already reported by check 3; degrade gracefully here
+            # rather than raising, but never report a silent pass.
+            check(
+                f"Units/ranges within sanity bound: {column}",
+                f"all values within Sanity_Range {_format_bound(bound)}",
+                f"unavailable: {column} column absent",
+                False,
+            )
+            continue
+
+        series = gdf[column]
+
+        if isinstance(bound, frozenset):
+            # Boolean Sanity_Range: count values not in {False, True}. Nulls and
+            # any non-boolean value are out-of-range (not silently accepted).
+            allowed = bound
+            out_of_range = int(sum(0 if v in allowed else 1 for v in series.tolist()))
+        else:
+            lo, hi = bound
+            # Coerce to numeric so a non-numeric value becomes NaN; NaN is
+            # neither < lo nor > hi, so count it explicitly as out-of-range
+            # rather than letting it slip through.
+            numeric = pd.to_numeric(series, errors="coerce")
+            below = numeric < lo
+            above = numeric > hi
+            non_numeric = numeric.isna() & series.notna()
+            out_of_range = int((below | above | non_numeric).sum())
+
+        check(
+            f"Units/ranges within sanity bound: {column}",
+            f"all values within Sanity_Range {_format_bound(bound)}",
+            f"{out_of_range:,} out-of-range values",
+            out_of_range == 0,
+        )
+
+    # --- Check 9 — missing-value counts per feature (6.1, 6.2, 6.3) ---------
+    # One Check_Record per column in SCORED_FEATURE_COLUMNS (all 10), read from
+    # the Schema_Authority. Observed is the missing/null count; expected is an
+    # explicit non-empty string so the count is REPORTED rather than silently
+    # omitted (6.3 — no silent pass). A nonzero missing count fails the check so
+    # an injected null is a visible failure.
+    for column in SCORED_FEATURE_COLUMNS:
+        if column not in observed_columns:
+            # Absence is already reported by check 3; report explicitly here
+            # rather than raising, and never as a silent pass.
+            check(
+                f"Missing-value count: {column}",
+                "0 missing values",
+                f"unavailable: {column} column absent",
+                False,
+            )
+            continue
+
+        missing = int(gdf[column].isna().sum())
+        check(
+            f"Missing-value count: {column}",
+            "0 missing values",
+            f"{missing:,} missing values",
+            missing == 0,
+        )
+
+    # --- Check 10 — eligible present & boolean, no nulls (7.1, 7.2, 7.2A) ---
+    # Re-assert the EXACT invariant pipeline/integration/merge.py enforces at
+    # production time (do not reinvent): boolean dtype with zero nulls. The
+    # dtype string test `str(dtype) in ("bool", "boolean")` treats every other
+    # or ambiguous dtype (e.g. object, int64, float64) as non-boolean → FAIL.
+    # "eligible" is in BOOL_COLUMNS; merge.py references the literal, so match
+    # merge.py here to keep the two gates textually aligned. Degrade gracefully
+    # if the column is absent (check 2 already reports the missing column)
+    # rather than raising.
+    eligible_col = "eligible"
+    assert eligible_col in BOOL_COLUMNS  # schema-authority sanity, not runtime
+    if eligible_col not in observed_columns:
+        check(
+            "eligible present, boolean, no nulls",
+            "boolean dtype, 0 nulls",
+            "unavailable: eligible column absent",
+            False,
+        )
+    else:
+        elig = gdf[eligible_col]
+        n_null = int(elig.isna().sum())
+        is_bool = str(elig.dtype) in ("bool", "boolean")
+        check(
+            "eligible present, boolean, no nulls",
+            "boolean dtype, 0 nulls",
+            f"dtype {elig.dtype}, {n_null:,} nulls",
+            n_null == 0 and is_bool,
+        )
+
+    # --- Check 11 — eligible/exclusion_reason consistent (7.3, 7.4) --------
+    # Re-assert the merge.py invariant verbatim: a cell is inconsistent when it
+    # is eligible yet carries an exclusion reason, or is ineligible yet has no
+    # reason. Expected 0 inconsistent rows; observed the inconsistent-row count.
+    # Degrade gracefully if either column is absent (check 2 reports it) rather
+    # than raising.
+    if eligible_col not in observed_columns or "exclusion_reason" not in observed_columns:
+        check(
+            "eligible/exclusion_reason consistent",
+            "0 inconsistent rows",
+            "unavailable: eligible or exclusion_reason column absent",
+            False,
+        )
+    else:
+        eligible = gdf[eligible_col].fillna(False).astype(bool)
+        reason = gdf["exclusion_reason"]
+        reason_present = reason.notna() & (reason.fillna("").astype(str).str.len() > 0)
+        inconsistent = int(
+            ((eligible & reason_present) | (~eligible & ~reason_present)).sum()
+        )
+        check(
+            "eligible/exclusion_reason consistent",
+            "0 inconsistent rows",
+            f"{inconsistent:,} inconsistent rows",
+            inconsistent == 0,
+        )
+
+    # --- Check 12 — at least one Eligible_Cell (7.5, 7.6) ------------------
+    # A ranking is never emitted from zero eligible cells (the consumer contract
+    # in the module docstring). Expected ≥ 1 eligible; observed the Eligible_Cell
+    # count; FAIL if zero. Uses the same fillna(False).astype(bool) coercion as
+    # merge.py so a null eligible is treated as ineligible for the count.
+    if eligible_col not in observed_columns:
+        check(
+            "At least one Eligible_Cell",
+            "≥ 1 eligible cell",
+            "unavailable: eligible column absent",
+            False,
+        )
+    else:
+        n_eligible = int(gdf[eligible_col].fillna(False).astype(bool).sum())
+        check(
+            "At least one Eligible_Cell",
+            "≥ 1 eligible cell",
+            f"{n_eligible:,} eligible cells",
+            n_eligible >= 1,
+        )
 
     if verbose:
         for entry in checks:
