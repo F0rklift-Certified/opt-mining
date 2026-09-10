@@ -1,7 +1,8 @@
 # Decision-Engine Specification & Frozen Configuration
 
 > **Status:** Draft — authored under spec `s2-01-decision-engine-specification`.
-> Sections §2–§8 are scaffolded placeholders authored in later tasks of this spec.
+> Sections §1–§7 are authored; §8 (reconciliation log) is a scaffolded placeholder authored
+> in task 8 of this spec.
 
 ---
 
@@ -61,13 +62,21 @@ an assertion rather than a screening result.
 ### 1.5 Cross-references
 
 This specification is the authoritative decision design and is referenced from the
-following locations so it is discoverable across the repository. _(Cross-reference wiring
-is completed in task 7; the target locations are listed here.)_
+following locations so it is discoverable across the repository (Requirement 1.2). The
+cross-reference wiring is **complete** (task 7):
 
-| Location | Reference to add | Status |
+| Location | Reference added | Status |
 | --- | --- | --- |
-| `pipeline/README.md` | Link to `Sprint-2-Tasks/decision_engine_specification.md` as the authoritative decision-engine / scoring design | _TBD — task 7_ |
-| `DATA/data-specification/sprint1_data_specification.md` (§4.5) | Reference the Decision_Engine_Spec as the authoritative source for scoring criteria, weights and normalisation | _TBD — task 7_ |
+| `pipeline/README.md` | Link to `Sprint-2-Tasks/decision_engine_specification.md` as the authoritative decision-engine / scoring design, in the `scoring` (S1-10) stage note | ✅ Wired (task 7) |
+| `DATA/data-specification/sprint1_data_specification.md` (§4.7, with a pointer from §4.5) | References the Decision_Engine_Spec as the authoritative source for the scoring criteria, weights and normalisation method | ✅ Wired (task 7, under the data-spec §8 change-control process, v1.8) |
+
+> **§4.5 vs §4.7 note.** The upstream requirement and design name Data_Specification **§4.5**
+> as the scoring-parameter anchor, but in the current Data_Specification **§4.5 is the
+> *Integrated Feature Table*** (the scoring *input*) and the scoring parameters live in **§4.7
+> *Baseline Suitability Score*** (added under the data-spec §8 process as v1.5). The
+> cross-reference is therefore placed in **§4.7**, and a pointer from §4.5 directs a reader on
+> to §4.7 and to this specification. Both section numbers are recorded so neither pointer goes
+> stale (see §6.3).
 
 ---
 
@@ -698,10 +707,105 @@ location silently goes stale. Property P4 therefore holds.
 
 ## §7 Traceability matrix
 
-_Placeholder — authored in task 7._
+This section makes the specification **traceable to the combined-sprint acceptance criteria**
+so the client can confirm at Checkpoint A that the decision design satisfies them. It maps
+every defined Criterion to **AC3** (Requirement 7.1), the Default_Weights and the
+weight-normalisation rule to **AC5** (Requirement 7.2), and records the four Criteria_Groups
+against combined-sprint **guidance Step 3** so every group is demonstrably covered
+(Requirement 7.3). The three combined-sprint acceptance criteria referenced here are:
 
-Maps each Criterion → AC3, the Default_Weights + weight-normalisation rule → AC5, and the
-four Criteria_Groups → combined-sprint guidance Step 3.
+- **AC3 — Documented criteria.** Every scoring Criterion has a documented definition, its
+  unit/source, and its beneficial/adverse Direction.
+- **AC5 — Configurable, documented weights.** The weights are configurable and their
+  interpretation and default values are documented (not hard-coded, not presented as
+  objective business truths).
+- **Guidance Step 3 — Named, non-vague criteria groups.** The four decision dimensions (wind,
+  demand proxy, infrastructure, geographic/environmental) are covered by named, measurable
+  features; no vague aggregate such as an unexplained "infrastructure score"; defaults are
+  documented as assumptions.
+
+Consistent with the rest of this document, the traceability below concerns how the engine
+surfaces **higher-ranked candidate cells under the selected assumptions and criteria**
+(Screening_Language, §1.4) — it never traces to, or claims, a "best site".
+
+### §7.1 Criterion → AC3 (Requirement 7.1)
+
+Every scored Criterion of §2 maps to **AC3**: each has a documented definition, a named
+unit and source, and a recorded Direction. The section anchor is where the full definition
+lives; AC3 is satisfied when all three columns (definition, unit/source, Direction) are
+present and non-empty for the Criterion.
+
+| Criterion (integrated-table column) | Criteria_Group | Definition (§) | Unit / source (§) | Direction (§) | AC3 satisfied |
+| --- | --- | --- | --- | --- | --- |
+| `wind_speed` | Wind | §2.1 (GWA 100 m mean wind speed) | m/s / GWA v4 `wind-speed` 100 m (§2.1) | `higher_is_better` (§2.1, §4.1) | ✅ definition + unit/source + Direction all present |
+| `demand_proxy` | Demand proxy | §2.2 (NEM-region annual-demand proxy, allocated below the region) | normalised 0–1 from AEMO NEM-region annual mean MW (§2.2) | `higher_is_better` (§2.2, §4.1) | ✅ definition + unit/source + Direction all present |
+| `dist_transmission_km` | Infrastructure | §2.3 (distance to nearest ≥132 kV transmission line) | km, EPSG:3577 / Geoscience Australia transmission lines (§2.3) | `lower_is_better` (§2.3, §4.1) | ✅ definition + unit/source + Direction all present |
+| `dist_substation_km` | Infrastructure | §2.3 (distance to nearest substation) | km, EPSG:3577 / Geoscience Australia substations (§2.3) | `lower_is_better` (§2.3, §4.1) | ✅ definition + unit/source + Direction all present |
+| `inside_rez` | Infrastructure | §2.3 (membership of a declared NSW REZ) | boolean / EnergyCo NSW REZ boundaries (§2.3) | `higher_is_better` (§2.3, §4.1) | ✅ definition + unit/source + Direction all present |
+| `slope_deg` | Geographic / environmental | §2.4 (terrain slope, mean Horn-slope) | degrees / Horn slope from SRTM elevation (§2.4) | `lower_is_better` (§2.4, §4.1) | ✅ definition + unit/source + Direction all present |
+
+**AC3 result.** All six scored Criteria carry a documented definition, a named unit and
+source, and a recorded Direction. AC3 is satisfied for every Criterion.
+
+### §7.2 Default_Weights + weight-normalisation rule → AC5 (Requirement 7.2)
+
+**AC5** requires that the weights are *configurable* and that their *interpretation and
+defaults are documented*. Both halves are traced below.
+
+| AC5 sub-claim | Where satisfied in this spec | Existing_Implementation anchor | AC5 satisfied |
+| --- | --- | --- | --- |
+| Weights are **configurable** (user inputs, not hard-coded) | §4 preamble; §6.1 F15 (User-input default class); §6.2 (config edit vs default-set change) | `pipeline/scoring/scoring_weights.yaml` (loaded at runtime; `--scoring-weights PATH`); no weight literal in `pipeline/scoring/` code | ✅ |
+| Each weight has a **documented default value** | §4.1 Default_Weights table (0.35 / 0.20 / 0.15 / 0.10 / 0.10 / 0.10) | `weight:` per criterion in `scoring_weights.yaml`; data-spec §4.7 ("Defaults: …") | ✅ |
+| Each default weight has a **documented rationale**, labelled an assumption | §4.1 rationale column; §4.2 ordering assumptions; §4.3 P3 audit; §4 assumption callout | `rationale:` per criterion in `scoring_weights.yaml` | ✅ |
+| The **weight-normalisation rule** makes the weights' interpretation unambiguous | §3.2 (division by the applied weight sum `W_i`; weights are relative, scale-invariant) | header comment `/ SUM(weights applied)` + `score.py` `score_frame`; data-spec §4.7 (Method row, `W_cell`) | ✅ |
+
+**AC5 result.** The weights are configurable user inputs; every default value carries a
+documented, rationalised interpretation labelled as an assumption; and §3.2 fixes the
+weight-normalisation rule so the weights' meaning is unambiguous. AC5 is satisfied.
+
+### §7.3 The four Criteria_Groups → guidance Step 3 (Requirement 7.3)
+
+Combined-sprint **guidance Step 3** requires that all four client decision dimensions are
+covered by named, measurable features — with no vague aggregate — and that defaults are
+presented as assumptions. Each group is recorded against Step 3 below.
+
+| Criteria_Group (guidance Step 3 dimension) | Covered by (Criteria) | Section | Step 3 requirement met |
+| --- | --- | --- | --- |
+| **Wind** | `wind_speed` (named GWA 100 m mean resource variable, not a vague "wind score") | §2.1 | ✅ Named, measurable resource Criterion with a justified hub height/variable |
+| **Demand proxy** | `demand_proxy` (explicitly a Demand_Proxy allocated below the AEMO region; never "measured local demand") | §2.2 | ✅ Named, measurable proxy Criterion, honestly labelled |
+| **Infrastructure** | `dist_transmission_km`, `dist_substation_km`, `inside_rez` (measurable indicators, **not** an undefined "infrastructure score") | §2.3 | ✅ Named, measurable indicators — the vague-aggregate anti-pattern is explicitly avoided |
+| **Geographic / environmental** | `slope_deg` (agreed non-hard-constraint terrain Criterion; hard constraints handled upstream by S1-07) | §2.4 | ✅ Named, measurable non-hard-constraint Criterion |
+
+**Step 3 result.** All four Criteria_Groups are covered by named, measurable Criteria; the
+infrastructure dimension uses concrete indicators rather than an undefined aggregate; and the
+Default_Weights (§4) are labelled documented assumptions, not objective business values. The
+guidance Step 3 requirement is met for every group.
+
+### §7.4 Screening-language audit (Property P5)
+
+**Property P5 — screening language only.** This specification describes model output using
+Screening_Language and contains **no absolute superlative claim** — no "best site",
+"optimal location", "the correct answer", or equivalent — asserting that the engine
+identifies an objectively best site. Every description of the engine's output frames it as
+**higher-ranked candidate cells under the selected assumptions and criteria** (§1.4).
+
+The audit distinguishes two cases and confirms both hold:
+
+1. **No positive superlative describes model output.** The only occurrences of superlative
+   terms in this document are **negation clauses that forbid such claims** (for example §1.4
+   "does not identify an objectively 'best site'", and the repeated "does not identify a 'best
+   site'" reminders in §2, §3, §4, §5 and §6). A clause that *prohibits* the claim is the
+   commitment itself, not a violation of it — P5 forbids asserting a best site, not naming the
+   thing being ruled out.
+2. **Ranking mechanics use ordinal language, not superlatives.** Where the document explains
+   the `rank` field it says "rank 1 is the highest-scoring eligible cell" (§3.1) — an ordinal,
+   run-relative statement about the score ordering, not an absolute claim that the top cell is
+   the objectively best place to build. Weights are documented assumptions (§4) and a different
+   documented weighting yields a different ranking, which the document states explicitly.
+
+**P5 result.** No absolute "best site" / "optimal" claim describes the model output anywhere
+in the document; the superlatives that appear are the negation clauses that forbid such
+claims. Property P5 holds.
 
 ---
 

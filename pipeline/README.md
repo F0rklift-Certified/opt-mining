@@ -220,6 +220,8 @@ score     = SUM_i contrib_i                          -> [0, 1]
 - **Confidence** is carried through from the S1-09 composite flag unchanged, never recomputed or fabricated. The optional confidence discount (`--confidence-discount`) multiplies both the score and its contributions by the cell's factor, so they stay reconcilable.
 - **Not circular:** `wind_speed` is an input criterion only, never a prediction target.
 
+The authoritative decision design behind this stage — the exact scored criteria and their directions, the scoring formula and its weight-normalisation rule, the normalisation/outlier/missing-value policies, and the default weights (documented as assumptions with a rationale each) — is frozen in the **[Decision-Engine Specification](../Sprint-2-Tasks/decision_engine_specification.md)** (`Sprint-2-Tasks/decision_engine_specification.md`, the Client Checkpoint A artefact). That specification reconciles against `pipeline/scoring/scoring_weights.yaml` and `pipeline/scoring/`, and any change to a frozen scoring decision must be applied across the specification, the weights YAML and the data specification (§4.7) under the data-specification §8 change-control process.
+
 Note: `shortlist` (S1-11) runs after `scoring` and before `validate` because the S1-10 Scored_Table is its sole score input. It is a **filtering and formatting** stage, not a modelling stage — it performs no re-scoring and no re-ranking:
 
 - **Selection is by the existing S1-10 `rank`.** The stage takes the top-N Eligible_Cells (non-null `suitability_score` **and** non-null `rank`) ordered by ascending `rank` (rank 1 first), so the shortlist ordering is identical to S1-10 through ties and gaps — ranks are never re-assigned.

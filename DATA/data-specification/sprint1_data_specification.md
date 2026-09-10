@@ -1,8 +1,8 @@
 # Sprint 1 Data Specification
 
-**Version:** 1.7
+**Version:** 1.8
 **Date:** 2026-09-03 (baseline frozen 2026-08-27)
-**Status:** FROZEN — Sprint 1 baseline (v1.1–v1.7 amendments via §8 "Adding a New Dataset")
+**Status:** FROZEN — Sprint 1 baseline (v1.1–v1.8 amendments via §8)
 **Blocks:** S1-02, S1-03, S1-04, S1-05, S1-06
 
 ---
@@ -528,6 +528,12 @@ exclusion outcome keyed to the grid `cell_id`; no such dataset existed. **Integr
 same grid (§3), same storage CRS (EPSG:4326) asserted on every input — no reprojection, no
 resampling, no back-filling; every join is one-to-one and the row count is asserted after each.
 
+> **Scoring parameters are not here.** §4.5 is the scoring *input* (the Integrated Feature
+> Table). The scoring criteria, weights and normalisation method are documented in **§4.7
+> Baseline Suitability Score** and frozen in the **Decision-Engine Specification**
+> (`Sprint-2-Tasks/decision_engine_specification.md`); a reader looking for the scoring
+> contract should follow those two references (added v1.8).
+
 | Field | Value |
 |-------|-------|
 | **Dataset name** | Integrated NSW Feature Table — every per-cell layer left-joined onto the common analysis grid |
@@ -571,6 +577,8 @@ Added via the §8 "Adding a New Dataset" process (v1.3). This standalone entry d
 ### 4.7 Baseline Suitability Score (Derived — S1-10)
 
 Added via the §8 "Adding a New Dataset" process (v1.5). **Documented gap:** S1-11 (ranked shortlist) needs a per-cell suitability score, rank and per-criterion explanation keyed to the grid `cell_id`; no such dataset existed. **Integration assessment:** consumes only the §4.5 Integrated Feature Table and the criteria weights file — same grid (§3), same storage CRS (EPSG:4326), no reprojection, no back-filling, no new external source enters the platform.
+
+> **Authoritative decision design (added v1.8, §8 cross-reference).** The scoring criteria and their directions, the scoring formula and its weight-normalisation rule, the normalisation/outlier/missing-value/constant/boolean policies, and the default weights (documented as assumptions with a rationale each) are frozen in the **Decision-Engine Specification** (`Sprint-2-Tasks/decision_engine_specification.md`, the Sprint 2 Client Checkpoint A artefact). This §4.7 entry and that specification are kept consistent: any change to a frozen scoring decision must be applied across the specification, the criteria weights file (`pipeline/scoring/scoring_weights.yaml`) and this §4.7 entry under the §8 change-control process. The specification's §6.3 records this §4.7 entry as one of the three authoritative recording locations for every frozen scoring decision.
 
 | Field | Value |
 |-------|-------|
@@ -770,6 +778,8 @@ This is a **new derived output**, not a change to a frozen parameter. Top_N is a
 
 This is a **new derived output**, not a change to a frozen parameter. The Spot_Check_Cells count (`--sanity-spot-cells`, default 8, inclusive range 5–10) and the Wind_Generators path (`--wind-generators`) are **runtime values**, not §2 frozen decisions (Q1–Q7): they select how the check is run and never change the analysis, so the "Modifying a Frozen Parameter" process below is **not** triggered and no §2/README dual edit is made. The `sanity` stage is deliberately **distinct from the structural `pipeline/validate.py` step** — it is a plausibility reality-check, not a data-integrity contract check — and, consistent with the Constitution's "validate against reality" and "never adjust the model to pass validation" mandates, every output carries the Preliminary_Disclaimer and the ~5 km (0.05 degree) Analysis_Resolution statement (recorded identically in §4.9 and the README) and the model is never adjusted to make a check pass.
 
+**Applied — Decision-Engine Specification cross-reference (§4.7 + §4.5), v1.8:** A cross-reference to the Sprint 2 **Decision-Engine Specification** (`Sprint-2-Tasks/decision_engine_specification.md`, the Client Checkpoint A artefact) was added so the authoritative scoring contract is discoverable from this specification. (1) *Gap:* §4.7 documents the derived Baseline Suitability Score but did not name the authoritative decision design that freezes the criteria, formula, normalisation method and default-weight assumptions; the S2-01 spec requires the Data_Specification to reference it (its Requirement 1.2), and the upstream S2-01 requirement/design mistakenly named §4.5 (the Integrated Feature Table, the scoring *input*) as the anchor when the scoring parameters actually live in §4.7. (2) *Metadata:* a note in §4.7 names the specification as the authoritative frozen decision design and one of the three recording locations; a pointer in §4.5 directs a reader on to §4.7 and to the specification, so the §4.5→§4.7 discrepancy is resolved without renumbering any section. (3) *Integration:* documentation-only — no dataset, column, CRS, grid or value changes; nothing spatial changes. (4) *Version bump:* 1.7 → 1.8 (below). This is a **documentation cross-reference for an existing derived output**, not a new dataset and **not** a change to any frozen parameter (Q1–Q7) or to any scoring default: §2 is unmodified, the six criteria weights are unchanged, and no §2/README dual edit under "Modifying a Frozen Parameter" is triggered. Should a scoring **default** later change, that is governed by the specification's §6.2 discipline and applied across the specification, `pipeline/scoring/scoring_weights.yaml` and this §4.7 entry so no location goes stale.
+
 ### Modifying a Frozen Parameter
 
 Frozen parameters (team decisions in §2) may only be changed by:
@@ -803,6 +813,7 @@ Datasets may be moved to the out-of-scope document (`sprint1_out_of_scope.md`) w
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.8 | 2026-09-03 | S2-01: added a §8 cross-reference from §4.7 Baseline Suitability Score (and a pointer from §4.5) to the Sprint 2 **Decision-Engine Specification** (`Sprint-2-Tasks/decision_engine_specification.md`, the Client Checkpoint A artefact), the authoritative frozen decision design for the scoring criteria, formula, normalisation method and default-weight assumptions. Documentation-only: it resolves the upstream §4.5-vs-§4.7 anchor discrepancy (§4.5 is the scoring input; the scoring parameters live in §4.7) without renumbering any section, and names §4.7 as one of the three recording locations kept in lock-step with the specification and `pipeline/scoring/scoring_weights.yaml`. No new dataset, no frozen parameter (Q1–Q7) and no scoring default changed. |
 | 1.7 | 2026-09-03 | S1-12: added §4.9 Validation Report (derived dataset, per §8 "Adding a New Dataset") and its §7 pipeline-mapping row. The `sanity` stage is a preliminary-screening plausibility sanity check that validates the pipeline outputs against known reality, distinct from the structural `pipeline/validate.py` step, and is registered as the terminal stage in `config.STAGES`. It reads all inputs READ-ONLY and never re-scores, re-ranks or adjusts the model to make a check pass. Spot_Check_Cells count (`--sanity-spot-cells`, default 8, range 5–10) and the Wind_Generators path (`--wind-generators`) are runtime CLI values, not frozen parameters, so no §8 "Modifying a Frozen Parameter" process applies. Every output carries the Preliminary_Disclaimer and the ~5 km (0.05 degree) Analysis_Resolution statement. No frozen parameter (Q1–Q7) changed. |
 | 1.6 | 2026-09-03 | S1-11: added §4.8 Ranked Shortlist (derived dataset, per §8 "Adding a New Dataset") and its §7 pipeline-mapping row. The shortlist is a filtering-and-formatting output over §4.7 — it re-scores and re-ranks nothing and stores in EPSG:4326 with no reprojection. Top_N is a runtime CLI/config value (`--shortlist-top-n`, default 20), not a frozen parameter, so no §8 "Modifying a Frozen Parameter" process applies. Every output carries the Preliminary_Disclaimer and the ~5 km (0.05 degree) Analysis_Resolution statement. No frozen parameter (Q1–Q7) changed. |
 | 1.0 | 2026-08-27 | Initial release — Sprint 1 baseline. All team decisions frozen. |
