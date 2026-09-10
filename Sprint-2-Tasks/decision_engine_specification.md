@@ -381,12 +381,166 @@ none is left unexplained. Property P3 therefore holds.
 
 ## §5 Normalisation method + outlier/missing policy
 
-_Placeholder — authored in task 5._
+This section fixes the **Normalisation_Method** — the rule that converts each Criterion's
+raw values, measured in incompatible units (m/s, km, degrees, boolean, a 0–1 proxy), into
+the comparable `[0, 1]` components `n_k(i)` the Scoring_Formula (§3) sums. It restates the
+method already realised in the Existing_Implementation (`pipeline/scoring/normalise.py`
+`compute_bounds` / `normalise_value` / `normalise_series`, the structural constants in
+`pipeline/scoring/config.py`, and the method-report text in `pipeline/scoring/report.py`);
+it does not invent a new one. Every rule below is a Frozen_Decision governed by §6.
 
-Directional linear min-max per Criterion; bounds computed from the eligible cell
-population and fixed per run (not per UI filter); outlier policy; missing-value policy
-(never bias-imputed); constant-criterion rule (no divide-by-zero); boolean definitional
-mapping.
+Normalisation only rescales; it never re-ranks. On a common `[0, 1]` scale, **1 is most
+favourable and 0 least favourable**, so a directional min-max lets the engine surface
+**higher-ranked candidate cells under the selected assumptions and criteria** without ever
+claiming a "best site" (Screening_Language, §1.4).
+
+### §5.1 Directional linear min-max per Criterion (Requirement 5.1)
+
+Each Criterion `k` is rescaled by a **linear** min-max transform to `[0, 1]`, with the
+Direction of §2 / §4 applied inside the transform. For a raw value `v` at cell `i`, with
+lower bound `lo_k` and upper bound `hi_k` (§5.2):
+
+```
+higher_is_better:   n_k(i) = (v − lo_k) / (hi_k − lo_k)
+lower_is_better:    n_k(i) = 1 − (v − lo_k) / (hi_k − lo_k)
+```
+
+The result is clamped to the inclusive `[0, 1]` range, so a value lying outside the bounds
+saturates at 0 or 1 rather than pushing a component — and therefore a score — out of range
+(this can arise only if bounds from another population are ever supplied; see §5.3). The
+transform is **purely linear** for every Criterion: no logarithmic, power, or other
+non-linear reshaping is applied to any Criterion, including the distance Criteria
+(`dist_transmission_km`, `dist_substation_km`). A log transform for distances is a
+defensible alternative — it would compress differences between far-apart cells and expand
+them between nearby ones — but that is a modelling judgement, so it is left to an explicit
+future change under §6 change control rather than applied silently. The Direction each
+Criterion uses is exactly as recorded in §2 and §4: `higher_is_better` for `wind_speed`,
+`demand_proxy`, and `inside_rez`; `lower_is_better` for `dist_transmission_km`,
+`dist_substation_km`, and `slope_deg`.
+
+The transform is a **pure function** of `(value, lo_k, hi_k, direction)`: identical inputs
+always produce identical outputs, with no I/O and no dependence on the weights, so the
+normalisation step is deterministic and independently reproducible.
+
+### §5.2 Bounds from the eligible population, fixed per run (Requirement 5.2)
+
+The bounds `lo_k` and `hi_k` for each continuous Criterion are the **minimum and maximum of
+that Criterion over the Eligible_Cells only** (`eligible = True`, §3.3), computed fresh from
+the integrated feature table on every analysis run — **never hard-coded**. Ineligible cells
+take **no part** in any bound: the score compares candidate sites against one another, so an
+excluded cell's extreme value must not stretch the scale the candidates are measured on.
+
+The bounds are **fixed for the whole analysis run**. They are a property of the eligible
+population computed once when the run scores the table, **not** a function of any downstream
+display filter. A user narrowing what the web application shows — by REZ, by score band, by
+region — re-filters the *view*; it does **not** recompute the normalisation bounds and does
+**not** change any cell's `suitability_score`, `n_k(i)`, or `rank`. A cell's score is a
+stable property of the run, so the same cell cannot appear more or less suitable merely
+because the viewer changed what else is on screen. Each `Bounds` record additionally carries
+the raw `observed_min` / `observed_max` and the count of eligible cells that had a value, so
+the method report (`scoring_method.md`, §3 of that report) shows both the rule applied and
+the data it was applied to.
+
+### §5.3 Outlier-handling policy (Requirement 5.3)
+
+The frozen outlier policy is **no separate outlier treatment**: the linear min-max of §5.1
+is applied to the full eligible population with **no trimming, winsorising, percentile
+capping, or robust-statistic substitution**, and the min and max are the true population
+extremes, not clipped quantiles. Two consequences are recorded honestly rather than hidden:
+
+1. **Extremes set the scale.** Because `lo_k` and `hi_k` are the genuine eligible-population
+   min and max, a single extreme eligible cell widens the range and compresses the spread of
+   the remaining cells on that Criterion. This is accepted for the MVP screening exercise:
+   the transform stays transparent and reproducible, and no cell is silently reshaped by an
+   undocumented statistical rule.
+2. **Saturation, not overflow.** The only clamping applied is the `[0, 1]` clamp of §5.1.
+   Within a single run every eligible value lies between its own population bounds by
+   construction, so it maps inside `[0, 1]` without clamping; the clamp is a guard that keeps
+   a component in range if bounds from a different population are ever supplied, in which case
+   an out-of-range value saturates at 0 or 1 rather than distorting the score.
+
+Any future adoption of an outlier transform (a percentile cap or a log rescale for
+distances, for example) is a change to a Frozen_Decision and must follow §6 change control
+and be reflected in every recording location.
+
+### §5.4 Missing-value policy — never bias-imputed (Requirement 5.4)
+
+A missing Criterion value is **never imputed to a default that biases the score**, and in
+particular is **never scored as zero or as the worst possible value**. The frozen rule:
+
+- A null (or non-numeric, hence NaN) value for Criterion `k` at cell `i` produces a **null**
+  normalised component `n_k(i)` — the null is preserved, not filled.
+- That Criterion is then **excluded from that cell's weighted average**: it contributes
+  **neither** a numerator term **nor** a share of the applied weight sum `W_i` (§3.2). Each
+  score is therefore a weighted average over the evidence that exists for the cell, never a
+  sum in which a data gap masquerades as an unfavourable measurement.
+- The carried-through S1-09 `data_confidence` value is what flags the gap; the score is not
+  quietly depressed to signal it.
+
+Scoring a missing feature as zero would penalise a cell for a hole in the data rather than
+for a property of the land, which the constitution forbids ("never let poor data pass as
+good", cutting both ways). On the current NSW data no eligible cell is missing a scored
+Criterion, so `W_i` equals the full weight sum for every scored cell; the per-cell rule is
+the honest general case. A cell for which **no** Criterion has a value has `W_i = 0`, is left
+**unscored** (null score, null rank, null contributions) rather than divided by zero, and is
+reported explicitly by validation — it can never pass silently.
+
+### §5.5 Constant-criterion rule — no divide-by-zero (Requirement 5.5)
+
+When a continuous Criterion has the **same value for every eligible cell**, its bounds
+collapse to `lo_k == hi_k` and the min-max expression `(v − lo_k) / (hi_k − lo_k)` is `0/0`.
+The frozen rule avoids the divide-by-zero without dropping the Criterion:
+
+- Every eligible cell is assigned the **documented constant fill**
+  `CONSTANT_CRITERION_VALUE = 1.0` for that Criterion (a null value still stays null, per
+  §5.4); **no division is performed**.
+- The Criterion is **flagged as constant** so the method report tells the reader it carried
+  **no discriminating information** on that run.
+
+The value `1.0` (rather than `0.0`) is used so a Criterion sitting uniformly at its only
+observed value is not penalised for lack of variation. A constant Criterion adds the **same**
+amount to every eligible cell's score, so it shifts the absolute scores uniformly and
+**cannot change the ranking** — the shortlist reads as though it were scored on the remaining
+non-constant Criteria. The special case where *no* eligible cell has a value is treated as a
+constant Criterion for this purpose (bounds `0.0/0.0`, flagged), consistent with §5.4.
+
+### §5.6 Boolean definitional mapping (Requirement 5.6)
+
+A boolean Criterion (currently `inside_rez`, §2.3) is mapped by its **definitional domain**,
+not by the observed population min/max:
+
+```
+False → 0.0        True → 1.0        (definitional bounds lo = 0.0, hi = 1.0)
+```
+
+The Direction is then applied exactly as in §5.1. `inside_rez` is `higher_is_better`, so the
+definitional mapping already gives the intended `False → 0.0`, `True → 1.0`; a
+`lower_is_better` boolean would invert to `False → 1.0`, `True → 0.0`. Using the definitional
+domain rather than the observed extremes is what makes a **uniform** boolean behave honestly:
+an all-`False` `inside_rez` scores **0** for every cell ("no cell is in a REZ") instead of
+triggering the constant-criterion fill of §5.5 and handing every cell full marks (`1.0`) for
+a benefit none of them has. The observed min/max are still recorded alongside the definitional
+bounds in the method report so a reader can see both the rule and the data.
+
+### §5.7 Method-summary verification
+
+The table below records, for each of the six normalisation policies fixed above, the
+Existing_Implementation location that realises it — so this specification restates the
+shipped behaviour rather than asserting it.
+
+| Policy (this §5) | Requirement | Realised in the Existing_Implementation |
+| --- | --- | --- |
+| Directional linear min-max, clamped `[0, 1]` | 5.1 | `normalise.py` `normalise_value` / `normalise_series`; directions in `config.py` (`HIGHER_IS_BETTER`, `LOWER_IS_BETTER`) |
+| Bounds from the eligible population, fixed per run | 5.2 | `normalise.py` `compute_bounds` (eligible rows only, computed fresh); `score.py` `score_frame` (bounds computed once per run) |
+| No separate outlier treatment; true min/max; `[0, 1]` clamp | 5.3 | `normalise.py` (no trim/winsorise; population extremes); method-report "Normalisation is LINEAR" note in `report.py` |
+| Missing values null, excluded from `W_i`, never zero-scored | 5.4 | `normalise.py` `as_float` / `normalise_series` (nulls preserved); `score.py` `score_frame` (per-cell applied weight; unscorable → null) |
+| Constant-criterion fill `1.0`, no divide-by-zero, flagged | 5.5 | `config.py` `CONSTANT_CRITERION_VALUE`; `normalise.py` `compute_bounds` (`is_constant`) / `normalise_value` / `normalise_series` |
+| Boolean definitional `{False → 0.0, True → 1.0}` domain | 5.6 | `config.py` `BOOLEAN_BOUNDS`; `normalise.py` `is_boolean_series` / `compute_bounds` |
+
+The exact numeric bounds used, the per-Criterion rule applied, and the constant/boolean flags
+are written to `DATA/scoring/metadata/scoring_method.md` on every run (built by
+`report.build_method_report`), so the values this section governs are auditable per run
+rather than only described here.
 
 ---
 
