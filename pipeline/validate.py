@@ -281,6 +281,124 @@ def freeze_baseline(
 
 
 # ---------------------------------------------------------------------------
+# Input-contract checks (design Component 2)
+# ---------------------------------------------------------------------------
+#
+# Consumer contract (holistic note): S2-05 scoring (KAN-42) and the S2-08
+# decision service (KAN-45) read the Validation_Result JSON sidecar this tier
+# emits and gate on its `all_passed` verdict — they never re-run validation.
+# This is a preliminary-screening precondition (Screening_Language): the engine
+# only screens data it has verified. This function is the source of the
+# Check_Records that feed that verdict.
+
+
+def _run_integrated_input_checks(
+    verbose: bool = False,
+    integrated_path: Path | None = None,
+) -> list[dict]:
+    """
+    Input-contract checks on the frozen S1-08 integrated feature table.
+
+    Returns a list of ``{"name", "expected", "observed", "passed"}`` dicts using
+    the same ``check(name, expected, observed, passed)`` helper as every other
+    tier — no silent passes: each check states expected vs observed vs a boolean
+    pass/fail. Returns ``[]`` only when the integrated table does not exist yet
+    (a partial pipeline run), never to skip a check silently on a table that is
+    present.
+
+    The battery (design Component 2) is twelve checks; this function builds them
+    in order into a single ``checks`` list:
+
+      1. baseline hash matches the frozen reference   (this task)
+      2. required columns present                      (this task)
+      3. scored feature columns present                (this task)
+      4. cell_id non-null                              (task 4.3)
+      5. cell_id unique                                (task 4.3)
+      6. coordinates valid & in the NSW envelope       (task 4.3)
+      7. geometry validity & storage CRS               (task 4.3)
+      8. units/ranges per scored column                (task 4.5)
+      9. missing-value counts per feature              (task 4.5)
+      10. eligible present & boolean, no nulls         (task 4.7)
+      11. eligible/exclusion_reason consistent         (task 4.7)
+      12. at least one Eligible_Cell                   (task 4.7)
+
+    Checks 4–12 are added by later tasks; they append to the same ``checks``
+    list at the marked insertion point below, reading the single GeoDataFrame
+    loaded once near the top. The Integrated_Dataset is read-only here — the
+    validator never reprojects it (storage is EPSG:4326; any distance/area logic
+    uses COMPUTATION_CRS explicitly).
+    """
+    path = DEFAULT_INTEGRATED_PATH if integrated_path is None else Path(integrated_path)
+
+    checks: list[dict] = []
+
+    def check(name, expected, observed, passed):
+        checks.append({"name": name, "expected": expected,
+                       "observed": observed, "passed": bool(passed)})
+
+    # A partial pipeline run has not produced the integrated table yet. Return
+    # [] so the gate is a no-op until the S1-08 artefact exists — never to skip
+    # a check on a table that IS present (that would be a silent pass). The
+    # run() wiring (task 7.1) turns this empty list into all_passed=False.
+    if not path.exists():
+        return checks
+
+    import geopandas as gpd
+
+    # Load the frozen table once; every content check (2–12) reads this same
+    # GeoDataFrame. Check 1 (hash) reads the file bytes via freeze_baseline and
+    # needs no columns, so it runs off `path` directly.
+    gdf = gpd.read_file(path, layer=OUTPUT_LAYER)
+    observed_columns = list(gdf.columns)
+
+    # --- Check 1 — baseline hash matches the frozen reference (1.3, 1.4) -----
+    # Verify mode (write=False): re-hash the current file and compare to the
+    # recorded Baseline_Manifest SHA-256 so Hash_Drift surfaces as a FAIL rather
+    # than being silently accepted. hash_ok is the single source of truth.
+    baseline = freeze_baseline(path)
+    check(
+        "Baseline hash matches the frozen reference",
+        "sha256 == frozen reference",
+        "match" if baseline["hash_ok"] else "DRIFTED",
+        baseline["hash_ok"],
+    )
+
+    # --- Check 2 — required columns present (2.1, 2.3, 2.4) -----------------
+    # Expected is the full OUTPUT_COLUMNS set, READ from the Schema_Authority
+    # (never re-typed). Observed names any missing columns; FAIL if any absent.
+    missing_required = [c for c in OUTPUT_COLUMNS if c not in observed_columns]
+    check(
+        "Required columns present",
+        f"all {len(OUTPUT_COLUMNS)} OUTPUT_COLUMNS present",
+        "0 missing" if not missing_required
+        else f"{len(missing_required)} missing: {missing_required}",
+        not missing_required,
+    )
+
+    # --- Check 3 — scored feature columns present (2.2, 2.5, 2.6, 2.7) ------
+    # Expected is the full SCORED_FEATURE_COLUMNS set (a superset of the S2-01
+    # §2 frozen Scored_Criteria), READ from the Schema_Authority. Observed names
+    # any missing scored columns; FAIL if any absent.
+    missing_scored = [c for c in SCORED_FEATURE_COLUMNS if c not in observed_columns]
+    check(
+        "Scored feature columns present",
+        f"all {len(SCORED_FEATURE_COLUMNS)} SCORED_FEATURE_COLUMNS present",
+        "0 missing" if not missing_scored
+        else f"{len(missing_scored)} missing: {missing_scored}",
+        not missing_scored,
+    )
+
+    # --- Checks 4–12 slot in here, appending to `checks` in order -----------
+    # (cell_id integrity → coordinate/geometry/CRS → units-ranges/missing →
+    #  eligibility). Added by tasks 4.3, 4.5 and 4.7; they read `gdf` above.
+
+    if verbose:
+        for entry in checks:
+            print(f"    [{'PASS' if entry['passed'] else 'FAIL'}] {entry['name']}")
+    return checks
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
