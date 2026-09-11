@@ -17,6 +17,14 @@ evaluate_cell(cell_fields, rules) -> (eligible, exclusion_reason, triggered_rule
     Evaluate every rule against one cell's fields. A cell is eligible iff no
     rule triggers. Rules are evaluated independently (a cell can fail
     multiple rules) and reasons are joined in rule-config order.
+
+evaluate_cell_detailed(cell_fields, rules) -> (eligible, reasons)
+    Same evaluation, but `reasons` is the ordered list of structured
+    ``{"code": rule_name, "text": human_reason}`` pairs — the single source
+    of the machine-readable code / human-readable text pairing consumed by
+    the S2-06 explanation engine (see the exclusion reason-code vocabulary,
+    Decision_Engine_Spec §6, frozen decision F16). `evaluate_cell` is a thin
+    wrapper over this so the two can never drift.
 """
 
 from __future__ import annotations
@@ -203,28 +211,53 @@ def evaluate_rule(rule: dict, cell_fields: dict) -> tuple[bool, str | None]:
 # ---------------------------------------------------------------------------
 
 
+def evaluate_cell_detailed(
+    cell_fields: dict, rules: list[dict]
+) -> tuple[bool, list[dict]]:
+    """
+    Evaluate every rule against one cell, returning structured reason pairs.
+
+    Rules are evaluated independently — a cell can fail multiple rules — and
+    the result is deterministic (rule-config order).
+
+    Returns (eligible, reasons):
+      - eligible is True iff no rule triggered.
+      - reasons is the ordered list of ``{"code": rule_name, "text": reason}``
+        pairs, one per triggered rule (empty when eligible). This is the
+        SINGLE SOURCE of the machine-readable code / human-readable text
+        pairing: the `code` is the rule's `name` (the frozen reason-code
+        vocabulary, Decision_Engine_Spec §6 F16) and the `text` is the
+        formatted `reason_template`/`description`. Both are produced together
+        here so they can never drift, and `evaluate_cell` derives its own
+        return values from this list.
+    """
+    reasons: list[dict] = []
+    for rule in rules:
+        triggered, reason = evaluate_rule(rule, cell_fields)
+        if triggered:
+            reasons.append({"code": rule["name"], "text": reason})
+    return (not reasons), reasons
+
+
 def evaluate_cell(cell_fields: dict, rules: list[dict]) -> tuple[bool, str | None, list[str]]:
     """
-    Evaluate every rule against one cell.
+    Evaluate every rule against one cell (backward-compatible view).
 
-    Rules are evaluated independently — a cell can fail multiple rules.
+    A thin wrapper over `evaluate_cell_detailed` so the human string, the
+    machine code list and the structured pairs are all derived from one
+    evaluation and can never disagree.
+
     Returns (eligible, exclusion_reason, triggered_rule_names):
       - eligible is True iff no rule triggered.
       - exclusion_reason is None when eligible, else every triggered rule's
         reason joined with REASON_DELIMITER, in rule-config order
         (deterministic).
-      - triggered_rule_names lists the `name` of every triggered rule, for
-        machine-readable auditing independent of the human-readable text.
+      - triggered_rule_names lists the `name` (machine-readable code) of every
+        triggered rule, for auditing independent of the human-readable text.
     """
-    reasons: list[str] = []
-    triggered_names: list[str] = []
-
-    for rule in rules:
-        triggered, reason = evaluate_rule(rule, cell_fields)
-        if triggered:
-            reasons.append(reason)
-            triggered_names.append(rule["name"])
-
-    if not reasons:
+    eligible, reasons = evaluate_cell_detailed(cell_fields, rules)
+    if eligible:
         return True, None, []
-    return False, REASON_DELIMITER.join(reasons), triggered_names
+    exclusion_reason = REASON_DELIMITER.join(r["text"] for r in reasons)
+    triggered_names = [r["code"] for r in reasons]
+    return False, exclusion_reason, triggered_names

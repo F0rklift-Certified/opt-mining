@@ -71,6 +71,7 @@ OUTPUT_COLUMNS = [
     "eligible",
     "exclusion_reason",
     "triggered_rules",
+    "exclusion_reasons",
     "protected_area",
     "protected_area_name",
     "slope_deg",

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from pathlib import Path
 
 import geopandas as gpd
@@ -172,6 +173,48 @@ class TestPackagedDefaultRulesFile:
         assert slope_rule["threshold"] == 15
 
 
+class TestReasonCodeVocabularyIsFrozen:
+    """
+    The exclusion reason-code vocabulary is a Frozen_Decision (F16) recorded in
+    the Decision-Engine Specification §6.5. These tests tie the shipped
+    exclusion_rules.yaml rule names to that frozen list so the YAML and the
+    specification cannot silently diverge.
+    """
+
+    # tests/exclusions/ -> repo root is two levels up.
+    _SPEC = (
+        Path(__file__).resolve().parents[2]
+        / "Sprint-2-Tasks"
+        / "decision_engine_specification.md"
+    )
+
+    def test_spec_documents_every_shipped_code(self):
+        spec_text = self._SPEC.read_text(encoding="utf-8")
+        assert "§6.5 Exclusion reason-code vocabulary" in spec_text
+        rules = rules_mod.load_rules(excl_config.DEFAULT_RULES_PATH)
+        for rule in rules:
+            # Each shipped rule name (the machine-readable code) is recorded
+            # in the frozen vocabulary as an inline-code token.
+            assert f"`{rule['name']}`" in spec_text, rule["name"]
+
+    def test_spec_lists_no_stale_codes(self):
+        """
+        Every code in the spec's F16 vocabulary TABLE is a real shipped rule
+        name — the spec must not name a code the YAML no longer defines.
+        """
+        spec_text = self._SPEC.read_text(encoding="utf-8")
+        shipped = {r["name"] for r in rules_mod.load_rules(excl_config.DEFAULT_RULES_PATH)}
+
+        # Extract the vocabulary table rows: lines like "| `code` | ... |".
+        start = spec_text.index("§6.5 Exclusion reason-code vocabulary")
+        end = spec_text.index("Pairing contract", start)
+        table = spec_text[start:end]
+        codes_in_table = set(re.findall(r"^\| `([a-z_]+)` \|", table, flags=re.MULTILINE))
+
+        assert codes_in_table, "no reason-code rows parsed from the §6.5 table"
+        assert codes_in_table == shipped
+
+
 # ---------------------------------------------------------------------------
 # Each default exclusion rule, independently (acceptance criterion)
 # ---------------------------------------------------------------------------
@@ -258,6 +301,66 @@ class TestEachRuleIndependently:
         eligible, _reason, triggered = rules_mod.evaluate_cell({}, default_rules)
         assert eligible is False  # missing_wind_data triggers: field absent -> None -> is_null
         assert triggered == ["missing_wind_data"]
+
+
+class TestEvaluateCellDetailed:
+    """The structured {code, text} pairing — the single source of machine+human reasons."""
+
+    def test_clean_cell_has_no_reasons(self, default_rules):
+        eligible, reasons = rules_mod.evaluate_cell_detailed(_clean_fields(), default_rules)
+        assert eligible is True
+        assert reasons == []
+
+    def test_protected_area_pair(self, default_rules):
+        fields = _clean_fields(protected_area=True, protected_area_name="Oxley Wild Rivers NP")
+        eligible, reasons = rules_mod.evaluate_cell_detailed(fields, default_rules)
+        assert eligible is False
+        assert reasons == [{"code": "protected_area", "text": "Protected area: Oxley Wild Rivers NP"}]
+
+    def test_missing_wind_data_pair(self, default_rules):
+        eligible, reasons = rules_mod.evaluate_cell_detailed(
+            _clean_fields(wind_speed_100m_ms=None), default_rules
+        )
+        assert eligible is False
+        assert reasons == [{"code": "missing_wind_data", "text": "Missing wind data"}]
+
+    def test_excessive_slope_pair(self, default_rules):
+        eligible, reasons = rules_mod.evaluate_cell_detailed(
+            _clean_fields(slope_deg=20.0), default_rules
+        )
+        assert eligible is False
+        assert reasons == [{"code": "excessive_slope", "text": "Slope exceeds 15\xb0"}]
+
+    def test_urban_area_pair(self, default_rules):
+        eligible, reasons = rules_mod.evaluate_cell_detailed(
+            _clean_fields(urban_area=True), default_rules
+        )
+        assert eligible is False
+        assert reasons == [{"code": "urban_area", "text": "Urban area"}]
+
+    def test_multiple_reasons_ordered_pairs(self, default_rules):
+        """A cell can carry multiple pairs, in deterministic rule-config order."""
+        fields = _clean_fields(
+            protected_area=True, protected_area_name="Barrington Tops NP", slope_deg=20.0,
+        )
+        eligible, reasons = rules_mod.evaluate_cell_detailed(fields, default_rules)
+        assert eligible is False
+        assert reasons == [
+            {"code": "protected_area", "text": "Protected area: Barrington Tops NP"},
+            {"code": "excessive_slope", "text": "Slope exceeds 15\xb0"},
+        ]
+
+    def test_wrapper_and_detailed_agree(self, default_rules):
+        """evaluate_cell must be derivable from evaluate_cell_detailed — no drift."""
+        fields = _clean_fields(
+            protected_area=True, protected_area_name="Barrington Tops NP", slope_deg=20.0,
+        )
+        eligible, reason, triggered = rules_mod.evaluate_cell(fields, default_rules)
+        eligible_d, reasons = rules_mod.evaluate_cell_detailed(fields, default_rules)
+
+        assert eligible == eligible_d
+        assert triggered == [r["code"] for r in reasons]
+        assert reason == rules_mod.REASON_DELIMITER.join(r["text"] for r in reasons)
 
 
 # ---------------------------------------------------------------------------
@@ -502,9 +605,16 @@ class TestApplyEndToEnd:
         # GeoPackage round-trips a missing string as NaN, not None — pandas'
         # own notna()/isna() (used by validate()) treats both identically.
         assert pd.isna(table.loc["CELL_CLEAN", "exclusion_reason"])
+        # An eligible cell carries no structured reasons either.
+        assert pd.isna(table.loc["CELL_CLEAN", "exclusion_reasons"])
 
         assert table.loc["CELL_PROTECTED", "eligible"] == False  # noqa: E712
         assert "Protected area: Test Reserve" in table.loc["CELL_PROTECTED", "exclusion_reason"]
+        # Structured machine+human paired reason schema round-trips through the GeoPackage.
+        protected_pairs = json.loads(table.loc["CELL_PROTECTED", "exclusion_reasons"])
+        assert protected_pairs == [
+            {"code": "protected_area", "text": "Protected area: Test Reserve"}
+        ]
 
         assert table.loc["CELL_STEEP", "eligible"] == False  # noqa: E712
         assert "Slope exceeds 15" in table.loc["CELL_STEEP", "exclusion_reason"]
@@ -530,6 +640,115 @@ class TestApplyEndToEnd:
         assert "Exclusion layer summary" in report_text
         assert "Total cells: **5**" in report_text
         assert "protected_area" in report_text
+        # The report documents the machine+human paired reason schema.
+        assert "Exclusion reason schema" in report_text
+        assert "exclusion_reasons" in report_text
+
+    def test_validate_passes_the_structured_reason_check(self, synthetic_pipeline):
+        """The real run's Eligibility_Table passes the exclusion_reasons consistency check."""
+        from pipeline.exclusions.apply import run
+
+        result = run(verbose=False)
+        names = [c["name"] for c in result["validation"]["checks"]]
+        assert any("exclusion_reasons pairs consistent" in n for n in names)
+        failing = [c for c in result["validation"]["checks"] if not c["passed"]]
+        assert failing == []
+
+
+# ---------------------------------------------------------------------------
+# validate() no-silent-passes check for the structured reason column
+# ---------------------------------------------------------------------------
+
+
+class TestValidateStructuredReasons:
+    """The exclusion_reasons consistency check must FAIL on a drifted column."""
+
+    def _write_pair(self, tmp_path, rows):
+        grid = gpd.GeoDataFrame(
+            [{"cell_id": r["cell_id"], "geometry": box(0, 0, 1, 1)} for r in rows],
+            crs="EPSG:4326",
+        )
+        # give each row a distinct geometry so the GeoPackage is well-formed
+        geoms = [box(i, 0, i + 1, 1) for i in range(len(rows))]
+        grid = gpd.GeoDataFrame(
+            [{"cell_id": r["cell_id"]} for r in rows], geometry=geoms, crs="EPSG:4326"
+        )
+        grid_path = tmp_path / "grid.gpkg"
+        grid.to_file(grid_path, driver="GPKG")
+
+        table = gpd.GeoDataFrame(rows, geometry=geoms, crs="EPSG:4326")
+        table_path = tmp_path / "table.gpkg"
+        table.to_file(table_path, driver="GPKG")
+        return table_path, grid_path
+
+    def test_consistent_table_passes(self, tmp_path):
+        from pipeline.exclusions.apply import validate
+
+        rows = [
+            {
+                "cell_id": "A", "eligible": True, "exclusion_reason": None,
+                "triggered_rules": None, "exclusion_reasons": None,
+            },
+            {
+                "cell_id": "B", "eligible": False,
+                "exclusion_reason": "Urban area",
+                "triggered_rules": "urban_area",
+                "exclusion_reasons": json.dumps([{"code": "urban_area", "text": "Urban area"}]),
+            },
+        ]
+        table_path, grid_path = self._write_pair(tmp_path, rows)
+        result = validate(table_path, grid_path)
+        struct = next(c for c in result["checks"] if "exclusion_reasons pairs consistent" in c["name"])
+        assert struct["passed"] is True
+
+    def test_code_mismatch_fails(self, tmp_path):
+        from pipeline.exclusions.apply import validate
+
+        rows = [
+            {
+                "cell_id": "B", "eligible": False,
+                "exclusion_reason": "Urban area",
+                "triggered_rules": "urban_area",
+                # code disagrees with triggered_rules -> must be caught
+                "exclusion_reasons": json.dumps([{"code": "protected_area", "text": "Urban area"}]),
+            },
+        ]
+        table_path, grid_path = self._write_pair(tmp_path, rows)
+        result = validate(table_path, grid_path)
+        struct = next(c for c in result["checks"] if "exclusion_reasons pairs consistent" in c["name"])
+        assert struct["passed"] is False
+
+    def test_missing_pairs_on_excluded_cell_fails(self, tmp_path):
+        from pipeline.exclusions.apply import validate
+
+        rows = [
+            {
+                "cell_id": "B", "eligible": False,
+                "exclusion_reason": "Urban area",
+                "triggered_rules": "urban_area",
+                "exclusion_reasons": None,  # excluded but no structured reasons
+            },
+        ]
+        table_path, grid_path = self._write_pair(tmp_path, rows)
+        result = validate(table_path, grid_path)
+        struct = next(c for c in result["checks"] if "exclusion_reasons pairs consistent" in c["name"])
+        assert struct["passed"] is False
+
+    def test_reasons_on_eligible_cell_fails(self, tmp_path):
+        from pipeline.exclusions.apply import validate
+
+        rows = [
+            {
+                "cell_id": "A", "eligible": True, "exclusion_reason": None,
+                "triggered_rules": None,
+                # eligible cell should carry NO structured reasons
+                "exclusion_reasons": json.dumps([{"code": "urban_area", "text": "Urban area"}]),
+            },
+        ]
+        table_path, grid_path = self._write_pair(tmp_path, rows)
+        result = validate(table_path, grid_path)
+        struct = next(c for c in result["checks"] if "exclusion_reasons pairs consistent" in c["name"])
+        assert struct["passed"] is False
 
 
 # ---------------------------------------------------------------------------

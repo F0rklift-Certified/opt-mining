@@ -604,6 +604,7 @@ section must not blur that distinction:
 | F13 | The constant-criterion rule — `CONSTANT_CRITERION_VALUE = 1.0`, flagged, no divide-by-zero | §5.5 | Contract-frozen |
 | F14 | The boolean definitional mapping — `{False → 0.0, True → 1.0}` domain | §5.6 | Contract-frozen |
 | F15 | The six shipped Default_Weight **values** (0.35 / 0.20 / 0.15 / 0.10 / 0.10 / 0.10) | §4.1 | User-input default |
+| F16 | The exclusion **reason-code vocabulary** — the machine-readable codes an excluded cell carries, and the code↔text pairing contract | §6.5 | Contract-frozen |
 
 The slope-scoring statistic (**mean**, per data-spec frozen decision **Q3**) and the "no
 infrastructure hard-exclusion — continuous penalty only" stance (data-spec frozen decision
@@ -699,6 +700,64 @@ where one is inherited).
 (this specification, `pipeline/scoring/scoring_weights.yaml` / `pipeline/scoring/`, and the
 Data_Specification), with the §4.5→§4.7 pointer discrepancy explicitly recorded in §6.3 so no
 location silently goes stale. Property P4 therefore holds.
+
+### §6.5 Exclusion reason-code vocabulary (Frozen_Decision F16)
+
+The exclusion layer (S1-07, hardened by S2-03) removes a cell from scoring **before** the
+Scoring_Formula runs (§3.3) and records, for every excluded cell, **why** it was excluded. That
+"why" is retained in three consistent forms, all derived from a single rule evaluation
+(`pipeline/exclusions/rules.py` `evaluate_cell_detailed`) so they can never drift:
+
+- `exclusion_reason` — a **human-readable** string; the triggered rules' reason text joined with
+  `", "` in rule-config order.
+- `triggered_rules` — the **machine-readable** rule-name codes, same delimiter and order.
+- `exclusion_reasons` — the **paired** form: a JSON list of
+  `{"code": <rule_name>, "text": <human_reason>}` objects (null for eligible cells). This is the
+  form the S2-06 explanation engine and the S3-05 site-detail view consume directly, so the
+  code↔text pairing is delivered without re-splitting two parallel delimited strings.
+
+**The vocabulary.** The machine-readable **codes are exactly the `name` values of the rules in
+`pipeline/exclusions/exclusion_rules.yaml`**. The shipped MVP vocabulary is the four codes below;
+because rules are data, not code, the vocabulary is extended or retuned by editing that YAML —
+but as a Contract-frozen decision, any change to a code follows the change-control process of
+§6.2 and must land in every recording location listed below so a downstream consumer's code
+table never goes stale.
+
+| Reason code | Human-readable text (template) | Rule (`exclusion_rules.yaml`) |
+| --- | --- | --- |
+| `protected_area` | `Protected area: {protected_area_name}` | any CAPAD protected-area overlap (frozen decision Q6 — binary) |
+| `missing_wind_data` | `Missing wind data` | no valid wind resource value for the cell |
+| `excessive_slope` | `Slope exceeds {threshold}°` (default 15°) | mean slope above the construction threshold |
+| `urban_area` | `Urban area` | overlaps an ABS Urban Centre/Locality |
+
+**Pairing contract (what a consumer may rely on).** For any cell:
+
+- `eligible = True` ⇔ `exclusion_reason`, `triggered_rules` and `exclusion_reasons` are all null.
+- `eligible = False` ⇒ `exclusion_reasons` is a non-empty JSON list; each entry's `code` is a
+  member of the vocabulary above, each `text` is non-empty, and the ordered list of `code` values
+  equals `triggered_rules` split on `", "`. A cell may carry **more than one** reason.
+
+`pipeline/exclusions/apply.py` `validate()` enforces this contract as a no-silent-passes check on
+every run, so a table that violates it fails validation rather than reaching a consumer.
+
+**A high score can never override a code.** Because exclusion runs before scoring and an excluded
+cell receives a null score/rank/contributions (§3.3), a reason code is dispositive: no criterion
+value — however favourable — can re-admit an excluded cell to the ranking. This is verified end to
+end by the compensation-guard test (`tests/scoring/test_exclusion_scoring_guard.py`).
+
+**Recording locations (kept in lock-step, per §6.3 / Requirement 6.4).** F16 is recorded in:
+
+1. **This specification** — this §6.5 (the authoritative vocabulary and pairing contract).
+2. **The rules config** — `pipeline/exclusions/exclusion_rules.yaml` (the `name` of each rule is
+   the authoritative code) and the producing engine `pipeline/exclusions/rules.py`
+   (`evaluate_cell_detailed`), which emits the `{code, text}` pairs.
+3. **The output schema + consumers** — `pipeline/exclusions/apply.py` (`OUTPUT_COLUMNS`,
+   `_write_report` schema section, `validate()` consistency check) and the downstream S2-06b
+   explanation schema (`exclusion_reasons`), which consumes this vocabulary.
+
+A documentation-consistency test (`tests/exclusions/test_exclusions.py`) asserts the codes in the
+shipped `exclusion_rules.yaml` match the vocabulary frozen here, so the YAML and this section
+cannot silently diverge.
 
 ---
 
