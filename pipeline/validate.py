@@ -45,8 +45,29 @@ from rasterio.warp import transform as warp_transform
 from rasterio.windows import from_bounds
 
 from . import config
-from .common.geo import apply_vsicurl_env, atomic_write_text, banner
+from .common.geo import (
+    apply_vsicurl_env,
+    atomic_write_json,
+    atomic_write_text,
+    banner,
+    human_bytes,
+    sha256_file,
+    utc_now,
+)
 from .geographic import config as geo_config
+from .grid.config import NSW_BBOX
+from .integration import config as integration_config
+from .integration.config import (
+    COMPUTATION_CRS,
+    INTEGRATION_DIR,
+    INTEGRATION_META_DIR,
+    INTEGRATION_VINTAGE,
+    OUTPUT_FILENAME,
+    OUTPUT_LAYER,
+    SCORED_FEATURE_COLUMNS,
+    STORAGE_CRS,
+)
+from .integration.merge import BOOL_COLUMNS, COLUMN_UNITS, OUTPUT_COLUMNS
 from .wind import config as wind_config
 from .wind.gwa import resolve_source
 
@@ -64,6 +85,863 @@ STRIP_BBOX = config.COAST_BBOX
 
 # Siting constraint defaults
 DEFAULT_MAX_SLOPE_DEG = 15.0
+
+
+# ---------------------------------------------------------------------------
+# S2-02 — Sprint 1 integrated-table input contract
+# ---------------------------------------------------------------------------
+#
+# The schema this tier validates is *read* from the Schema_Authority
+# (`OUTPUT_COLUMNS` / `COLUMN_UNITS` / `BOOL_COLUMNS` in
+# `pipeline/integration/merge.py`; `SCORED_FEATURE_COLUMNS` /
+# `INTEGRATION_DIR` / `OUTPUT_FILENAME` / `OUTPUT_LAYER` /
+# `INTEGRATION_VINTAGE` / `INTEGRATION_META_DIR` and the re-exported
+# `STORAGE_CRS` / `COMPUTATION_CRS` in `pipeline/integration/config.py`) and is
+# never re-typed as literals, so a schema, path or CRS change upstream
+# propagates into this gate rather than drifting (KAN-38 cross-cutting note).
+
+# Default path to the frozen Sprint 1 integrated table. Derived from the
+# integration config — never a hard-coded literal — so an upstream rename of
+# the output directory or filename flows through to the validator.
+DEFAULT_INTEGRATED_PATH = INTEGRATION_DIR / OUTPUT_FILENAME
+
+# The Baseline_Manifest (design Model 1) lives alongside the existing
+# integration_manifest.json under INTEGRATION_META_DIR and follows the same
+# file-naming / metadata convention.
+BASELINE_MANIFEST_FILENAME = "integrated_baseline_manifest.json"
+DEFAULT_BASELINE_MANIFEST_PATH = INTEGRATION_META_DIR / BASELINE_MANIFEST_FILENAME
+
+# The Validation_Result (design Model 2) and its sibling Validation_Report are
+# written alongside the Baseline_Manifest under INTEGRATION_META_DIR, following
+# the same file-naming convention. Defined here as module constants — never
+# hard-coded literals at the write sites — so a path change lands in one place,
+# mirroring the BASELINE_MANIFEST_FILENAME pattern. Tests redirect writes by
+# monkeypatching INTEGRATION_META_DIR (the writers derive their default path
+# from it), consistent with DEFAULT_BASELINE_MANIFEST_PATH.
+VALIDATION_RESULT_FILENAME = "integrated_input_validation.json"
+VALIDATION_REPORT_FILENAME = "integrated_input_validation.md"
+DEFAULT_VALIDATION_RESULT_PATH = INTEGRATION_META_DIR / VALIDATION_RESULT_FILENAME
+DEFAULT_VALIDATION_REPORT_PATH = INTEGRATION_META_DIR / VALIDATION_REPORT_FILENAME
+
+# Screening_Language purpose sentence (S2-01 §1.4, requirement 8A). Reused in
+# the Validation_Report and any diagnostic output so the validator only ever
+# describes its purpose as preliminary screening — never as identifying a
+# "best site". Kept as a single constant so the phrasing cannot drift between
+# outputs.
+SCREENING_PURPOSE = (
+    "This gate is a precondition on preliminary screening: it verifies the "
+    "frozen integrated input contract so the decision engine only screens data "
+    "it has verified. The engine surfaces higher-ranked candidate cells under "
+    "the selected assumptions and criteria — preliminary screening, never a "
+    "\"best site\"."
+)
+
+# Per-scored-column input-contract Sanity_Range (design Model 3, checks 8–9).
+#
+# These are *input-contract sanity bounds* — the plausible physical range a
+# stored value must fall within to be a well-formed input to the decision
+# engine. They are DISTINCT from the S2-01 §5.2 per-run scoring bounds, which
+# are computed from the eligible population at scoring time; a value inside its
+# Sanity_Range here still gets min–max normalised downstream. The bounds are
+# consistent with the `COLUMN_UNITS` entry for each column and the S2-01 §2
+# units / Directions:
+#
+#   wind_speed            m/s              [0, 25]        higher_is_better
+#   demand_proxy          normalised 0–1   [0, 1]         higher_is_better
+#   dist_transmission_km  km (EPSG:3577)   [0, 2000]      lower_is_better
+#   dist_substation_km    km (EPSG:3577)   [0, 2000]      lower_is_better
+#   slope_deg             degrees          [0, 90]        lower_is_better
+#   elevation_m           metres           [-20, 3000]    context
+#   inside_rez            boolean          {false, true}  higher_is_better
+#   protected_area        boolean          {false, true}  hard-constraint context
+#
+# Out-of-range values are reported (expected vs observed) and fail their check;
+# they are never clamped or coerced silently.
+SANITY_RANGES: dict[str, tuple[float, float] | frozenset[bool]] = {
+    "wind_speed": (0.0, 25.0),
+    "demand_proxy": (0.0, 1.0),
+    "dist_transmission_km": (0.0, 2000.0),
+    "dist_substation_km": (0.0, 2000.0),
+    "slope_deg": (0.0, 90.0),
+    "elevation_m": (-20.0, 3000.0),
+    "inside_rez": frozenset({False, True}),
+    "protected_area": frozenset({False, True}),
+}
+
+
+def _format_bound(bound: tuple[float, float] | frozenset[bool]) -> str:
+    """Human-readable Sanity_Range for a Check_Record expected value.
+
+    Numeric bounds render as a closed interval ``[lo, hi]``; boolean bounds
+    render as the allowed set ``{false, true}``. Used only for reporting — the
+    check logic reads the raw ``bound`` from ``SANITY_RANGES``.
+    """
+    if isinstance(bound, frozenset):
+        return "{" + ", ".join(str(v).lower() for v in sorted(bound)) + "}"
+    lo, hi = bound
+    return f"[{lo:g}, {hi:g}]"
+
+
+# ---------------------------------------------------------------------------
+# Frozen-baseline reference (design Component 1)
+# ---------------------------------------------------------------------------
+
+
+def freeze_baseline(
+    integrated_path: Path | None = None,
+    *,
+    write: bool = False,
+) -> dict:
+    """
+    Resolve the Sprint 1 integrated feature table and return its baseline record.
+
+    The record is::
+
+        {
+          "artefact": "s1-08 integrated feature table",
+          "path": str,            # relative to PROJECT_ROOT
+          "layer": "integrated_features",   # integration.config.OUTPUT_LAYER
+          "version": "2026",      # integration.config.INTEGRATION_VINTAGE
+          "sha256": "<64-hex>",   # common.geo.sha256_file (observed, this run)
+          "bytes": int,           # path.stat().st_size
+          "bytes_human": "…",     # common.geo.human_bytes
+          "storage_crs": "EPSG:4326",   # copied from integration.config
+          "computation_crs": "EPSG:3577",
+          "frozen_at_utc": "…",   # when the baseline was first frozen
+          "frozen_by": "pipeline.validate.freeze_baseline",
+          "verified_at_utc": "…", # this run (common.geo.utc_now)
+          "hash_ok": bool,        # observed sha256 == frozen sha256
+        }
+
+    The persisted Baseline_Manifest (Model 1) holds the *frozen reference*: the
+    fields above **excluding** the per-run ``verified_at_utc`` and ``hash_ok``.
+    The returned dict is that manifest record plus ``verified_at_utc`` and
+    ``hash_ok`` (Model 2's ``baseline`` block).
+
+    Freeze semantics:
+
+    - ``write=True`` and no Baseline_Manifest exists → record the current
+      SHA-256 as the frozen reference exactly once (a one-time freeze), unless
+      Hash_Drift against an in-flight reference would be recorded — the initial
+      freeze is guarded so it only happens from a clean state.
+    - ``write=True`` and a Baseline_Manifest already exists → overwrite it with
+      the newly recorded values.
+    - ``write=False`` (the default, verify mode) → re-hash the current file and
+      compare to the recorded baseline SHA-256, setting ``hash_ok`` so
+      Hash_Drift is surfaced as a failing check rather than silently accepted.
+
+    The Integrated_Dataset is treated as strictly read-only: no code path here
+    writes to, moves, renames, or alters it. Only the sidecar Baseline_Manifest
+    under INTEGRATION_META_DIR is ever written, and only in write mode.
+    """
+    path = DEFAULT_INTEGRATED_PATH if integrated_path is None else Path(integrated_path)
+    manifest_path = DEFAULT_BASELINE_MANIFEST_PATH
+
+    # Observed provenance for the file as it exists on disk right now. This is
+    # a read of the frozen artefact — never a write.
+    observed_sha = sha256_file(path)
+    size = path.stat().st_size
+    now = utc_now()
+
+    # Resolve the recorded reference (if any) so we can compare and preserve
+    # the original freeze timestamp across overwrites.
+    existing: dict | None = None
+    if manifest_path.exists():
+        try:
+            existing = json.loads(manifest_path.read_text())
+        except (ValueError, OSError):
+            existing = None
+
+    frozen_sha = existing.get("sha256") if existing else None
+    frozen_at = existing.get("frozen_at_utc") if existing else None
+
+    try:
+        rel_path = str(path.resolve().relative_to(integration_config.PROJECT_ROOT))
+    except ValueError:
+        # A fixture table outside the project root (tests) — record as given.
+        rel_path = str(path)
+
+    if write:
+        if existing is None:
+            # One-time freeze. Guard the initial recording: only freeze from a
+            # clean state. There is no prior reference to drift from, so the
+            # observed hash *is* the clean state we record; frozen_at is now.
+            frozen_sha = observed_sha
+            frozen_at = now
+        else:
+            # Re-freeze / overwrite with the newly observed values, preserving
+            # the original freeze timestamp only if this is a genuine re-record
+            # of the same artefact. Overwrite adopts the observed hash as the
+            # new reference.
+            frozen_sha = observed_sha
+            frozen_at = frozen_at or now
+    else:
+        # Verify mode with no recorded reference yet: the observed hash is all
+        # we have, so hash_ok is trivially True against itself and frozen_at is
+        # unknown until a write establishes it.
+        if frozen_sha is None:
+            frozen_sha = observed_sha
+        if frozen_at is None:
+            frozen_at = now
+
+    hash_ok = observed_sha == frozen_sha
+
+    manifest_record = {
+        "artefact": "s1-08 integrated feature table",
+        "path": rel_path,
+        "layer": OUTPUT_LAYER,
+        "version": INTEGRATION_VINTAGE,
+        "sha256": frozen_sha,
+        "bytes": size,
+        "bytes_human": human_bytes(size),
+        "storage_crs": STORAGE_CRS,
+        "computation_crs": COMPUTATION_CRS,
+        "frozen_at_utc": frozen_at,
+        "frozen_by": "pipeline.validate.freeze_baseline",
+    }
+
+    if write:
+        # Guard: never record a drifted state as the frozen reference. On the
+        # initial freeze frozen_sha == observed_sha by construction, so this
+        # only bites a re-freeze that somehow disagrees with itself; recording
+        # is prevented until a clean state is established.
+        if manifest_record["sha256"] != observed_sha:
+            raise RuntimeError(
+                "refusing to record Baseline_Manifest with a drifted SHA-256; "
+                "establish a clean state before freezing"
+            )
+        atomic_write_json(manifest_path, manifest_record)
+
+    return {
+        **manifest_record,
+        "verified_at_utc": now,
+        "hash_ok": hash_ok,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Input-contract checks (design Component 2)
+# ---------------------------------------------------------------------------
+#
+# Consumer contract (holistic note): S2-05 scoring (KAN-42) and the S2-08
+# decision service (KAN-45) read the Validation_Result JSON sidecar this tier
+# emits (`integrated_input_validation.json`, written under INTEGRATION_META_DIR)
+# and gate on it — they never re-run validation (req 10.4). This is a
+# preliminary-screening precondition (Screening_Language): the engine only
+# screens data it has verified; it never claims a "best site". This function is
+# the source of the Check_Records that feed that verdict.
+#
+# The consumers gate on TWO conditions read directly from the sidecar:
+#   (a) `all_passed` — the conjunction of every input-contract Check_Record, and
+#   (b) `≥ 1` Eligible_Cell — surfaced as check 12 ("at least one Eligible_Cell")
+#       and reflected in `all_passed` (zero eligible cells fails that check).
+#
+# Gating behaviour the consumers MUST honour:
+#   - req 9.3:  if `all_passed` is False, the downstream engine SHALL NOT emit a
+#               ranking — invalid input never produces a screening ranking.
+#   - req 9.3A: if there are zero Eligible_Cells, the engine SHALL NOT emit a
+#               ranking even when `all_passed` is True — there is nothing valid
+#               to screen.
+#   - req 9.4:  batch mode (S2-05 scoring) ABORTS the run when `all_passed` is
+#               False — it does not fall through to scoring.
+#   - req 9.5:  service mode (the S2-08 decision service) surfaces a
+#               data-quality banner when `all_passed` is False rather than
+#               returning a ranking.
+#   - req 9.6:  zero Eligible_Cells is flagged as "no eligible cells" — never an
+#               empty ranking presented as a valid preliminary-screening result.
+#
+# This tier stays a pure reporter (it writes the sidecar and never raises on a
+# data-quality failure); the Halt_Or_Flag decision above lives entirely with
+# these consumers.
+
+
+def _run_integrated_input_checks(
+    verbose: bool = False,
+    integrated_path: Path | None = None,
+) -> list[dict]:
+    """
+    Input-contract checks on the frozen S1-08 integrated feature table.
+
+    Returns a list of ``{"name", "expected", "observed", "passed"}`` dicts using
+    the same ``check(name, expected, observed, passed)`` helper as every other
+    tier — no silent passes: each check states expected vs observed vs a boolean
+    pass/fail. Returns ``[]`` only when the integrated table does not exist yet
+    (a partial pipeline run), never to skip a check silently on a table that is
+    present.
+
+    The battery (design Component 2) is twelve checks; this function builds them
+    in order into a single ``checks`` list:
+
+      1. baseline hash matches the frozen reference   (this task)
+      2. required columns present                      (this task)
+      3. scored feature columns present                (this task)
+      4. cell_id non-null                              (task 4.3)
+      5. cell_id unique                                (task 4.3)
+      6. coordinates valid & in the NSW envelope       (task 4.3)
+      7. geometry validity & storage CRS               (task 4.3)
+      8. units/ranges per scored column                (task 4.5)
+      9. missing-value counts per feature              (task 4.5)
+      10. eligible present & boolean, no nulls         (task 4.7)
+      11. eligible/exclusion_reason consistent         (task 4.7)
+      12. at least one Eligible_Cell                   (task 4.7)
+
+    Checks 4–12 are added by later tasks; they append to the same ``checks``
+    list at the marked insertion point below, reading the single GeoDataFrame
+    loaded once near the top. The Integrated_Dataset is read-only here — the
+    validator never reprojects it (storage is EPSG:4326; any distance/area logic
+    uses COMPUTATION_CRS explicitly).
+    """
+    path = DEFAULT_INTEGRATED_PATH if integrated_path is None else Path(integrated_path)
+
+    checks: list[dict] = []
+
+    def check(name, expected, observed, passed):
+        checks.append({"name": name, "expected": expected,
+                       "observed": observed, "passed": bool(passed)})
+
+    # A partial pipeline run has not produced the integrated table yet. Return
+    # [] so the gate is a no-op until the S1-08 artefact exists — never to skip
+    # a check on a table that IS present (that would be a silent pass). The
+    # run() wiring (task 7.1) turns this empty list into all_passed=False.
+    if not path.exists():
+        return checks
+
+    import geopandas as gpd
+
+    # Load the frozen table once; every content check (2–12) reads this same
+    # GeoDataFrame. Check 1 (hash) reads the file bytes via freeze_baseline and
+    # needs no columns, so it runs off `path` directly.
+    gdf = gpd.read_file(path, layer=OUTPUT_LAYER)
+    observed_columns = list(gdf.columns)
+
+    # --- Check 1 — baseline hash matches the frozen reference (1.3, 1.4) -----
+    # Verify mode (write=False): re-hash the current file and compare to the
+    # recorded Baseline_Manifest SHA-256 so Hash_Drift surfaces as a FAIL rather
+    # than being silently accepted. hash_ok is the single source of truth.
+    baseline = freeze_baseline(path)
+    check(
+        "Baseline hash matches the frozen reference",
+        "sha256 == frozen reference",
+        "match" if baseline["hash_ok"] else "DRIFTED",
+        baseline["hash_ok"],
+    )
+
+    # --- Check 2 — required columns present (2.1, 2.3, 2.4) -----------------
+    # Expected is the full OUTPUT_COLUMNS set, READ from the Schema_Authority
+    # (never re-typed). Observed names any missing columns; FAIL if any absent.
+    missing_required = [c for c in OUTPUT_COLUMNS if c not in observed_columns]
+    check(
+        "Required columns present",
+        f"all {len(OUTPUT_COLUMNS)} OUTPUT_COLUMNS present",
+        "0 missing" if not missing_required
+        else f"{len(missing_required)} missing: {missing_required}",
+        not missing_required,
+    )
+
+    # --- Check 3 — scored feature columns present (2.2, 2.5, 2.6, 2.7) ------
+    # Expected is the full SCORED_FEATURE_COLUMNS set (a superset of the S2-01
+    # §2 frozen Scored_Criteria), READ from the Schema_Authority. Observed names
+    # any missing scored columns; FAIL if any absent.
+    missing_scored = [c for c in SCORED_FEATURE_COLUMNS if c not in observed_columns]
+    check(
+        "Scored feature columns present",
+        f"all {len(SCORED_FEATURE_COLUMNS)} SCORED_FEATURE_COLUMNS present",
+        "0 missing" if not missing_scored
+        else f"{len(missing_scored)} missing: {missing_scored}",
+        not missing_scored,
+    )
+
+    # --- Check 4 — cell_id non-null (3.1, 3.2) ------------------------------
+    # Expected zero nulls; observed the null count; FAIL if any. Degrade
+    # gracefully if the column is somehow absent (checks 2/3 already report a
+    # missing required column) rather than raising.
+    if "cell_id" not in observed_columns:
+        check(
+            "cell_id non-null",
+            "0 null cell_id values",
+            "unavailable: cell_id column absent",
+            False,
+        )
+    else:
+        null_cell_ids = int(gdf["cell_id"].isna().sum())
+        check(
+            "cell_id non-null",
+            "0 null cell_id values",
+            f"{null_cell_ids:,} null cell_id values",
+            null_cell_ids == 0,
+        )
+
+    # --- Check 5 — cell_id unique (3.3, 3.4) --------------------------------
+    # Expected zero duplicates; observed the duplicate count (rows beyond the
+    # first occurrence of each value); FAIL if any.
+    if "cell_id" not in observed_columns:
+        check(
+            "cell_id unique",
+            "0 duplicate cell_id values",
+            "unavailable: cell_id column absent",
+            False,
+        )
+    else:
+        duplicate_cell_ids = int(gdf["cell_id"].duplicated(keep="first").sum())
+        check(
+            "cell_id unique",
+            "0 duplicate cell_id values",
+            f"{duplicate_cell_ids:,} duplicate cell_id values",
+            duplicate_cell_ids == 0,
+        )
+
+    # --- Check 6 — coordinates valid & in the NSW envelope (4.1, 4.2) -------
+    # Expected: every centroid_lat ∈ [-90, 90], centroid_lon ∈ [-180, 180], and
+    # every centroid within the NSW analysis bounding box (NSW_BBOX, read from
+    # grid.config as (west, south, east, north) — never re-typed). Observed the
+    # out-of-range count; FAIL if any. This is a coordinate-range test on the
+    # stored EPSG:4326 lat/lon columns — no reprojection, no distance/area math.
+    coord_cols_present = "centroid_lat" in observed_columns and "centroid_lon" in observed_columns
+    if not coord_cols_present:
+        check(
+            "Coordinates valid and within the NSW analysis bounding box",
+            "centroid_lat ∈ [-90, 90], centroid_lon ∈ [-180, 180], "
+            "centroid within NSW_BBOX",
+            "unavailable: centroid_lat/centroid_lon column absent",
+            False,
+        )
+    else:
+        west, south, east, north = NSW_BBOX
+        lat = gdf["centroid_lat"]
+        lon = gdf["centroid_lon"]
+        lat_ok = lat.between(-90.0, 90.0)
+        lon_ok = lon.between(-180.0, 180.0)
+        in_box = lat.between(south, north) & lon.between(west, east)
+        out_of_range = int((~(lat_ok & lon_ok & in_box)).sum())
+        check(
+            "Coordinates valid and within the NSW analysis bounding box",
+            "centroid_lat ∈ [-90, 90], centroid_lon ∈ [-180, 180], "
+            f"centroid within NSW_BBOX {NSW_BBOX}",
+            f"{out_of_range:,} out-of-range centroids",
+            out_of_range == 0,
+        )
+
+    # --- Check 7 — geometry validity & storage CRS (4.3, 4.4, 4.5, 4.6) -----
+    # Two conditions in one Check_Record: every geometry is valid AND the table
+    # is stored in STORAGE_CRS (EPSG:4326). The observed CRS is recorded
+    # regardless of pass/fail (4.4). The gdf is never reprojected — this is a
+    # pure inspection of the stored geometry column and its CRS; any downstream
+    # distance/area logic uses COMPUTATION_CRS explicitly (4.6).
+    #
+    # Compare gdf.crs to STORAGE_CRS robustly: gdf.crs is a pyproj CRS object,
+    # so match its authority tuple against STORAGE_CRS ("EPSG:4326"). A crs of
+    # None is a failing CRS assertion (unknown storage frame).
+    if gdf.crs is None:
+        observed_crs = "None"
+        crs_ok = False
+    else:
+        observed_crs = gdf.crs.to_string()
+        try:
+            crs_ok = gdf.crs.to_authority() == tuple(STORAGE_CRS.split(":"))
+        except Exception:
+            crs_ok = observed_crs == STORAGE_CRS
+
+    geom = gdf.geometry
+    invalid_geom = int((~geom.is_valid | geom.is_empty | geom.isna()).sum())
+
+    check(
+        "Geometry valid and stored in the storage CRS",
+        f"all geometries valid and crs == {STORAGE_CRS}",
+        f"{invalid_geom:,} invalid geometries; crs={observed_crs}",
+        invalid_geom == 0 and crs_ok,
+    )
+
+    # --- Check 8 — units/ranges per scored column (5.3, 5.4, 5.5) -----------
+    # One Check_Record per scored column that HAS a Sanity_Range bound (read
+    # from SANITY_RANGES). Only 8 of the 10 SCORED_FEATURE_COLUMNS have a bound;
+    # dist_connection_km and land_use have none and are not range-checked here.
+    # Expected is the column's Sanity_Range; observed is the out-of-range count.
+    # Out-of-range values are REPORTED (expected vs observed) and fail the check
+    # — they are never clamped, coerced, or silently modified (5.5). For numeric
+    # bounds a non-numeric entry (coerced to NaN by to_numeric) counts as
+    # out-of-range rather than being silently dropped; for boolean bounds any
+    # value not in {False, True} counts as out-of-range.
+    import pandas as pd
+
+    for column in SCORED_FEATURE_COLUMNS:
+        bound = SANITY_RANGES.get(column)
+        if bound is None:
+            # No input-contract range for this scored column (e.g.
+            # dist_connection_km, land_use) — nothing to range-check.
+            continue
+
+        if column not in observed_columns:
+            # Absence is already reported by check 3; degrade gracefully here
+            # rather than raising, but never report a silent pass.
+            check(
+                f"Units/ranges within sanity bound: {column}",
+                f"all values within Sanity_Range {_format_bound(bound)}",
+                f"unavailable: {column} column absent",
+                False,
+            )
+            continue
+
+        series = gdf[column]
+
+        if isinstance(bound, frozenset):
+            # Boolean Sanity_Range: count values not in {False, True}. Nulls and
+            # any non-boolean value are out-of-range (not silently accepted).
+            allowed = bound
+            out_of_range = int(sum(0 if v in allowed else 1 for v in series.tolist()))
+        else:
+            lo, hi = bound
+            # Coerce to numeric so a non-numeric value becomes NaN; NaN is
+            # neither < lo nor > hi, so count it explicitly as out-of-range
+            # rather than letting it slip through.
+            numeric = pd.to_numeric(series, errors="coerce")
+            below = numeric < lo
+            above = numeric > hi
+            non_numeric = numeric.isna() & series.notna()
+            out_of_range = int((below | above | non_numeric).sum())
+
+        check(
+            f"Units/ranges within sanity bound: {column}",
+            f"all values within Sanity_Range {_format_bound(bound)}",
+            f"{out_of_range:,} out-of-range values",
+            out_of_range == 0,
+        )
+
+    # --- Check 9 — missing-value counts per feature (6.1, 6.2, 6.3) ---------
+    # One Check_Record per column in SCORED_FEATURE_COLUMNS (all 10), read from
+    # the Schema_Authority. Observed is the missing/null count; expected is an
+    # explicit non-empty string so the count is REPORTED rather than silently
+    # omitted (6.3 — no silent pass). A nonzero missing count fails the check so
+    # an injected null is a visible failure.
+    for column in SCORED_FEATURE_COLUMNS:
+        if column not in observed_columns:
+            # Absence is already reported by check 3; report explicitly here
+            # rather than raising, and never as a silent pass.
+            check(
+                f"Missing-value count: {column}",
+                "0 missing values",
+                f"unavailable: {column} column absent",
+                False,
+            )
+            continue
+
+        missing = int(gdf[column].isna().sum())
+        check(
+            f"Missing-value count: {column}",
+            "0 missing values",
+            f"{missing:,} missing values",
+            missing == 0,
+        )
+
+    # --- Check 10 — eligible present & boolean, no nulls (7.1, 7.2, 7.2A) ---
+    # Re-assert the EXACT invariant pipeline/integration/merge.py enforces at
+    # production time (do not reinvent): boolean dtype with zero nulls. The
+    # dtype string test `str(dtype) in ("bool", "boolean")` treats every other
+    # or ambiguous dtype (e.g. object, int64, float64) as non-boolean → FAIL.
+    # "eligible" is in BOOL_COLUMNS; merge.py references the literal, so match
+    # merge.py here to keep the two gates textually aligned. Degrade gracefully
+    # if the column is absent (check 2 already reports the missing column)
+    # rather than raising.
+    eligible_col = "eligible"
+    assert eligible_col in BOOL_COLUMNS  # schema-authority sanity, not runtime
+    if eligible_col not in observed_columns:
+        check(
+            "eligible present, boolean, no nulls",
+            "boolean dtype, 0 nulls",
+            "unavailable: eligible column absent",
+            False,
+        )
+    else:
+        elig = gdf[eligible_col]
+        n_null = int(elig.isna().sum())
+        is_bool = str(elig.dtype) in ("bool", "boolean")
+        check(
+            "eligible present, boolean, no nulls",
+            "boolean dtype, 0 nulls",
+            f"dtype {elig.dtype}, {n_null:,} nulls",
+            n_null == 0 and is_bool,
+        )
+
+    # --- Check 11 — eligible/exclusion_reason consistent (7.3, 7.4) --------
+    # Re-assert the merge.py invariant verbatim: a cell is inconsistent when it
+    # is eligible yet carries an exclusion reason, or is ineligible yet has no
+    # reason. Expected 0 inconsistent rows; observed the inconsistent-row count.
+    # Degrade gracefully if either column is absent (check 2 reports it) rather
+    # than raising.
+    if eligible_col not in observed_columns or "exclusion_reason" not in observed_columns:
+        check(
+            "eligible/exclusion_reason consistent",
+            "0 inconsistent rows",
+            "unavailable: eligible or exclusion_reason column absent",
+            False,
+        )
+    else:
+        eligible = gdf[eligible_col].fillna(False).astype(bool)
+        reason = gdf["exclusion_reason"]
+        reason_present = reason.notna() & (reason.fillna("").astype(str).str.len() > 0)
+        inconsistent = int(
+            ((eligible & reason_present) | (~eligible & ~reason_present)).sum()
+        )
+        check(
+            "eligible/exclusion_reason consistent",
+            "0 inconsistent rows",
+            f"{inconsistent:,} inconsistent rows",
+            inconsistent == 0,
+        )
+
+    # --- Check 12 — at least one Eligible_Cell (7.5, 7.6) ------------------
+    # A ranking is never emitted from zero eligible cells (the consumer contract
+    # in the module docstring). Expected ≥ 1 eligible; observed the Eligible_Cell
+    # count; FAIL if zero. Uses the same fillna(False).astype(bool) coercion as
+    # merge.py so a null eligible is treated as ineligible for the count.
+    if eligible_col not in observed_columns:
+        check(
+            "At least one Eligible_Cell",
+            "≥ 1 eligible cell",
+            "unavailable: eligible column absent",
+            False,
+        )
+    else:
+        n_eligible = int(gdf[eligible_col].fillna(False).astype(bool).sum())
+        check(
+            "At least one Eligible_Cell",
+            "≥ 1 eligible cell",
+            f"{n_eligible:,} eligible cells",
+            n_eligible >= 1,
+        )
+
+    if verbose:
+        for entry in checks:
+            print(f"    [{'PASS' if entry['passed'] else 'FAIL'}] {entry['name']}")
+    return checks
+
+
+# ---------------------------------------------------------------------------
+# Validation_Result sidecar + Validation_Report emitter (design Component 3)
+# ---------------------------------------------------------------------------
+#
+# These are PURE writers: they compute the Validation_Result from a baseline
+# record + a list of Check_Records and write the two output files. They never
+# raise on a data-quality failure — the Halt_Or_Flag decision lives at the
+# engine boundary (S2-03+), which reads `all_passed`. Wiring into run() is
+# task 7.1; these functions are standalone so task 6.2 can test them
+# hermetically by monkeypatching the module output-path constants.
+
+
+def _verdict(checks: list[dict]) -> bool:
+    """
+    The `all_passed` verdict over a list of Check_Records.
+
+    Semantics (requirements 9.2 / 10.3):
+
+    - When ``checks`` is non-empty, ``all_passed`` is the conjunction of every
+      Check_Record's ``passed``. The baseline hash match is represented as
+      check 1 in a present-table battery, so the hash is already folded into
+      this conjunction — no separate hash term is needed here.
+    - When ``checks`` is empty (the Integrated_Dataset is absent, so
+      ``_run_integrated_input_checks`` returned ``[]``), there is **no** hash
+      check and nothing was verified. An empty ``all(...)`` is vacuously
+      ``True`` in Python, which would report a missing dataset as passing — a
+      silent pass this gate forbids. So a missing/empty battery is forced to
+      ``all_passed = False`` (requirement 4A.1 → 10.4A, 8.3).
+    """
+    if not checks:
+        return False
+    return all(bool(c["passed"]) for c in checks)
+
+
+def build_validation_result(baseline: dict, checks: list[dict]) -> dict:
+    """
+    Build the Validation_Result object (design Model 2) from a baseline record
+    and a list of Check_Records.
+
+    Shape::
+
+        {
+          "generated_at_utc": "…",              # common.geo.utc_now
+          "generator": "pipeline.validate",
+          "baseline": { …Model 1 record…,       # incl. verified_at_utc, hash_ok
+                        "verified_at_utc": "…", "hash_ok": bool },
+          "all_passed": bool,
+          "n_checks": int,
+          "n_passed": int,
+          "checks": [ {name, expected, observed, passed}, … ],
+        }
+
+    Invariants enforced (requirement 10.3):
+
+    - ``all_passed == all(c["passed"] for c in checks)`` for a non-empty
+      battery, and ``all_passed == False`` for an empty one (see ``_verdict``).
+    - ``n_passed == sum(1 for c in checks if c["passed"])``.
+    - ``n_checks == len(checks)``.
+
+    ``checks`` is copied into the exact ``{name, expected, observed, passed}``
+    shape (with ``passed`` coerced to a plain ``bool``) so the emitted result
+    is JSON-clean and cannot carry incidental extra keys.
+    """
+    normalised = [
+        {
+            "name": c["name"],
+            "expected": c["expected"],
+            "observed": c["observed"],
+            "passed": bool(c["passed"]),
+        }
+        for c in checks
+    ]
+    n_passed = sum(1 for c in normalised if c["passed"])
+    return {
+        "generated_at_utc": utc_now(),
+        "generator": "pipeline.validate",
+        "baseline": baseline,
+        "all_passed": _verdict(normalised),
+        "n_checks": len(normalised),
+        "n_passed": n_passed,
+        "checks": normalised,
+    }
+
+
+def write_validation_result(result: dict, meta_dir: Path | None = None) -> Path:
+    """
+    Atomically write the Validation_Result JSON sidecar (requirement 10.1,
+    12.1).
+
+    Writes to ``meta_dir / VALIDATION_RESULT_FILENAME`` via
+    ``common.geo.atomic_write_json``. ``meta_dir`` defaults to the module's
+    ``INTEGRATION_META_DIR`` (resolved at call time so a monkeypatched
+    constant is honoured in tests). Returns the written path.
+
+    Written even when ``result["checks"]`` is empty (requirement 4A.1 → 10.4A):
+    a missing/absent table still yields a written result with
+    ``all_passed = False``.
+    """
+    directory = INTEGRATION_META_DIR if meta_dir is None else Path(meta_dir)
+    out_path = directory / VALIDATION_RESULT_FILENAME
+    atomic_write_json(out_path, result)
+    return out_path
+
+
+def render_validation_report(result: dict) -> str:
+    """
+    Render the Validation_Report markdown for a Validation_Result.
+
+    Layout (requirements 8A.1, 8A.1A, 8A.2, 10.5, 10.6):
+
+    1. ``banner("validate")`` as the FIRST content (do-not-edit stamp, 10.6).
+    2. A title and the Screening_Language purpose sentence (preliminary
+       screening — never "best site"), so the report and any diagnostic output
+       describe the validator's purpose in Screening_Language.
+    3. An overall verdict line (PASS/FAIL, n_passed/n_checks).
+    4. The expected/observed/result table — one row per Check_Record with a
+       PASS/FAIL result column (10.5). When there are zero Check_Records the
+       table is rendered with an explicit "no checks executed" note so the
+       absence is visible rather than silent (4A.1 → 10.4A).
+    5. A baseline summary (path, version, sha256, hash_ok).
+    """
+    baseline = result.get("baseline") or {}
+    lines: list[str] = []
+
+    # 1. Banner FIRST (requirement 10.6).
+    lines.append(banner("validate"))
+    lines.append("")
+
+    # 2. Title + Screening_Language purpose (requirements 8A.1/8A.1A/8A.2).
+    lines.append("# Integrated-input contract validation")
+    lines.append("")
+    lines.append(SCREENING_PURPOSE)
+    lines.append("")
+
+    # 3. Overall verdict.
+    verdict = "PASS" if result.get("all_passed") else "FAIL"
+    lines.append(
+        f"**Result:** {verdict} "
+        f"({result.get('n_passed', 0)}/{result.get('n_checks', 0)} checks passed)"
+    )
+    lines.append("")
+
+    # 4. Expected / observed / result table (requirement 10.5).
+    lines.append("## Checks")
+    lines.append("")
+    checks = result.get("checks") or []
+    if not checks:
+        lines.append(
+            "_No checks executed — the integrated table was absent, so this "
+            "validation fails as a matter of contract (nothing was verified)._"
+        )
+        lines.append("")
+    else:
+        lines.append("| Check | Expected | Observed | Result |")
+        lines.append("| --- | --- | --- | --- |")
+        for c in checks:
+            result_cell = "PASS" if c["passed"] else "FAIL"
+            # Escape pipes so a stray "|" in an observed value cannot break the
+            # markdown table layout.
+            name = str(c["name"]).replace("|", "\\|")
+            expected = str(c["expected"]).replace("|", "\\|")
+            observed = str(c["observed"]).replace("|", "\\|")
+            lines.append(
+                f"| {name} | {expected} | {observed} | {result_cell} |"
+            )
+        lines.append("")
+
+    # 5. Baseline summary.
+    lines.append("## Baseline")
+    lines.append("")
+    lines.append(f"- Artefact: {baseline.get('artefact', 'n/a')}")
+    lines.append(f"- Path: `{baseline.get('path', 'n/a')}`")
+    lines.append(f"- Layer: {baseline.get('layer', 'n/a')}")
+    lines.append(f"- Version: {baseline.get('version', 'n/a')}")
+    lines.append(f"- SHA-256: `{baseline.get('sha256', 'n/a')}`")
+    lines.append(f"- Bytes: {baseline.get('bytes_human', 'n/a')}")
+    lines.append(f"- Storage CRS: {baseline.get('storage_crs', 'n/a')}")
+    lines.append(f"- Computation CRS: {baseline.get('computation_crs', 'n/a')}")
+    lines.append(f"- Verified at (UTC): {baseline.get('verified_at_utc', 'n/a')}")
+    hash_ok = baseline.get("hash_ok")
+    lines.append(
+        f"- Hash matches frozen reference: {'yes' if hash_ok else 'no'}"
+    )
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def write_validation_report(result: dict, meta_dir: Path | None = None) -> Path:
+    """
+    Render and atomically write the Validation_Report markdown (requirements
+    10.5, 10.6, 12.2).
+
+    Writes to ``meta_dir / VALIDATION_REPORT_FILENAME`` via
+    ``common.geo.atomic_write_text``. ``meta_dir`` defaults to the module's
+    ``INTEGRATION_META_DIR`` (resolved at call time so a monkeypatched constant
+    is honoured in tests). Returns the written path.
+
+    Written even when the checks list is empty (requirement 4A.1 → 10.4A).
+    """
+    directory = INTEGRATION_META_DIR if meta_dir is None else Path(meta_dir)
+    out_path = directory / VALIDATION_REPORT_FILENAME
+    atomic_write_text(out_path, render_validation_report(result))
+    return out_path
+
+
+def write_validation_outputs(
+    baseline: dict,
+    checks: list[dict],
+    meta_dir: Path | None = None,
+) -> tuple[dict, Path, Path]:
+    """
+    Build the Validation_Result and write BOTH output files (JSON + report).
+
+    Convenience seam for run() (task 7.1) and for hermetic tests (task 6.2):
+    a single call that builds the result, writes the JSON sidecar and the
+    markdown report, and returns ``(result, json_path, report_path)``.
+
+    Both files are always written — including when ``checks`` is empty — so a
+    missing/absent table still yields written outputs with ``all_passed=False``
+    (requirement 4A.1 → 10.4A, 8.3). This function is a PURE writer: it never
+    raises on a data-quality failure.
+    """
+    result = build_validation_result(baseline, checks)
+    json_path = write_validation_result(result, meta_dir=meta_dir)
+    report_path = write_validation_report(result, meta_dir=meta_dir)
+    return result, json_path, report_path
 
 
 # ---------------------------------------------------------------------------
@@ -479,6 +1357,7 @@ def run(
     verbose: bool = False,
     skip_land_sea: bool = False,
     max_slope: float = DEFAULT_MAX_SLOPE_DEG,
+    integrated_path: Path | None = None,
 ) -> dict:
     """
     Run cross-domain integration validation.
@@ -492,10 +1371,89 @@ def run(
     max_slope : float
         Maximum allowable slope in degrees for wind farm siting checks.
         Default: 15.0 degrees.
+    integrated_path : Path | None
+        Override for the frozen Sprint 1 integrated table so fixtures can point
+        the S2-02 input-contract checks at a test table (requirement 11.4).
+        Defaults to ``DEFAULT_INTEGRATED_PATH`` when ``None``.
 
     Returns a summary dict with output paths and check results.
+
+    The S2-02 input-contract gate runs FIRST (before the wind / scoring /
+    shortlist cross-checks) because the input contract gates the downstream
+    checks (requirement 11.3). ``run()`` stays a PURE reporter: it never raises
+    on a data-quality failure — it returns ``all_passed=False`` so the caller
+    (the decision engine, S2-03+) makes the Halt_Or_Flag decision (requirement
+    9.1). New return keys:
+
+      results["baseline"]                 -> freeze_baseline() record (or a
+                                             minimal placeholder when the table
+                                             is absent)
+      results["integrated_input_checks"]  -> list[Check_Record]
+      results["integrated_input_result"]  -> Path to the JSON sidecar
+      results["all_passed"]               -> bool (True iff every input-contract
+                                             Check_Record passed AND the baseline
+                                             hash matched)
     """
     results: dict[str, object] = {}
+
+    # --- S2-02 input-contract gate (runs FIRST — it gates downstream) -------
+    # The input contract must be verified before the wind / scoring / shortlist
+    # cross-checks because those checks are only meaningful on a table that has
+    # already passed the input contract (requirement 11.3).
+    print("  [0/2] Integrated-input contract checks (S2-02)...")
+    resolved_integrated_path = (
+        DEFAULT_INTEGRATED_PATH if integrated_path is None else Path(integrated_path)
+    )
+
+    # Build the Check_Records first. `_run_integrated_input_checks` returns [] —
+    # never a silent pass — when the integrated table is absent (requirement
+    # 8.2, 8.3). The empty-battery case is turned into all_passed=False by
+    # `_verdict` inside the emitter, so the "[] + all_passed=False" pair is
+    # produced as a single combined operation (requirement 8.3).
+    integrated_checks = _run_integrated_input_checks(
+        verbose, integrated_path=resolved_integrated_path
+    )
+
+    # Determine the baseline record for the Validation_Result. `freeze_baseline`
+    # calls path.stat()/sha256_file, which RAISE when the file does not exist —
+    # so only call it when the table is present. When it is absent, pass a
+    # minimal placeholder baseline (with just the resolved path) so the emitter
+    # (which reads baseline.get(...) defensively) still writes both output files
+    # with all_passed=False rather than crashing or reporting a missing dataset
+    # as passing.
+    if resolved_integrated_path.exists():
+        baseline = freeze_baseline(resolved_integrated_path)
+    else:
+        try:
+            rel_path = str(
+                resolved_integrated_path.resolve().relative_to(
+                    integration_config.PROJECT_ROOT
+                )
+            )
+        except ValueError:
+            rel_path = str(resolved_integrated_path)
+        baseline = {
+            "artefact": "s1-08 integrated feature table",
+            "path": rel_path,
+        }
+
+    # Emit BOTH the JSON sidecar and the markdown report (requirement 10.1,
+    # 10.4A, 10.5). write_validation_outputs is a pure writer — it never raises
+    # on a data-quality failure — and returns (result, json_path, report_path).
+    input_result, input_json_path, _input_report_path = write_validation_outputs(
+        baseline, integrated_checks
+    )
+
+    input_passed = sum(1 for c in integrated_checks if c["passed"])
+    print(f"    {input_passed}/{len(integrated_checks)} input-contract checks passed")
+
+    results["baseline"] = baseline
+    results["integrated_input_checks"] = integrated_checks
+    results["integrated_input_result"] = input_json_path
+    # all_passed is the emitter's verdict: the conjunction over the checks for a
+    # present table (with the hash-match folded in as check 1, not double
+    # counted), and False for an absent table (requirement 9.2, 10.3).
+    results["all_passed"] = input_result["all_passed"]
 
     print("  [1/2] Cross-domain wind farm checks (land, CAPAD, slope)...")
     checks = _run_cross_domain_checks(verbose, max_slope=max_slope)
