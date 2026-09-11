@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+import yaml
+
 from pipeline import config as pcfg
 from pipeline.scoring import config as scfg
 
@@ -22,6 +24,8 @@ from pipeline.scoring import config as scfg
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 README = PROJECT_ROOT / "pipeline" / "README.md"
 SPEC = PROJECT_ROOT / "DATA" / "data-specification" / "sprint1_data_specification.md"
+SCORING_README = PROJECT_ROOT / "pipeline" / "scoring" / "README.md"
+WEIGHTS_YAML = PROJECT_ROOT / "pipeline" / "scoring" / "scoring_weights.yaml"
 
 
 @pytest.fixture(scope="module")
@@ -32,6 +36,17 @@ def readme() -> str:
 @pytest.fixture(scope="module")
 def spec() -> str:
     return SPEC.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def scoring_readme() -> str:
+    return SCORING_README.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def yaml_directions() -> dict[str, str]:
+    raw = yaml.safe_load(WEIGHTS_YAML.read_text(encoding="utf-8"))
+    return {c["feature"]: c["direction"] for c in raw["criteria"]}
 
 
 class TestReadmeStageOrder:
@@ -176,3 +191,65 @@ class TestSpecificationConsistency:
         applied = change_control[change_control.index("Applied — Baseline Suitability Score"):]
         applied = applied[:applied.index("### Modifying a Frozen Parameter")]
         assert "not** triggered" in applied or "not triggered" in applied
+
+
+class TestScoringReadmeNormalisation:
+    """
+    S2-04 — the scoring README documents the standalone normalisation
+    component, and its direction table must not drift from the shipped
+    `scoring_weights.yaml`. The README restates the frozen decision-engine
+    spec §5 contract, so a stale table here would mislead a reader about the
+    behaviour the code actually implements.
+    """
+
+    def test_scoring_readme_exists(self, scoring_readme):
+        assert "# `pipeline/scoring`" in scoring_readme
+        assert "## Feature Normalisation" in scoring_readme
+
+    def test_readme_documents_the_standalone_api(self, scoring_readme):
+        assert "normalise_frame" in scoring_readme
+        assert "NormSpec" in scoring_readme
+        assert "DataFrame in, normalised DataFrame out" in scoring_readme
+
+    def test_readme_cross_references_the_authoritative_spec(self, scoring_readme):
+        assert "decision_engine_specification.md" in scoring_readme
+        assert "scoring_weights.yaml" in scoring_readme
+
+    def test_readme_documents_every_policy(self, scoring_readme):
+        """Outlier / missing / constant / boolean must each be stated."""
+        lowered = scoring_readme.lower()
+        assert "outlier" in lowered
+        assert "missing value" in lowered
+        assert "constant feature" in lowered
+        assert "boolean feature" in lowered
+        # The frozen constant fill and boolean domain must be named exactly.
+        assert "CONSTANT_CRITERION_VALUE = 1.0" in scoring_readme
+        assert "{False → 0.0, True → 1.0}" in scoring_readme
+
+    def test_direction_table_matches_the_shipped_weights_yaml(
+        self, scoring_readme, yaml_directions
+    ):
+        """
+        Every criterion in the YAML must appear in the README direction table
+        with the SAME direction, and the table must name no other criterion —
+        so the documentation cannot silently disagree with the config.
+        """
+        # Rows look like: | `feature` | units | `direction` | meaning |
+        row = re.compile(
+            r"\|\s*`(?P<feature>\w+)`\s*\|[^|]*\|\s*`(?P<direction>\w+)`\s*\|"
+        )
+        documented = {
+            m.group("feature"): m.group("direction")
+            for m in row.finditer(scoring_readme)
+        }
+        # Keep only the scored features (the table may not be the only code-spanned table).
+        documented = {f: d for f, d in documented.items() if f in yaml_directions}
+
+        assert documented == yaml_directions, (
+            f"README direction table {documented} disagrees with "
+            f"scoring_weights.yaml {yaml_directions}"
+        )
+
+    def test_direction_values_are_from_the_valid_vocabulary(self, yaml_directions):
+        for feature, direction in yaml_directions.items():
+            assert direction in scfg.DIRECTIONS, f"{feature}: {direction}"

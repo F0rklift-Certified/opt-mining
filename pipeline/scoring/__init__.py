@@ -31,8 +31,14 @@ Modules:
     load      — `load_integrated`: reads the S1-08 integrated feature table
                 as the sole feature input, halting on any missing column.
                 The only file-reading path for feature data.
-    normalise — `compute_bounds` / `normalise_series`: directional min-max
-                rescaling to [0, 1] from the ELIGIBLE population only.
+    normalise — directional min-max rescaling to [0, 1] from the passed
+                population (the ELIGIBLE cells when scoring calls it). The
+                standalone S2-04 component: `normalise_frame(df, specs)` takes
+                a DataFrame and a sequence of `NormSpec(feature, direction)`
+                (or any `SpecLike`, which the scoring `Criterion` satisfies)
+                and returns one `norm_{feature}` column each, with no
+                dependence on the weights or the data loader. `compute_bounds`
+                / `normalise_series` / `normalise_value` are the shared core.
     score     — `score_frame`: the PURE Scoring_Function (DataFrame +
                 WeightsConfig in, scored DataFrame out, no file I/O), so the
                 scoring computation is independently replaceable without
