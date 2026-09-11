@@ -1,14 +1,5 @@
 # Decision-Engine Specification & Frozen Configuration
 
-> **Status:** Draft — authored under spec `s2-01-decision-engine-specification`.
-> Sections §1–§8 are authored. §8 (reconciliation log) was completed in task 8.1: every
-> criterion in `pipeline/scoring/scoring_weights.yaml` reconciled as `consistent` — no
-> divergence, so no frozen value required a change. Task 8.2 executed and recorded the
-> propagation outcome in §8.5: no frozen-decision value changed, so no cross-location
-> propagation was performed.
-
----
-
 ## §1 Purpose & Checkpoint-A status
 
 ### 1.1 Purpose — the single authoritative decision design
