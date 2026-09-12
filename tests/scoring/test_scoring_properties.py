@@ -646,3 +646,52 @@ class TestProperty1ScoresBounded:
             "a non-null suitability_score fell outside [0, 1]: "
             f"min={non_null.min()!r}, max={non_null.max()!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# S2-05 hardening — Property 4 (scores half): Deterministic scoring
+# ---------------------------------------------------------------------------
+#
+# Property 4 (design.md P4): two runs over identical inputs and weights
+# produce identical scores AND ranks; ties resolve by ascending `cell_id`.
+# The property has two halves, split across two tasks:
+#   - the SCORES half (this class, task 3.3): two runs over identical inputs
+#     and an identical Weights_Config yield identical SUITABILITY SCORES and
+#     per-criterion CONTRIBUTIONS (Requirement 3.4); and
+#   - the RANKING half (task 5.2): identical ranks with the ascending-cell_id
+#     tie-break (Requirements 5.2, 5.4).
+#
+# The pre-existing `test_property_14_determinism` asserts full-frame equality
+# but is tagged for the OLD feature `s1-10-baseline-suitability-model`.
+# Following the precedent set by the S2-05 `TestProperty5WeightsAreData` and
+# `TestProperty1ScoresBounded` classes above, this class is the S2-05 OWNER
+# of Property 4's scores half: it is tagged for
+# s2-05-suitability-scoring-ranking and asserts score+contribution
+# determinism directly. The s1-10 test is left untouched.
+
+
+class TestProperty4DeterministicScoring:
+    """Property 4 (scores half): identical inputs + weights → identical scores."""
+
+    # Feature: s2-05-suitability-scoring-ranking, Property 4: Deterministic scoring
+    # Scores half: two runs of the pure Scoring_Function over identical inputs
+    # and an identical Weights_Config return identical suitability scores and
+    # identical per-criterion contributions — element-for-element, nulls in the
+    # same places (Requirement 3.4). Exercised over random mixes of eligible
+    # and excluded cells with the confidence discount both on and off; the
+    # second run is fed an independent copy of the input so a run cannot see
+    # any mutation left by the first.
+    @SETTINGS
+    @given(table=random_table(), weights=random_weights())
+    def test_property_4_deterministic_scoring(self, table, weights):
+        first = score_and_rank(table, weights)
+        second = score_and_rank(table.copy(), weights)
+
+        # The scores half asserts on the score plus every contribution column;
+        # ranking determinism is task 5.2's scope and is asserted there.
+        score_columns = [scfg.SCORE_COLUMN, *weights.contribution_columns]
+        pd.testing.assert_frame_equal(
+            first[score_columns],
+            second[score_columns],
+            check_exact=True,
+        )
