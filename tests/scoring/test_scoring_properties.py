@@ -807,3 +807,134 @@ class TestProperty3EligibleOnly:
                 f"upper bound for {criterion.feature} shifted when only "
                 "excluded-cell values changed"
             )
+
+# ---------------------------------------------------------------------------
+# S2-05 hardening — Property 4 (ranking half): Deterministic ranking
+# ---------------------------------------------------------------------------
+#
+# Property 4 (design.md P4): two runs over identical inputs and weights
+# produce identical scores AND ranks; ties resolve by ascending `cell_id`.
+# The property is split across two tasks:
+#   - the SCORES half (TestProperty4DeterministicScoring, task 3.3): score +
+#     contribution determinism (Requirement 3.4); and
+#   - the RANKING half (this class, task 5.2): identical `rank` values across
+#     two runs over identical inputs and an identical Weights_Config, with
+#     score ties broken by ascending `cell_id` (Requirements 5.2, 5.4).
+#
+# The pre-existing `test_property_10_rank_ordering_and_tie_break` and
+# `test_property_14_determinism` assert overlapping invariants but are tagged
+# for the OLD feature `s1-10-baseline-suitability-model`. Following the
+# precedent set by the S2-05 `TestProperty5WeightsAreData`,
+# `TestProperty1ScoresBounded`, `TestProperty4DeterministicScoring` and
+# `TestProperty3EligibleOnly` classes above, this class is the S2-05 OWNER of
+# Property 4's ranking half: it is tagged for s2-05-suitability-scoring-ranking
+# and asserts rank determinism and the tie-break directly. The s1-10 tests are
+# left untouched.
+
+
+@st.composite
+def _tie_inducing_table(draw, min_rows=2, max_rows=20):
+    """
+    A synthetic integrated table deliberately engineered so that MANY eligible
+    cells share the SAME suitability score, forcing the ascending-`cell_id`
+    tie-break to actually decide the ranking.
+
+    Every criterion value is drawn from a TINY discrete pool (a handful of
+    repeated numbers) and the boolean criterion is likewise repeated, so
+    distinct cells collapse onto identical normalised feature vectors and
+    therefore identical scores. `cell_id`s are unique but generated in a
+    SHUFFLED order (not already ascending), so a naive ranker that leaned on
+    row/insertion order rather than the documented `cell_id` tie-break would
+    produce a different, order-dependent ranking and fail the assertion.
+    """
+    n = draw(st.integers(min_value=min_rows, max_value=max_rows))
+    # Unique, zero-padded cell_ids drawn in a shuffled (non-sorted) order so
+    # the tie-break cannot accidentally coincide with arrival order.
+    ids = [f"C{i:03d}" for i in range(n)]
+    cell_ids = draw(st.permutations(ids))
+    frame = pd.DataFrame({"cell_id": list(cell_ids)})
+
+    # Mostly eligible, with the occasional excluded cell so the ranking is
+    # exercised alongside the null-rank rule; guarantee >= 2 eligible cells so
+    # a tie is possible.
+    eligibility = draw(st.lists(st.booleans(), min_size=n, max_size=n))
+    if sum(eligibility) < 2:
+        eligibility = [True] * n
+    frame["eligible"] = eligibility
+
+    # A tiny discrete pool per criterion => heavy score collisions => ties.
+    small_pool = st.sampled_from([0.0, 1.0, 2.0])
+    for feature in ("wind_speed", "dist_transmission_km", "demand_proxy"):
+        frame[feature] = draw(st.lists(small_pool, min_size=n, max_size=n))
+    frame["inside_rez"] = draw(st.lists(st.booleans(), min_size=n, max_size=n))
+    frame["data_confidence"] = draw(
+        st.lists(st.sampled_from(list(scfg.CONFIDENCE_LEVELS)), min_size=n, max_size=n)
+    )
+    return frame
+
+
+class TestProperty4DeterministicRanking:
+    """Property 4 (ranking half): identical ranks across runs; ties by ascending cell_id."""
+
+    # Feature: s2-05-suitability-scoring-ranking, Property 4: Deterministic ranking
+    # (a) Determinism: two runs of the full score_and_rank pipeline over
+    # identical inputs and an identical Weights_Config return identical `rank`
+    # values — element-for-element, nulls (excluded cells) in the same places
+    # (Requirement 5.4). The second run is fed an independent copy of the input
+    # so no run can observe a mutation left by the other. Exercised over random
+    # mixes of eligible/excluded cells with the confidence discount both on and
+    # off.
+    @SETTINGS
+    @given(table=random_table(), weights=random_weights())
+    def test_property_4_ranks_are_deterministic(self, table, weights):
+        first = score_and_rank(table, weights)
+        second = score_and_rank(table.copy(), weights)
+        pd.testing.assert_series_equal(
+            first[scfg.RANK_COLUMN],
+            second[scfg.RANK_COLUMN],
+            check_exact=True,
+        )
+
+    # Feature: s2-05-suitability-scoring-ranking, Property 4: Deterministic ranking
+    # (b) Tie-break: over tables ENGINEERED to produce many equal scores, the
+    # rank is a contiguous 1..n ordering over the scored (eligible, usable)
+    # cells with a null rank on every unscored cell; ranks descend by score;
+    # and within any group of cells sharing a score, the assigned ranks follow
+    # ASCENDING `cell_id` (Requirement 5.2). This is asserted three ways:
+    #   * the ranked cell_ids form the exact set 1..n with no gap or duplicate;
+    #   * a cell with a strictly higher score always outranks a lower-scored one;
+    #   * cells tied on score are ordered by ascending cell_id.
+    # Because the tie-inducing strategy shuffles cell_ids, a ranker that used
+    # arrival order instead of the documented tie-break would fail here.
+    @SETTINGS
+    @given(table=_tie_inducing_table(), weights=random_weights())
+    def test_property_4_ties_break_by_ascending_cell_id(self, table, weights):
+        scored = score_and_rank(table, weights)
+        ranks = scored[scfg.RANK_COLUMN]
+        scores = scored[scfg.SCORE_COLUMN]
+
+        # Contiguous 1..n over exactly the scored cells; no rank on an unscored
+        # (excluded, or eligible-but-no-usable-criterion) cell.
+        ranked = scored[ranks.notna()]
+        n = len(ranked)
+        assert sorted(int(r) for r in ranked[scfg.RANK_COLUMN]) == list(range(1, n + 1)), (
+            "rank is not a contiguous 1..n ordering over the scored cells"
+        )
+        assert scores[ranks.notna()].notna().all(), "a ranked cell has a null score"
+        assert ranks[scores.isna()].isna().all(), "an unscored cell was assigned a rank"
+
+        # Order by rank and verify the two ordering guarantees together.
+        ordered = ranked.sort_values(scfg.RANK_COLUMN)
+        ordered_scores = ordered[scfg.SCORE_COLUMN].to_numpy()
+        # Non-increasing score down the ranking (rank 1 is the best).
+        assert all(
+            ordered_scores[i] >= ordered_scores[i + 1] - 1e-12
+            for i in range(len(ordered_scores) - 1)
+        ), "ranks are not ordered by descending score"
+        # Within every tied-score group, cell_ids ascend as rank increases.
+        for _, group in ordered.groupby(scfg.SCORE_COLUMN, sort=False):
+            ids = list(group["cell_id"])
+            assert ids == sorted(ids), (
+                "cells tied on score are not ranked by ascending cell_id: "
+                f"{ids}"
+            )
