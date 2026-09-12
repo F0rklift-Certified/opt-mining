@@ -695,3 +695,115 @@ class TestProperty4DeterministicScoring:
             second[score_columns],
             check_exact=True,
         )
+
+
+# ---------------------------------------------------------------------------
+# S2-05 hardening — Property 3: Eligible-only
+# ---------------------------------------------------------------------------
+#
+# Property 3 (design.md P3): every Eligible_Cell has a non-null
+# score/rank/contributions; every Excluded_Cell has null
+# score/rank/contributions and is absent from the ranking AND the
+# normalisation bounds (Requirements 4.1, 4.2, 4.3).
+#
+# The pre-existing `test_property_9_only_eligible_cells_are_scored` and
+# `test_property_4_bounds_from_eligible_only` assert these invariants, but
+# they are tagged for the OLD feature `s1-10-baseline-suitability-model`.
+# Following the precedent set by the S2-05 `TestProperty5WeightsAreData`,
+# `TestProperty1ScoresBounded` and `TestProperty4DeterministicScoring`
+# classes above, this class is the S2-05 OWNER of Property 3: it is tagged
+# for s2-05-suitability-scoring-ranking and asserts all THREE facets of the
+# eligible-only rule in one place. The s1-10 tests are left untouched.
+
+
+class TestProperty3EligibleOnly:
+    """Property 3: eligible cells scored; excluded cells null and off the ranking/bounds."""
+
+    # Feature: s2-05-suitability-scoring-ranking, Property 3: Eligible-only
+    # Facets (a) + (b): over random mixes of eligible/excluded cells and with
+    # the confidence discount both on and off, the full score_and_rank output
+    # gives every USABLE eligible cell a non-null score, rank and contribution
+    # per criterion; every excluded cell (eligible false OR null) gets a null
+    # score, null rank and null contributions, and no excluded cell appears in
+    # the rank ordering (Requirements 4.1, 4.2). An eligible cell for which no
+    # criterion had a usable value has no denominator and is legitimately
+    # unscored — that is the documented applied_weight == 0 path, so the
+    # non-null assertion is scoped to eligible cells with a positive applied
+    # weight, exactly as the pure model defines "scored".
+    @SETTINGS
+    @given(table=random_table(), weights=random_weights())
+    def test_property_3a_eligible_scored_excluded_null(self, table, weights):
+        scored = score_and_rank(table, weights)
+        mask = eligible_mask(table).to_numpy()
+        scores = scored[scfg.SCORE_COLUMN]
+        ranks = scored[scfg.RANK_COLUMN]
+        contribution_columns = list(weights.contribution_columns)
+
+        # (b) Every excluded cell: null score, null rank, null every contribution.
+        assert scores[~mask].isna().all(), "an excluded cell has a non-null score"
+        assert ranks[~mask].isna().all(), "an excluded cell has a non-null rank"
+        for column in contribution_columns:
+            assert scored.loc[~mask, column].isna().all(), (
+                f"an excluded cell has a non-null contribution in {column}"
+            )
+
+        # (b) No excluded cell takes part in the ranking: the set of ranked
+        # cell_ids is disjoint from the excluded cell_ids.
+        ranked_ids = set(scored.loc[ranks.notna(), "cell_id"])
+        excluded_ids = set(scored.loc[~mask, "cell_id"])
+        assert ranked_ids.isdisjoint(excluded_ids), (
+            "an excluded cell_id appears in the rank ordering"
+        )
+
+        # (a) Every eligible cell with a usable criterion is scored: non-null
+        # score, non-null rank, and a non-null value in every contribution
+        # column. (An eligible cell with applied_weight == 0 has no usable
+        # criterion and is the documented unscored-eligible path.)
+        usable = (scored["applied_weight"].fillna(0.0) > 0).to_numpy()
+        eligible_scored = mask & usable
+        assert scores[eligible_scored].notna().all(), (
+            "a usable eligible cell was left with a null score"
+        )
+        assert ranks[eligible_scored].notna().all(), (
+            "a usable eligible cell was left with a null rank"
+        )
+        for column in contribution_columns:
+            assert scored.loc[eligible_scored, column].notna().all(), (
+                f"a usable eligible cell has a null contribution in {column}"
+            )
+
+    # Feature: s2-05-suitability-scoring-ranking, Property 3: Eligible-only
+    # Facet (c): the normalisation bounds are a function of the eligible
+    # population ONLY. For any table with at least one eligible and one
+    # excluded cell, perturbing the excluded cells' criterion values (here to
+    # a large sentinel) leaves every criterion's lo/hi bound unchanged — the
+    # excluded values take no part in the bounds (Requirement 4.3). Boolean
+    # criteria use their fixed definitional domain and are exercised by the
+    # non-boolean perturbation alongside the numeric criteria.
+    @SETTINGS
+    @given(table=random_table(min_rows=2), weights=random_weights())
+    def test_property_3c_bounds_exclude_excluded_cells(self, table, weights):
+        mask = eligible_mask(table)
+        assume(mask.any() and (~mask).any())
+
+        eligible = table.loc[mask]
+        before = compute_bounds(eligible, weights.criteria)
+
+        # Perturb ONLY the excluded rows' numeric criterion values to a large
+        # sentinel; if the bounds leaked from excluded cells, hi would jump.
+        perturbed = table.copy()
+        for criterion in weights.criteria:
+            if criterion.feature == "inside_rez":
+                continue  # boolean domain is definitional, not population-derived
+            perturbed.loc[~mask, criterion.feature] = 1e9
+        after = compute_bounds(perturbed.loc[mask], weights.criteria)
+
+        for criterion in weights.criteria:
+            assert before[criterion.feature].lo == after[criterion.feature].lo, (
+                f"lower bound for {criterion.feature} shifted when only "
+                "excluded-cell values changed"
+            )
+            assert before[criterion.feature].hi == after[criterion.feature].hi, (
+                f"upper bound for {criterion.feature} shifted when only "
+                "excluded-cell values changed"
+            )
