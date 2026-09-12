@@ -608,3 +608,41 @@ class TestProperty5WeightsAreData:
             "changing the weights left every eligible score unchanged — "
             "weights are not flowing from the config to the output"
         )
+
+
+# ---------------------------------------------------------------------------
+# S2-05 hardening — Property 1: Scores bounded
+# ---------------------------------------------------------------------------
+#
+# Property 1 (design.md): every non-null `suitability_score` lies in the
+# inclusive interval [0, 1].
+#
+# The pre-existing `test_property_6_score_in_unit_interval` asserts the same
+# invariant, but it is tagged for the OLD feature
+# `s1-10-baseline-suitability-model`. Following the precedent set by the
+# S2-05 `TestProperty5WeightsAreData` class above, this class is the S2-05
+# OWNER of Property 1: it is tagged for s2-05-suitability-scoring-ranking and
+# asserts the bound on the full `score_and_rank` output (which nulls out
+# excluded cells), over random mixes of eligible/excluded cells and with the
+# confidence discount both on and off. The s1-10 test is left untouched.
+
+
+class TestProperty1ScoresBounded:
+    """Property 1: every non-null suitability_score is in [0, 1]."""
+
+    # Feature: s2-05-suitability-scoring-ranking, Property 1: Scores bounded
+    # Every non-null suitability_score produced by the full score_and_rank
+    # pipeline lies in the inclusive [0, 1] interval, for any mix of eligible
+    # and excluded cells and either confidence-discount setting.
+    @SETTINGS
+    @given(table=random_table(), weights=random_weights())
+    def test_property_1_scores_bounded(self, table, weights):
+        scored = score_and_rank(table, weights)
+        scores = scored[scfg.SCORE_COLUMN]
+        # Excluded cells are nulled out; only the non-null (scored) cells are
+        # constrained. Drop the nulls and require every remaining score in [0, 1].
+        non_null = scores.dropna()
+        assert ((non_null >= 0.0) & (non_null <= 1.0)).all(), (
+            "a non-null suitability_score fell outside [0, 1]: "
+            f"min={non_null.min()!r}, max={non_null.max()!r}"
+        )
