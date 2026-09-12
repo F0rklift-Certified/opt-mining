@@ -938,3 +938,72 @@ class TestProperty4DeterministicRanking:
                 "cells tied on score are not ranked by ascending cell_id: "
                 f"{ids}"
             )
+
+# ---------------------------------------------------------------------------
+# S2-05 hardening — Property 2: Contributions reconstruct the score
+# ---------------------------------------------------------------------------
+#
+# Property 2 (design.md P2): for every scored (non-null) cell,
+# `Σ contrib_{feature}` equals `suitability_score` within tolerance
+# (RECONCILE_TOLERANCE = 1e-9, from pipeline/scoring/config.py) — the
+# per-criterion contributions are additive and reconstruct the score exactly
+# (Requirement 6.2).
+#
+# The pre-existing `test_property_7_contributions_reconcile` asserts the same
+# invariant, but it is tagged for the OLD feature
+# `s1-10-baseline-suitability-model` and reconciles on the raw `score_frame`
+# output. Following the precedent set by the S2-05 `TestProperty5WeightsAreData`,
+# `TestProperty1ScoresBounded`, `TestProperty4DeterministicScoring`,
+# `TestProperty3EligibleOnly` and `TestProperty4DeterministicRanking` classes
+# above, this class is the S2-05 OWNER of Property 2: it is tagged for
+# s2-05-suitability-scoring-ranking and asserts reconciliation on the full
+# `score_and_rank` output (which nulls out excluded cells), over random mixes
+# of eligible/excluded cells and with the confidence discount both on and off.
+# The s1-10 test is left untouched.
+
+
+class TestProperty2ContributionsReconstructScore:
+    """Property 2: for every scored cell, Σ contrib_{feature} == suitability_score."""
+
+    # Feature: s2-05-suitability-scoring-ranking, Property 2: Contributions reconstruct the score
+    # For every scored (non-null suitability_score) cell in the full
+    # score_and_rank output, the sum of all contrib_{feature} columns equals
+    # the suitability_score within RECONCILE_TOLERANCE (1e-9). Excluded cells
+    # carry null score and null contributions and are excluded from the
+    # reconciliation. Exercised over random mixes of eligible/excluded cells
+    # with the confidence discount both on and off (random_weights draws the
+    # discount flag), so the guarantee is asserted for the discounted score
+    # AND its discounted contributions as well as the plain case (Requirement
+    # 6.2, and 6.3 — the discount applies equally to score and contributions,
+    # so they still reconcile).
+    @SETTINGS
+    @given(table=random_table(), weights=random_weights())
+    def test_property_2_contributions_reconstruct_score(self, table, weights):
+        scored = score_and_rank(table, weights)
+        scores = scored[scfg.SCORE_COLUMN]
+        contribution_columns = list(weights.contribution_columns)
+
+        scored_mask = scores.notna()
+        # A scored cell must have a non-null contribution in every column, and
+        # those contributions must sum back to the score within tolerance.
+        for column in contribution_columns:
+            assert scored.loc[scored_mask, column].notna().all(), (
+                f"a scored cell has a null contribution in {column}"
+            )
+
+        reconstructed = scored.loc[scored_mask, contribution_columns].sum(
+            axis=1, skipna=False
+        )
+        residual = (reconstructed - scores[scored_mask]).abs()
+        assert (residual <= scfg.RECONCILE_TOLERANCE).all(), (
+            "contributions did not reconstruct the score within tolerance: "
+            f"max residual={float(residual.max()) if len(residual) else 0.0!r}, "
+            f"tolerance={scfg.RECONCILE_TOLERANCE!r}"
+        )
+
+        # Excluded (null-score) cells carry null contributions and take no part
+        # in the reconciliation.
+        for column in contribution_columns:
+            assert scored.loc[~scored_mask, column].isna().all(), (
+                f"an unscored cell has a non-null contribution in {column}"
+            )
