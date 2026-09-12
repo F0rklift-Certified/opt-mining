@@ -14,6 +14,10 @@ test here touches the filesystem.
 
 from __future__ import annotations
 
+import ast
+from dataclasses import replace
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -23,7 +27,7 @@ from hypothesis import strategies as st
 from pipeline.scoring import config as scfg
 from pipeline.scoring.normalise import compute_bounds, normalise_series
 from pipeline.scoring.score import eligible_mask, score_and_rank, score_frame
-from pipeline.scoring.weights import Criterion, WeightsConfig
+from pipeline.scoring.weights import Criterion, WeightsConfig, load_weights
 
 SETTINGS = settings(
     max_examples=100,
@@ -96,6 +100,36 @@ def random_weights(draw, discount=None):
         confidence_factors={"high": 1.0, "medium": 0.75, "low": 0.5},
         config_id="property-test",
     )
+
+
+@st.composite
+def _separable_table(draw, min_rows=2, max_rows=20):
+    """
+    A table with >= 2 eligible cells that are SEPARABLE on two criteria:
+    `wind_speed` and `dist_transmission_km` are given anti-correlated ranks
+    across the eligible cells, so a model that weights the first differently
+    from the second is forced to score at least one eligible cell differently.
+
+    This makes Property 5 half (b) a genuine assertion: if the output were
+    driven by a hidden constant rather than the loaded weights, the two
+    weightings would score identically and the test would fail.
+    """
+    n = draw(st.integers(min_value=min_rows, max_value=max_rows))
+    cell_ids = [f"C{i:03d}" for i in range(n)]
+    frame = pd.DataFrame({"cell_id": cell_ids})
+    # Every cell eligible so there is always a separable eligible population.
+    frame["eligible"] = True
+    # wind_speed ascends, dist_transmission_km descends: the two criteria
+    # rank the eligible cells in opposite orders, so emphasising one vs the
+    # other cannot yield identical scores.
+    frame["wind_speed"] = [float(i) for i in range(n)]
+    frame["dist_transmission_km"] = [float(n - i) for i in range(n)]
+    frame["demand_proxy"] = draw(st.lists(finite, min_size=n, max_size=n))
+    frame["inside_rez"] = draw(st.lists(st.booleans(), min_size=n, max_size=n))
+    frame["data_confidence"] = draw(
+        st.lists(st.sampled_from(list(scfg.CONFIDENCE_LEVELS)), min_size=n, max_size=n)
+    )
+    return frame
 
 
 # ---------------------------------------------------------------------------
@@ -457,3 +491,120 @@ class TestRunPathsExist:
         assert summary["n_excluded"] == 1
         assert summary["weights_config_id"]
         assert summary["runtime_seconds"] >= 0
+
+
+# ---------------------------------------------------------------------------
+# S2-05 hardening — Property 5: Weights are data, not code
+# ---------------------------------------------------------------------------
+#
+# Property 5 (design.md) has two halves that must BOTH hold:
+#   (a) no weight numeric literal appears in `pipeline/scoring/` source; and
+#   (b) changing the YAML weights changes the model output — the weights
+#       genuinely flow from the configuration data through to the scores.
+#
+# The pre-existing `test_no_weight_literal_appears_in_the_scoring_source`
+# (test_scoring.py) only checks that criterion FEATURE NAMES are absent from
+# the source, and the "weights determine the output" claim previously lived
+# only in a comment on Property 12. This class validates BOTH halves of
+# Property 5 directly and is the S2-05 owner of the property.
+
+
+def _scoring_source_files() -> list[Path]:
+    """Every Python source file in the `pipeline/scoring/` package."""
+    package = Path(scfg.__file__).parent
+    return sorted(package.glob("*.py"))
+
+
+def _default_weight_values() -> set[float]:
+    """The distinct default criterion weights declared in the shipped YAML."""
+    weights = load_weights(scfg.DEFAULT_WEIGHTS_PATH)
+    return {float(c.weight) for c in weights.criteria}
+
+
+def _numeric_literals(source: str) -> set[float]:
+    """
+    All numeric literals that appear in real CODE (not comments/docstrings).
+
+    Parsing with the AST means comment text and triple-quoted documentation —
+    where the model's formula and weights are legitimately DESCRIBED — are
+    ignored; only executable literals count. Unary-minus constants (e.g.
+    ``-1.0``) are folded so a negated literal is still caught.
+    """
+    tree = ast.parse(source)
+    literals: set[float] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) \
+                and not isinstance(node.value, bool):
+            literals.add(float(node.value))
+        elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub) \
+                and isinstance(node.operand, ast.Constant) \
+                and isinstance(node.operand.value, (int, float)) \
+                and not isinstance(node.operand.value, bool):
+            literals.add(-float(node.operand.value))
+    return literals
+
+
+class TestProperty5WeightsAreData:
+    """Property 5: weights are data, not code — both halves."""
+
+    # Feature: s2-05-suitability-scoring-ranking, Property 5: Weights are data
+    # Half (a): no weight numeric literal appears anywhere in the executable
+    # source of `pipeline/scoring/`. The default weights live ONLY in
+    # scoring_weights.yaml; the Python must not restate any of them as a code
+    # literal. (AST-based, so the formula/weights DESCRIBED in docstrings and
+    # comments are ignored — only real code literals are checked.)
+    def test_property_5a_no_weight_literal_in_scoring_source(self):
+        weight_values = _default_weight_values()
+        assert weight_values, "expected the shipped YAML to declare weights"
+        offenders: list[str] = []
+        for module in _scoring_source_files():
+            literals = _numeric_literals(module.read_text(encoding="utf-8"))
+            clash = weight_values & literals
+            if clash:
+                offenders.append(f"{module.name}: {sorted(clash)}")
+        assert not offenders, (
+            "weight value(s) hard-coded as a literal in pipeline/scoring/ "
+            f"source — weights must be data, not code: {offenders}"
+        )
+
+    # Feature: s2-05-suitability-scoring-ranking, Property 5: Weights are data
+    # Half (b): changing the YAML weights changes the model output. For any
+    # table with at least two eligible cells that are separable on two
+    # criteria, a config that weights the FIRST criterion and one that weights
+    # the SECOND produce different scores — proving the loaded weights, not a
+    # hidden constant, drive the result.
+    @SETTINGS
+    @given(table=_separable_table())
+    def test_property_5b_changing_weights_changes_output(self, table):
+        c_first = Criterion("wind_speed", 1.0, scfg.HIGHER_IS_BETTER, "first")
+        c_second = Criterion(
+            "dist_transmission_km", 1.0, scfg.HIGHER_IS_BETTER, "second"
+        )
+        base = WeightsConfig(
+            criteria=(c_first, c_second),
+            confidence_discount=False,
+            confidence_factors={"high": 1.0, "medium": 0.75, "low": 0.5},
+            config_id="prop5-base",
+        )
+        # Emphasise the first criterion vs. emphasise the second.
+        weights_a = replace(
+            base,
+            criteria=(replace(c_first, weight=9.0), replace(c_second, weight=1.0)),
+        )
+        weights_b = replace(
+            base,
+            criteria=(replace(c_first, weight=1.0), replace(c_second, weight=9.0)),
+        )
+
+        scores_a = score_frame(table, weights_a)[scfg.SCORE_COLUMN]
+        scores_b = score_frame(table, weights_b)[scfg.SCORE_COLUMN]
+
+        mask = eligible_mask(table)
+        diff = (scores_a[mask] - scores_b[mask]).abs()
+        # The table is constructed so the two criteria disagree on at least
+        # one eligible cell; a genuine data-driven model must therefore score
+        # that cell differently under the two weightings.
+        assert (diff > 1e-9).any(), (
+            "changing the weights left every eligible score unchanged — "
+            "weights are not flowing from the config to the output"
+        )
