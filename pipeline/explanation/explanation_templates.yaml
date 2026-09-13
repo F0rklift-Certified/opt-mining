@@ -1,0 +1,90 @@
+# Explanation templates for the S2-06a deterministic explanation engine
+# (pipeline/explanation/, the `explanation` stage).
+#
+# PHRASING IS DATA, NOT CODE. Nothing in pipeline/explanation/ contains an
+# explanation phrase or a band label as a source literal — this file is the
+# only place the narrative content is expressed, mirroring the weights-as-data
+# principle of pipeline/scoring/scoring_weights.yaml. Retune the wording by
+# editing this file, or pass another with:
+#
+#   python -m pipeline --only explanation --explanation-templates path/to/my_templates.yaml
+#
+# The engine is deterministic and template/rule-based — NOT an LLM. For every
+# ELIGIBLE cell it selects the criteria contributing the most to the cell's
+# S2-05 score as POSITIVE FACTORS, and the criteria the cell scores poorly on
+# as WEAKNESSES, then fills the phrase for each from this file. A qualitative
+# band ("top decile" / "strong" / "moderate" / "poor") is derived from the
+# cell's normalised value for the criterion and appended to the phrase. The
+# same Scored_Table and the same templates always yield byte-identical text.
+#
+# SCREENING-LEVEL LANGUAGE. The headline and every phrase describe a
+# higher-ranked candidate "under the selected assumptions and criteria". This
+# is a strategic screening output, never a site approval — the words "best
+# site" (and similar superlatives) must never appear. Validation asserts this.
+
+version: "1.0"
+
+# --- Headline ---------------------------------------------------------------
+# The single screening-level headline used for every eligible cell. It states
+# the screening framing explicitly. It must be non-empty and must not claim a
+# "best" or "optimal" site.
+headline: "Higher-ranked candidate under the selected assumptions and criteria"
+
+# --- Qualitative bands ------------------------------------------------------
+# A cell's NORMALISED value for a criterion (in [0, 1], where 1 is most
+# favourable) is mapped to a band label. Bands are checked in descending
+# threshold order: the first band whose `min_norm` the value meets wins. Every
+# threshold must be in [0, 1]; the lowest band should have min_norm 0.0 so
+# every value lands in exactly one band. The label is appended to a factor
+# phrase in parentheses, e.g. "Strong wind resource (top decile)".
+bands:
+  - label: "top decile"
+    min_norm: 0.9
+  - label: "strong"
+    min_norm: 0.65
+  - label: "moderate"
+    min_norm: 0.35
+  - label: "limited"
+    min_norm: 0.0
+
+# --- Boolean band labels ----------------------------------------------------
+# Boolean criteria (e.g. inside_rez) do not have a decile band; they are simply
+# present or absent. These labels are used instead of a band when the criterion
+# is boolean.
+boolean_labels:
+  true_label: "present"
+  false_label: "absent"
+
+# --- Per-criterion phrasing -------------------------------------------------
+# Each entry keys on `feature` (a criterion feature of the scoring weights) and
+# supplies:
+#   positive  — the phrase used when the criterion is a POSITIVE factor
+#   weakness  — the phrase used when the criterion is a WEAKNESS
+# The band label is appended by the engine, so the phrases here name the
+# criterion in plain language and do not restate the band. Every criterion in
+# the active scoring weights must have an entry, or the run halts before
+# writing anything.
+criteria:
+  - feature: wind_speed
+    positive: "Strong wind resource"
+    weakness: "Weaker wind resource"
+
+  - feature: dist_transmission_km
+    positive: "Close to transmission"
+    weakness: "Distant from transmission"
+
+  - feature: demand_proxy
+    positive: "Near electrical demand"
+    weakness: "Far from electrical demand"
+
+  - feature: dist_substation_km
+    positive: "Close to a substation"
+    weakness: "Distant from a substation"
+
+  - feature: slope_deg
+    positive: "Gentle terrain"
+    weakness: "Steeper terrain"
+
+  - feature: inside_rez
+    positive: "Inside a Renewable Energy Zone"
+    weakness: "Outside any Renewable Energy Zone"
