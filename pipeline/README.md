@@ -55,6 +55,12 @@ python -m pipeline --only integration --confidence-weights path/to/my_weights.ya
 python -m pipeline --only scoring
 python -m pipeline --only scoring --scoring-weights path/to/my_weights.yaml
 
+# Site explanations (S2-06a — requires the S1-10 Scored_Table and the S1-08
+# integrated table to exist already; emits a deterministic, template/rule-based
+# explanation of every eligible cell. No LLM. Reuses --scoring-weights.)
+python -m pipeline --only explanation
+python -m pipeline --only explanation --explanation-templates path/to/my_templates.yaml
+
 # Ranked shortlist (S1-11 — requires the S1-10 Scored_Table and the grid to
 # exist already; selects the top-N eligible cells by their existing rank)
 python -m pipeline --only shortlist
@@ -146,6 +152,18 @@ pipeline/
 │   ├── report.py           # Method report, validation report, derived-product provenance
 │   ├── validate.py         # No-silent-passes checks over the scored table
 │   └── run.py              # Stage entry point: run(verbose=False, ...) -> dict
+├── explanation/
+│   ├── __init__.py
+│   ├── config.py           # Paths/columns/vintage composed from scoring+integration config
+│   ├── explanation_templates.yaml  # S2-06a phrases + band thresholds + headline — USER INPUT
+│   ├── templates.py        # Templates loader + validator (fails before any write)
+│   ├── bands.py            # Qualitative band from a normalised value (boolean/constant aware)
+│   ├── engine.py           # Stage (S2-06a): the PURE explain_cell rule/template engine
+│   ├── load.py             # Reads Scored_Table + integrated table; recomputes+reconciles norms
+│   ├── write.py            # Explanation_Table (JSON+CSV) + schema-doc writers (atomic)
+│   ├── report.py           # Method report, validation report, derived-product provenance
+│   ├── validate.py         # No-silent-passes checks over the explanations
+│   └── run.py              # Stage entry point: run(verbose=False, ...) -> dict
 ├── demand/
 │   ├── __init__.py
 │   ├── __main__.py          # Demand-specific CLI
@@ -180,7 +198,8 @@ wind.probe → wind.download → wind.inspect → wind.validate → wind.analyse
 → demand.feature (per-cell demand proxy)
 → exclusions (S1-07 exclusion layer — eligibility per cell)
 → integration (S1-08 Integrated Feature Table — joins every feature layer + exclusions by cell_id; S1-09 appends the composite data confidence)
-→ scoring (S1-10 baseline suitability model — weighted MCDA over the integrated table; scores, ranks and explains every eligible cell)
+→ scoring (S1-10 baseline suitability model — weighted MCDA over the integrated table; scores and ranks every eligible cell, retaining per-criterion contributions)
+→ explanation (S2-06a deterministic site explanations — turns the S1-10 per-criterion contributions into a human-readable, template/rule-based explanation of every eligible cell; no LLM)
 → shortlist (S1-11 preliminary ranked shortlist — selects the top-N eligible cells by their existing S1-10 rank; the Sprint 1 headline output)
 → validate (cross-domain integration checks)
 → sanity (S1-12 plausibility sanity check — TERMINAL; validates the pipeline outputs against known reality, distinct from the structural `validate` step above)
@@ -221,6 +240,13 @@ score     = SUM_i contrib_i                          -> [0, 1]
 - **Not circular:** `wind_speed` is an input criterion only, never a prediction target.
 
 The authoritative decision design behind this stage — the exact scored criteria and their directions, the scoring formula and its weight-normalisation rule, the normalisation/outlier/missing-value policies, and the default weights (documented as assumptions with a rationale each) — is frozen in the **[Decision-Engine Specification](../Sprint-2-Tasks/decision_engine_specification.md)** (`Sprint-2-Tasks/decision_engine_specification.md`, the Client Checkpoint A artefact). That specification reconciles against `pipeline/scoring/scoring_weights.yaml` and `pipeline/scoring/`, and any change to a frozen scoring decision must be applied across the specification, the weights YAML and the data specification (§4.7) under the data-specification §8 change-control process.
+
+Note: `explanation` (S2-06a) runs after `scoring` and before `shortlist` because the S1-10 Scored_Table is its input. It is a **deterministic, template/rule-based** explanation engine — **no language model** — that turns the per-criterion contributions into a human-readable narrative for every eligible cell:
+
+- **Positive factors and weaknesses.** For each eligible cell it names the criteria contributing the most to the score as positive factors (ranked by the persisted `contrib_{feature}`, never recomputed) and the criteria the cell scores poorly on as weaknesses, in screening-level language ("higher-ranked candidate under the selected assumptions", never "best site").
+- **Qualitative bands from the values.** A coarse band ("top decile" / "strong" / "moderate" / "limited") is appended to each factor. Because the Scored_Table does not persist the normalised intermediates, they are recomputed from the integrated table using the **same** scoring normaliser (`pipeline/scoring/normalise.py`) with the same weights — there is no second normaliser — and a reconciliation guard asserts the recomputed contributions reproduce the persisted ones before anything is written.
+- **Phrasing is data.** The phrases and band thresholds load at runtime from `pipeline/explanation/explanation_templates.yaml` (or `--explanation-templates PATH`); no phrase literal appears in `pipeline/explanation/`. The criteria weights are reused from `--scoring-weights` and must match the ones the Scored_Table was produced from.
+- **Deterministic.** The same Scored_Table and templates always produce byte-identical explanations. The eligible Explanation_Structure (`cell_id`, `eligible`, `headline`, `positive_factors`, `weaknesses`) is the **frozen contract** S2-06b extends (excluded-cell path + proxy/data-quality caveats) and S2-08 `get_site_detail` / S3-05 consume; it is documented in `DATA/explanation/metadata/explanation_schema.md`.
 
 Note: `shortlist` (S1-11) runs after `scoring` and before `validate` because the S1-10 Scored_Table is its sole score input. It is a **filtering and formatting** stage, not a modelling stage — it performs no re-scoring and no re-ranking:
 
