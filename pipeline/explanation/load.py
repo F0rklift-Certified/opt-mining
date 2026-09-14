@@ -1,15 +1,29 @@
 """
-Explanation input loader (S2-06a) — the ONLY file-reading path.
+Explanation input loader (S2-06a + S2-06b) — the ONLY file-reading path.
 
-Reads the two inputs the engine needs and assembles, for every ELIGIBLE cell,
-the `CellExplanationInput` the pure engine consumes:
+Reads the inputs the engine needs and assembles, for every ELIGIBLE cell, the
+`CellExplanationInput`, and for every EXCLUDED cell, the `ExcludedCellInput`,
+that the pure engine consumes:
 
   1. the S2-05 Scored_Table — the authoritative per-cell `contrib_{feature}`
      values, score and rank. The engine RANKS factors by these; it never
      recomputes a score.
-  2. the S1-08 integrated feature table — read ONLY to recompute the
-     eligible-population NORMALISED values the qualitative bands need, because
-     the Scored_Table does not persist the `norm_{feature}` intermediates.
+  2. the S1-08 integrated feature table — read to recompute the
+     eligible-population NORMALISED values the qualitative bands need (the
+     Scored_Table does not persist the `norm_{feature}` intermediates), and
+     (S2-06b) to read the columns the scoring loader drops: the F16 exclusion
+     reason forms (`triggered_rules` codes + `exclusion_reason` texts, from
+     which the {code, text} pairs are reconstructed) and the S1-09 confidence
+     level + notes that feed the data-quality caveat.
+
+RECONSTRUCTING THE F16 PAIRS (S2-06b, Option B). The integrated table carries
+the two DELIMITED reason forms, not the paired `exclusion_reasons` JSON (that
+lives only on the upstream exclusions Eligibility_Table). F16 guarantees the
+codes and texts are the ordered split of one rule evaluation, so this module
+zips them back into the {code, text} pairs the explanation contract exposes,
+using the codes as the authoritative count and halting on any count mismatch.
+This keeps S2-06b inside the explanation stage and does not mutate the frozen
+S2-02 baseline dataset.
 
 NO SECOND NORMALISER. The normalised values are produced by calling the
 scoring stage's OWN pure core (`pipeline.scoring.score.score_frame`) with the
@@ -41,7 +55,13 @@ from ..scoring.normalise import Bounds, compute_bounds
 from ..scoring.score import eligible_mask, score_frame
 from ..scoring.weights import WeightsConfig, load_weights
 from . import config
-from .engine import CellExplanationInput, CriterionView
+from .caveats import CriterionParticipation
+from .engine import (
+    CellConfidence,
+    CellExplanationInput,
+    CriterionView,
+    ExcludedCellInput,
+)
 
 
 @dataclass(frozen=True)
@@ -49,10 +69,12 @@ class ExplanationInputs:
     """The assembled, validated inputs the run() orchestrator hands the engine."""
 
     cells: tuple[CellExplanationInput, ...]  # one per ELIGIBLE cell, in Scored_Table order
+    excluded_cells: tuple[ExcludedCellInput, ...]  # one per EXCLUDED cell (S2-06b)
     weights: WeightsConfig
     bounds: dict[str, Bounds]
     n_scored_cells: int  # rows in the Scored_Table with a non-null score
     n_eligible_cells: int  # rows the integrated table marks eligible
+    n_excluded_cells: int  # rows the integrated table marks NOT eligible (S2-06b)
     scored_table_path: Path
     integrated_path: Path
 
@@ -141,6 +163,142 @@ def _reconcile(
         )
 
 
+def _read_extra_columns(path: Path) -> pd.DataFrame:
+    """
+    Read the S2-06b input columns the scoring loader drops.
+
+    The scoring stage's `load_integrated` returns a restricted column set
+    (cell_id, eligible, data_confidence, criterion features) and does NOT carry
+    the F16 reason forms or the `confidence_notes` text. This reads the
+    integrated table again for exactly those columns, keyed by cell_id, halting
+    (fail before write) with a named column if any is absent.
+
+    Returns a DataFrame indexed by cell_id with columns
+    [eligible, triggered_rules, exclusion_reason, data_confidence,
+    confidence_notes].
+    """
+    try:
+        table = gpd.read_file(path, layer=config.INTEGRATED_LAYER)
+    except Exception as exc:  # noqa: BLE001 — any read failure is fatal and named
+        raise RuntimeError(f"Could not read integrated feature table {path}: {exc}") from exc
+
+    needed = [
+        config.CELL_ID_COLUMN,
+        config.ELIGIBLE_COLUMN,
+        config.TRIGGERED_RULES_COLUMN,
+        config.EXCLUSION_REASON_COLUMN,
+        config.CONFIDENCE_LEVEL_COLUMN,
+        config.CONFIDENCE_NOTES_COLUMN,
+    ]
+    missing = [c for c in needed if c not in table.columns]
+    if missing:
+        raise ValueError(
+            f"{path} lacks column(s) {missing} required by the S2-06b explanation "
+            f"stage. '{config.TRIGGERED_RULES_COLUMN}' (F16 machine codes) and "
+            f"'{config.EXCLUSION_REASON_COLUMN}' (F16 human texts) are the reason "
+            f"forms the integrated table carries (Decision-Engine Spec §6.5); the "
+            f"confidence columns are S1-09's composite quality flag. All are "
+            f"carried through the integrated table, never fabricated here."
+        )
+    frame = pd.DataFrame({c: table[c].to_numpy() for c in needed})
+    return frame.set_index(config.CELL_ID_COLUMN)
+
+
+def _parse_reason_pairs(codes_raw: object, texts_raw: object, cell_id: str) -> tuple[dict, ...]:
+    """
+    Reconstruct one excluded cell's {code, text} pairs from the two F16 forms.
+
+    The integrated table carries the machine codes (`triggered_rules`) and the
+    human texts (`exclusion_reason`), each the same rule evaluation joined with
+    `config.REASON_DELIMITER` in the SAME rule-config order (F16, Decision-Engine
+    Spec §6.5). This zips them back into the paired form the explanation
+    contract exposes, using the CODES as the authoritative count (a code never
+    contains the delimiter). Any violation of the pairing contract for an
+    EXCLUDED cell halts before write with a named cell:
+      - a null/empty code string (an excluded cell must carry ≥ 1 reason);
+      - a code/text count mismatch (the two forms are out of step);
+      - an empty code or text token.
+    """
+    codes = _split_reasons(codes_raw)
+    texts = _split_reasons(texts_raw)
+
+    if not codes:
+        raise ValueError(
+            f"excluded cell '{cell_id}' has an empty/null "
+            f"'{config.TRIGGERED_RULES_COLUMN}'; the F16 pairing contract requires "
+            f"at least one reason code for every excluded cell (Decision-Engine "
+            f"Spec §6.5)."
+        )
+    if len(codes) != len(texts):
+        raise ValueError(
+            f"excluded cell '{cell_id}' has {len(codes)} reason code(s) "
+            f"({codes!r}) but {len(texts)} reason text(s) ({texts!r}); the two F16 "
+            f"forms must be the ordered split of one evaluation. The integrated "
+            f"table's '{config.TRIGGERED_RULES_COLUMN}' and "
+            f"'{config.EXCLUSION_REASON_COLUMN}' are out of step."
+        )
+    pairs: list[dict] = []
+    for i, (code, text) in enumerate(zip(codes, texts)):
+        if not code:
+            raise ValueError(
+                f"excluded cell '{cell_id}' reason[{i}] has an empty code"
+            )
+        if not text:
+            raise ValueError(
+                f"excluded cell '{cell_id}' reason[{i}] ('{code}') has an empty text"
+            )
+        pairs.append({config.REASON_CODE_KEY: code, config.REASON_TEXT_KEY: text})
+    return tuple(pairs)
+
+
+def _split_reasons(raw: object) -> list[str]:
+    """Split a ", "-joined F16 form into stripped tokens; [] for null/empty."""
+    if raw is None or (isinstance(raw, float) and np.isnan(raw)):
+        return []
+    text = str(raw).strip()
+    if not text:
+        return []
+    return [tok.strip() for tok in text.split(config.REASON_DELIMITER)]
+
+
+def _participation_for(
+    cell_id: str, features: pd.DataFrame, weights: WeightsConfig
+) -> tuple[CriterionParticipation, ...]:
+    """
+    Which criteria the cell had a value for, in configured (weights) order.
+
+    A criterion participated when the integrated table carries a non-null value
+    for it. This drives the proxy caveat for BOTH paths — a proxy criterion the
+    cell had no value for is not "shown", so it needs no caveat.
+    """
+    row = features.loc[cell_id]
+    out: list[CriterionParticipation] = []
+    for criterion in weights.criteria:
+        value = row.get(criterion.feature)
+        participated = value is not None and not (
+            isinstance(value, float) and value != value  # NaN
+        )
+        out.append(CriterionParticipation(feature=criterion.feature, participated=bool(participated)))
+    return tuple(out)
+
+
+def _confidence_for(cell_id: str, extra: pd.DataFrame) -> CellConfidence:
+    """One cell's confidence facts (level + notes) from the extra-columns frame."""
+    if cell_id not in extra.index:
+        return CellConfidence(None, None)
+    row = extra.loc[cell_id]
+    level = row.get(config.CONFIDENCE_LEVEL_COLUMN)
+    notes = row.get(config.CONFIDENCE_NOTES_COLUMN)
+    return CellConfidence(
+        level=None if _is_null(level) else str(level),
+        notes=None if _is_null(notes) else str(notes),
+    )
+
+
+def _is_null(value: object) -> bool:
+    return value is None or (isinstance(value, float) and value != value)
+
+
 def load_explanation_inputs(
     scored_table_path: Path | str | None = None,
     integrated_path: Path | str | None = None,
@@ -168,6 +326,10 @@ def load_explanation_inputs(
     integrated_path = Path(integrated_path or config.INTEGRATED_PATH)
     features = load_integrated(integrated_path, weights.criteria)
 
+    # S2-06b inputs the scoring loader drops: the F16 exclusion_reasons and the
+    # confidence_notes text. Read once here, indexed by cell_id.
+    extra = _read_extra_columns(integrated_path)
+
     # Bounds and the pure scoring core over the eligible population — the same
     # code the scoring stage runs, so the norms are the ones behind the scores.
     mask = eligible_mask(features)
@@ -177,13 +339,17 @@ def load_explanation_inputs(
 
     _reconcile(scored_table, recomputed, weights)
 
-    # Index the persisted contributions by cell_id for the engine input.
+    # Index the persisted contributions and the feature values by cell_id.
     persisted = scored_table.set_index(config.CELL_ID_COLUMN)
     rec = recomputed.set_index(config.CELL_ID_COLUMN)
+    feat_by_id = features.set_index(config.CELL_ID_COLUMN)
 
+    # --- Eligible cells: factors + caveats ---------------------------------
     eligible_ids = features.loc[mask, config.CELL_ID_COLUMN].tolist()
     cells: list[CellExplanationInput] = []
     for cell_id in eligible_ids:
+        participation = _participation_for(cell_id, feat_by_id, weights)
+        participated_by_feature = {p.feature: p.participated for p in participation}
         views: list[CriterionView] = []
         for criterion in weights.criteria:
             contrib = persisted.at[cell_id, criterion.contribution_column] \
@@ -195,6 +361,7 @@ def load_explanation_inputs(
                     contribution=_as_opt_float(contrib),
                     norm=_as_opt_float(norm),
                     bounds=bounds[criterion.feature],
+                    participated=participated_by_feature[criterion.feature],
                 )
             )
         cells.append(
@@ -202,15 +369,36 @@ def load_explanation_inputs(
                 cell_id=str(cell_id),
                 criteria=tuple(views),
                 order=tuple(c.feature for c in weights.criteria),
+                confidence=_confidence_for(cell_id, extra),
+            )
+        )
+
+    # --- Excluded cells: F16 reasons + caveats -----------------------------
+    excluded_ids = features.loc[~mask, config.CELL_ID_COLUMN].tolist()
+    excluded_cells: list[ExcludedCellInput] = []
+    for cell_id in excluded_ids:
+        codes_raw = extra.at[cell_id, config.TRIGGERED_RULES_COLUMN] \
+            if cell_id in extra.index else None
+        texts_raw = extra.at[cell_id, config.EXCLUSION_REASON_COLUMN] \
+            if cell_id in extra.index else None
+        reasons = _parse_reason_pairs(codes_raw, texts_raw, str(cell_id))
+        excluded_cells.append(
+            ExcludedCellInput(
+                cell_id=str(cell_id),
+                exclusion_reasons=reasons,
+                participation=_participation_for(cell_id, feat_by_id, weights),
+                confidence=_confidence_for(cell_id, extra),
             )
         )
 
     return ExplanationInputs(
         cells=tuple(cells),
+        excluded_cells=tuple(excluded_cells),
         weights=weights,
         bounds=bounds,
         n_scored_cells=int(scored_table[config.SCORE_COLUMN].notna().sum()),
         n_eligible_cells=int(mask.sum()),
+        n_excluded_cells=int((~mask).sum()),
         scored_table_path=scored_table_path,
         integrated_path=integrated_path,
     )

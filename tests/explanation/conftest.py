@@ -55,7 +55,16 @@ def _integrated() -> gpd.GeoDataFrame:
             "slope_deg": [5.0, 5.0, 15.0, 25.0, 999.0],
             "inside_rez": [True, False, True, False, True],
             "eligible": [True, True, True, True, False],
-            "data_confidence": ["high", "high", "high", "high", "high"],
+            "data_confidence": ["high", "high", "medium", "low", "high"],
+            "confidence_score": [1.0, 1.0, 0.8, 0.6, 1.0],
+            # S1-09 confidence_notes: '; '-joined reasons, '—' when none.
+            "confidence_notes": ["—", "—", "one feature interpolated", "two features interpolated", "—"],
+            # F16 reason forms as carried on the integrated table (Option B):
+            # triggered_rules = ", "-joined codes; exclusion_reason = ", "-joined
+            # texts; null when eligible. The loader reconstructs the {code, text}
+            # pairs from these two.
+            "triggered_rules": [None, None, None, None, "protected_area"],
+            "exclusion_reason": [None, None, None, None, "Protected area: Test NP"],
             "centroid_lat": [-30.0, -30.1, -30.2, -30.3, -30.4],
             "centroid_lon": [151.0, 151.1, 151.2, 151.3, 151.4],
         },
