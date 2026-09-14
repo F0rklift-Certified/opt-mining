@@ -6,7 +6,11 @@ the outputs" (design.md). This module does exactly that and nothing more: it
 resolves a weights configuration (from explicit weights OR a named Scenario),
 derives a stable content-addressed `run_id`, drives the ENGINE UNCHANGED to
 score and rank, and writes the resulting Scored_Table to a per-run directory so
-the read operations (tasks 3.x) can serve it.
+the read operations (tasks 3.x) can serve it. It also RESOLVES a `run_id` back
+to those materialised artefacts (`load_run_manifest`, `load_scored_table`) for
+the read operations — pure I/O that reads the engine's own output verbatim, with
+honest failures (`RunNotFoundError`, `EngineOutputError`) when a Run or its
+output is absent.
 
 NO DECISION ARITHMETIC LIVES HERE. Scoring, normalisation and ranking are the
 S2-05 pure core (`pipeline/scoring/score.py::score_and_rank`); the Scored_Table
@@ -37,6 +41,8 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
+import geopandas as gpd
+import pandas as pd
 import yaml
 
 from ..common.geo import sha256_file, utc_now
@@ -255,3 +261,102 @@ def materialise_run(
         return RunHandle(run_id=run_id, weights_id=weights_id, scenario=scenario_key)
 
     return _materialise(run_id, resolved, scenario_key, weights_id, verbose)
+
+
+# --------------------------------------------------------------------------- #
+# Resolving a run_id back to its materialised artefacts (for the read ops).   #
+#                                                                             #
+# These are pure I/O: they open the Scored_Table the engine already wrote and #
+# hand it back verbatim. NO score, rank, normalisation or exclusion arithmetic #
+# happens here — that is the no-recompute guarantee the read operations depend #
+# on (CONTRACT.md §1, Requirement 2.4).                                        #
+# --------------------------------------------------------------------------- #
+
+
+class RunNotFoundError(LookupError):
+    """
+    The requested Run has no materialisation on disk (Requirement 7.1).
+
+    Raised — naming the missing `run_id` — rather than returning an empty
+    success, so the Web_Application can present a real error. The HTTP layer
+    (a later task) maps this to a 404.
+    """
+
+
+class EngineOutputError(RuntimeError):
+    """
+    A materialised engine output required by a read operation is missing or
+    unreadable (Requirement 7.3).
+
+    Raised — naming the missing/unreadable input — rather than fabricating a
+    result. The HTTP layer maps this to a 503.
+    """
+
+
+def load_run_manifest(run_id: str) -> dict:
+    """
+    Read a materialised Run's ``run.json`` manifest.
+
+    Raises ``RunNotFoundError`` naming the `run_id` when the Run directory or
+    its manifest is absent (Requirement 7.1); raises ``EngineOutputError`` when
+    the manifest exists but cannot be parsed (Requirement 7.3).
+    """
+    target = run_dir(run_id)
+    manifest_path = target / config.RUN_MANIFEST_FILENAME
+    if not target.exists() or not manifest_path.exists():
+        raise RunNotFoundError(
+            f"no materialised Run {run_id!r} (looked for {manifest_path}); "
+            f"run_analysis must create the Run before its results can be read"
+        )
+    try:
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise EngineOutputError(
+            f"Run {run_id!r} manifest {manifest_path} is unreadable: {exc}"
+        ) from exc
+
+
+def load_scored_table(run_id: str) -> gpd.GeoDataFrame:
+    """
+    Load a materialised Run's Scored_Table verbatim (CONTRACT.md §1).
+
+    Resolves the `run_id` to its per-run directory and reads the S2-05
+    Scored_Table the engine wrote there — the authoritative score/rank source.
+    The frame is returned exactly as written (`cell_id`, `suitability_score`,
+    `rank`, `confidence`, `contrib_{feature}` per criterion, and the carried
+    grid centroids); nothing is recomputed, reordered or reprojected.
+
+    `cell_id` is coerced to string so it joins to the grid and appears in URL
+    paths consistently regardless of the GeoPackage's stored column dtype; no
+    other value is touched.
+
+    Raises
+    ------
+    RunNotFoundError
+        The Run has no materialisation on disk (Requirement 7.1).
+    EngineOutputError
+        The Run exists but its Scored_Table is missing or unreadable — the
+        error names the missing input rather than fabricating a result
+        (Requirement 7.3).
+    """
+    # Establish the Run exists (names the run_id if not) before touching output.
+    load_run_manifest(run_id)
+
+    gpkg_path = run_dir(run_id) / config.SCORED_GPKG_FILENAME
+    if not gpkg_path.exists():
+        raise EngineOutputError(
+            f"Run {run_id!r} Scored_Table is missing: {gpkg_path}. The engine "
+            f"output was not materialised; re-run the analysis."
+        )
+    try:
+        table = gpd.read_file(gpkg_path, layer=config.SCORED_LAYER)
+    except Exception as exc:  # noqa: BLE001 — any read failure is fatal and named
+        raise EngineOutputError(
+            f"Run {run_id!r} Scored_Table {gpkg_path} is unreadable: {exc}"
+        ) from exc
+
+    if _scoring_config.CELL_ID_COLUMN in table.columns:
+        table[_scoring_config.CELL_ID_COLUMN] = (
+            table[_scoring_config.CELL_ID_COLUMN].astype(str)
+        )
+    return table

@@ -8,14 +8,15 @@ OpenAPI schema, not this module, is the authoritative machine-readable form per
 CONTRACT.md §5). None of them carries decision logic: they are the shapes the
 service serves, populated verbatim from materialised engine outputs.
 
-Only `RunHandle` is needed by `run_analysis` (task 2.1); the remaining models
-(RankedRow, SiteDetail, ExcludedRow, ScenarioComparison, DataQualityStatus) are
-added by the read-operation tasks that produce them.
+`RunHandle` is needed by `run_analysis` (task 2.1) and `RankedRow` by
+`get_ranked_results` (task 3.1); the remaining models (SiteDetail, ExcludedRow,
+ScenarioComparison, DataQualityStatus) are added by the read-operation tasks
+that produce them.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -54,4 +55,52 @@ class RunHandle:
             "run_id": self.run_id,
             "weights_id": self.weights_id,
             "scenario": self.scenario,
+        }
+
+
+@dataclass(frozen=True)
+class RankedRow:
+    """
+    One eligible cell's ranked result for a Run (CONTRACT.md §5, Requirement 6.3).
+
+    A `RankedRow` is a verbatim projection of one row of the materialised
+    S2-05 Scored_Table — never a recomputed value. `get_ranked_results`
+    (`results.py`) reads the fixed Scored_Table and returns one `RankedRow`
+    per eligible cell (a non-null `suitability_score` and `rank`); an excluded
+    cell (null score / null rank) never becomes a `RankedRow`. The service
+    performs no scoring, normalisation or ranking to produce these — the score
+    and rank are the engine's, carried through unchanged (CONTRACT.md §1,
+    Requirement 2.4).
+
+    Fields
+    ------
+    cell_id :
+        Analysis-cell id, copied byte-for-byte from the Scored_Table so it
+        joins back to the analysis grid on `cell_id`.
+    suitability_score :
+        The S2-05 `suitability_score` in ``[0, 1]``, read from the table
+        (never recomputed).
+    rank :
+        The S2-05 integer `rank` (1 = highest-ranked), read from the table and
+        preserved under any Display_Filter (Requirement 3.2).
+    key_components :
+        The per-criterion component values for the cell — the `contrib_{feature}`
+        shares from the Scored_Table — keyed by criterion `feature` (the
+        `contrib_` prefix stripped). These sum to `suitability_score` within
+        the engine's reconciliation tolerance; the service copies them through,
+        it does not compute them.
+    """
+
+    cell_id: str
+    suitability_score: float
+    rank: int
+    key_components: dict[str, float] = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 `RankedRow` shape."""
+        return {
+            "cell_id": self.cell_id,
+            "suitability_score": self.suitability_score,
+            "rank": self.rank,
+            "key_components": dict(self.key_components),
         }

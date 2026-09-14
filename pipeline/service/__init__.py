@@ -24,9 +24,13 @@ Modules:
     run_analysis — `run_analysis(weights|scenario) -> RunHandle`: drives the
                    S2-05 scoring engine UNCHANGED under the given weights or a
                    named Scenario, materialises the Run, and returns a handle.
+    results      — The read operations over a materialised Run's Scored_Table.
+                   `get_ranked_results(run) -> [RankedRow]` projects the fixed
+                   engine output; it never re-scores or re-ranks.
 """
 
-from .models import RunHandle
+from .models import RankedRow, RunHandle
+from .results import get_ranked_results
 from .run_analysis import run_analysis
 
-__all__ = ["RunHandle", "run_analysis"]
+__all__ = ["RankedRow", "RunHandle", "get_ranked_results", "run_analysis"]
