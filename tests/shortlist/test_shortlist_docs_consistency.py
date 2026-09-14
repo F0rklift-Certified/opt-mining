@@ -104,8 +104,12 @@ class TestConfigStageOrder:
             < pcfg.STAGES.index("validate")
         )
 
-    def test_shortlist_immediately_follows_scoring(self):
-        assert pcfg.STAGES.index("shortlist") == pcfg.STAGES.index("scoring") + 1
+    def test_shortlist_follows_scoring_via_explanation(self):
+        # The S2-06 `explanation` stage sits between `scoring` and `shortlist`
+        # (scoring → explanation → shortlist), so shortlist immediately follows
+        # explanation, which immediately follows scoring.
+        assert pcfg.STAGES.index("explanation") == pcfg.STAGES.index("scoring") + 1
+        assert pcfg.STAGES.index("shortlist") == pcfg.STAGES.index("explanation") + 1
 
     def test_shortlist_registered_as_domain(self):
         assert "shortlist" in pcfg.DOMAINS

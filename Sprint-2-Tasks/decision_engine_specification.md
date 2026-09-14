@@ -713,8 +713,19 @@ Scoring_Formula runs (§3.3) and records, for every excluded cell, **why** it wa
 - `triggered_rules` — the **machine-readable** rule-name codes, same delimiter and order.
 - `exclusion_reasons` — the **paired** form: a JSON list of
   `{"code": <rule_name>, "text": <human_reason>}` objects (null for eligible cells). This is the
-  form the S2-06 explanation engine and the S3-05 site-detail view consume directly, so the
-  code↔text pairing is delivered without re-splitting two parallel delimited strings.
+  canonical paired form on the exclusions Eligibility_Table (S1-07), delivering the code↔text
+  pairing without re-splitting two parallel delimited strings.
+
+  > **S2-06b consumption note (Option B).** The S1-08 `integration` merge carries the two
+  > **delimited** forms (`triggered_rules` codes + `exclusion_reason` texts) onto the frozen
+  > Integrated Feature Table, but **not** this paired `exclusion_reasons` column. The S2-06b
+  > explanation engine therefore **reconstructs** the `{code, text}` pairs from those two carried
+  > forms — which the pairing contract below guarantees are the ordered split of one evaluation —
+  > using the codes as the authoritative count and halting on any mismatch. This keeps S2-06b
+  > inside the explanation stage and does not mutate the frozen S2-02 baseline. Reconstructing
+  > versus reading the paired column is an implementation choice: either yields the identical
+  > pairs. If the paired column is later materialised on the integrated table (a separate S1-08
+  > change), the engine can read it directly.
 
 **The vocabulary.** The machine-readable **codes are exactly the `name` values of the rules in
 `pipeline/exclusions/exclusion_rules.yaml`**. The shipped MVP vocabulary is the four codes below;
@@ -753,7 +764,9 @@ end by the compensation-guard test (`tests/scoring/test_exclusion_scoring_guard.
    (`evaluate_cell_detailed`), which emits the `{code, text}` pairs.
 3. **The output schema + consumers** — `pipeline/exclusions/apply.py` (`OUTPUT_COLUMNS`,
    `_write_report` schema section, `validate()` consistency check) and the downstream S2-06b
-   explanation schema (`exclusion_reasons`), which consumes this vocabulary.
+   explanation schema (`exclusion_reasons`), which consumes this vocabulary (reconstructing the
+   pairs from the two delimited forms carried on the integrated table — see the Option B note
+   above).
 
 A documentation-consistency test (`tests/exclusions/test_exclusions.py`) asserts the codes in the
 shipped `exclusion_rules.yaml` match the vocabulary frozen here, so the YAML and this section
