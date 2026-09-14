@@ -301,3 +301,115 @@ class TestCompareScenarios:
             # Required S2-08 fields plus the additive score fields.
             assert set(row) >= {"cell_id", "rank_a", "rank_b", "rank_delta"}
             assert set(row) >= {"score_a", "score_b", "score_delta"}
+
+
+# ===========================================================================
+# CONTROLLED HAND-COMPUTED RE-RANKING CASE (S2-07 AC: different weights produce
+# different, correctly re-ranked outputs). Every number below is derived on
+# paper from the frozen formula, not copied from a code run.
+# ===========================================================================
+#
+# Two criteria, bounds from the eligible population (all three cells eligible):
+#     wind_speed            higher_is_better   bounds [0, 10]
+#     dist_transmission_km  lower_is_better    bounds [0, 10]
+#
+# Cells:
+#     cell_id  wind_speed  dist_transmission_km   profile
+#     w        10.0         10.0                  wind-strong / grid-far
+#     g         0.0          0.0                  wind-weak   / grid-near
+#     m         5.0          5.0                  middle
+#
+# Normalise (higher: (v-lo)/(hi-lo); lower: 1-(v-lo)/(hi-lo)):
+#     w: norm_wind = 10/10 = 1.0 ; norm_dist = 1 - 10/10 = 0.0
+#     g: norm_wind =  0/10 = 0.0 ; norm_dist = 1 -  0/10 = 1.0
+#     m: norm_wind =  5/10 = 0.5 ; norm_dist = 1 -  5/10 = 0.5
+#
+# Wind-led weights: wind 0.8, dist 0.2   (W = 1.0)
+#     S(w) = 0.8*1.0 + 0.2*0.0 = 0.80  -> rank 1
+#     S(m) = 0.8*0.5 + 0.2*0.5 = 0.50  -> rank 2
+#     S(g) = 0.8*0.0 + 0.2*1.0 = 0.20  -> rank 3
+#
+# Grid-led weights: wind 0.2, dist 0.8   (W = 1.0)
+#     S(g) = 0.2*0.0 + 0.8*1.0 = 0.80  -> rank 1
+#     S(m) = 0.2*0.5 + 0.8*0.5 = 0.50  -> rank 2
+#     S(w) = 0.2*1.0 + 0.8*0.0 = 0.20  -> rank 3
+#
+# THE SWAP: w goes rank 1 (Wind-led) -> rank 3 (Grid-led); g goes rank 3 -> 1;
+# m stays rank 2. Bounds are shared, so ONLY the weights caused the re-ranking.
+# rank_delta = rank_a - rank_b, so w = 1 - 3 = -2 and g = 3 - 1 = +2 (a
+# negative delta means scenario B ranks the cell higher).
+# ===========================================================================
+
+_CTRL_TOL = 1e-12
+
+
+def _ctrl_features() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "cell_id": ["w", "g", "m"],
+            "wind_speed": [10.0, 0.0, 5.0],
+            "dist_transmission_km": [10.0, 0.0, 5.0],
+            "eligible": [True, True, True],
+            "data_confidence": ["high", "high", "high"],
+        }
+    )
+
+
+class TestControlledReRanking:
+    """Different weights produce a specific, hand-verified rank swap."""
+
+    def test_wind_led_and_grid_led_produce_the_hand_computed_ranks(self):
+        features = _ctrl_features()
+        wind = _two_criterion_scenario("wind_led", "Wind-led", 0.8, 0.2)
+        grid = _two_criterion_scenario("grid_led", "Grid-led", 0.2, 0.8)
+
+        a = run_scenario(features, wind).set_index("cell_id")
+        b = run_scenario(features, grid).set_index("cell_id")
+
+        # Wind-led scores and ranks.
+        assert a.loc["w", scfg.SCORE_COLUMN] == pytest.approx(0.80, abs=_CTRL_TOL)
+        assert a.loc["m", scfg.SCORE_COLUMN] == pytest.approx(0.50, abs=_CTRL_TOL)
+        assert a.loc["g", scfg.SCORE_COLUMN] == pytest.approx(0.20, abs=_CTRL_TOL)
+        assert a.loc["w", scfg.RANK_COLUMN] == 1
+        assert a.loc["m", scfg.RANK_COLUMN] == 2
+        assert a.loc["g", scfg.RANK_COLUMN] == 3
+
+        # Grid-led scores and ranks — the top and bottom cells swap.
+        assert b.loc["g", scfg.SCORE_COLUMN] == pytest.approx(0.80, abs=_CTRL_TOL)
+        assert b.loc["m", scfg.SCORE_COLUMN] == pytest.approx(0.50, abs=_CTRL_TOL)
+        assert b.loc["w", scfg.SCORE_COLUMN] == pytest.approx(0.20, abs=_CTRL_TOL)
+        assert b.loc["g", scfg.RANK_COLUMN] == 1
+        assert b.loc["m", scfg.RANK_COLUMN] == 2
+        assert b.loc["w", scfg.RANK_COLUMN] == 3
+
+    def test_comparison_reports_the_hand_computed_rank_deltas(self):
+        features = _ctrl_features()
+        wind = _two_criterion_scenario("wind_led", "Wind-led", 0.8, 0.2)
+        grid = _two_criterion_scenario("grid_led", "Grid-led", 0.2, 0.8)
+
+        rows = {r.cell_id: r for r in compare_scenarios(features, wind, grid).rows}
+
+        # w: rank 1 under Wind-led, rank 3 under Grid-led -> delta 1-3 = -2.
+        assert rows["w"].rank_a == 1 and rows["w"].rank_b == 3
+        assert rows["w"].rank_delta == -2
+        # g: rank 3 -> rank 1 -> delta 3-1 = +2.
+        assert rows["g"].rank_a == 3 and rows["g"].rank_b == 1
+        assert rows["g"].rank_delta == 2
+        # m: unchanged at rank 2.
+        assert rows["m"].rank_a == 2 and rows["m"].rank_b == 2
+        assert rows["m"].rank_delta == 0
+
+    def test_only_weights_differ_shared_bounds_hold_scores_symmetric(self):
+        """
+        The re-ranking is caused ONLY by the weights: w and g have mirror-image
+        normalised profiles, so swapping the weights swaps their scores exactly
+        (w scores 0.80/0.20, g scores 0.20/0.80). This is only true if both
+        scenarios normalised against the same [0, 10] bounds.
+        """
+        features = _ctrl_features()
+        wind = _two_criterion_scenario("wind_led", "Wind-led", 0.8, 0.2)
+        grid = _two_criterion_scenario("grid_led", "Grid-led", 0.2, 0.8)
+        rows = {r.cell_id: r for r in compare_scenarios(features, wind, grid).rows}
+
+        assert rows["w"].score_a == pytest.approx(rows["g"].score_b, abs=_CTRL_TOL)
+        assert rows["w"].score_b == pytest.approx(rows["g"].score_a, abs=_CTRL_TOL)
