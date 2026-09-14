@@ -11,29 +11,37 @@ score and rank a `cell_id` is served here are the engine's, read from the
 fixed table — there is no arithmetic path by which they could differ from
 what the engine computed.
 
-`get_ranked_results` (task 3.1) and `get_site_detail` (task 3.2) are these
-operations. `get_site_detail` serves one cell's full detail by projecting the
-SAME Scored_Table `get_ranked_results` reads (so the two agree on a cell's
-score and rank — the consistency guarantee, Requirement 2.3), joining the
-input `features` and `eligible` flag from the integrated table the Run scored,
-and carrying the S2-06 Explanation_Structure through VERBATIM. The display
-filters (top-N, minimum-score) the ranked-results operation will accept are
-pure SELECTIONS over this fixed output and are added by task 4.1; this module
-deliberately contains no selection logic yet, only the read-and-project core
-every read operation builds on.
+`get_ranked_results` (task 3.1), `get_site_detail` (task 3.2) and
+`get_exclusions` (task 3.3) are these operations. `get_site_detail` serves one
+cell's full detail by projecting the SAME Scored_Table `get_ranked_results`
+reads (so the two agree on a cell's score and rank — the consistency guarantee,
+Requirement 2.3), joining the input `features` and `eligible` flag from the
+integrated table the Run scored, and carrying the S2-06 Explanation_Structure
+through VERBATIM. `get_exclusions` is the mirror operation for the ineligible
+cells: it reads the S2-03 Eligibility_Table and returns one `ExcludedRow` per
+excluded cell, carrying the machine-readable reason codes and the
+human-readable reason text the exclusions stage wrote through UNCHANGED
+(Requirement 1.4) — it re-evaluates no rule. The display filters (top-N,
+minimum-score) the ranked-results operation will accept are pure SELECTIONS
+over this fixed output and are added by task 4.1; this module deliberately
+contains no selection logic yet, only the read-and-project core every read
+operation builds on.
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pandas as pd
 
 from ..scoring import config as _scoring_config
 from . import config as _service_config
-from .models import RankedRow, RunHandle, SiteDetail
+from .models import ExcludedRow, RankedRow, RunHandle, SiteDetail
 from .runs import (
     CellNotFoundError,
+    EngineOutputError,
+    load_eligibility_table,
     load_explanations,
     load_integrated_table,
     load_scored_table,
@@ -314,3 +322,150 @@ def _run_feature_names(run_id: str) -> list[str]:
         for c in criteria
         if isinstance(c, dict) and "feature" in c
     ]
+
+
+def _reason_codes_and_text(row: pd.Series) -> tuple[list[str], str]:
+    """
+    The excluded cell's machine-readable codes and human-readable text.
+
+    Both are derived from the SAME `exclusion_reasons` JSON column the
+    exclusions stage wrote — a list of ``{"code", "text"}`` pairs produced from
+    one rule evaluation — so the two forms an `ExcludedRow` carries can never
+    disagree (CONTRACT.md §5). The `exclusion_reasons` column is the paired form
+    the S2-06 explanation engine also consumes, making it the authoritative
+    reason source rather than re-splitting the flat `triggered_rules` /
+    `exclusion_reason` strings.
+
+    Falls back to the flat `triggered_rules` (codes) and `exclusion_reason`
+    (text) columns only when the paired column is absent or unparseable, so an
+    older Eligibility_Table without the paired schema still yields the engine's
+    own codes and text rather than a fabricated blank — splitting them on the
+    exclusions stage's own reason delimiter (composed from
+    `exclusions/rules.REASON_DELIMITER` via the service config, never re-typed).
+    """
+    delimiter = _service_config.REASON_DELIMITER
+
+    paired_col = _service_config.EXCLUSION_REASONS_COLUMN
+    raw = row[paired_col] if paired_col in row.index else None
+    if raw is not None and not (isinstance(raw, float) and pd.isna(raw)):
+        try:
+            pairs = json.loads(raw) if isinstance(raw, str) else raw
+        except (ValueError, TypeError):
+            pairs = None
+        if isinstance(pairs, list) and pairs:
+            codes = [
+                str(p["code"])
+                for p in pairs
+                if isinstance(p, dict) and "code" in p
+            ]
+            texts = [
+                str(p["text"])
+                for p in pairs
+                if isinstance(p, dict) and "text" in p
+            ]
+            return codes, delimiter.join(texts)
+
+    # Fallback: the flat code-list and human-text columns, split on the same
+    # delimiter the exclusions stage joined them with, in rule-config order.
+    triggered_col = _service_config.TRIGGERED_RULES_COLUMN
+    triggered = row[triggered_col] if triggered_col in row.index else None
+    codes = (
+        str(triggered).split(delimiter)
+        if triggered is not None and not (isinstance(triggered, float) and pd.isna(triggered))
+        else []
+    )
+
+    text_col = _service_config.EXCLUSION_REASON_COLUMN
+    text_val = row[text_col] if text_col in row.index else None
+    reason_text = (
+        str(text_val)
+        if text_val is not None and not (isinstance(text_val, float) and pd.isna(text_val))
+        else ""
+    )
+    return codes, reason_text
+
+
+def get_exclusions(run: RunHandle | str) -> list[ExcludedRow]:
+    """
+    Return the excluded cells for a Run with their machine- and human-readable
+    exclusion reason(s) (CONTRACT.md §4.4, Requirement 1.4).
+
+    Reads the materialised S2-03 Eligibility_Table and returns one
+    ``ExcludedRow`` per cell the engine flagged INELIGIBLE (``eligible ==
+    False``), carrying its reason codes and reason text through UNCHANGED. An
+    eligible cell takes no part and is never returned; ineligible land is
+    surfaced with exactly the reason(s) the engine recorded, never a fabricated
+    or re-evaluated one (CONTRACT.md §1).
+
+    NO RECOMPUTE. This function evaluates no exclusion rule and computes no
+    eligibility. The `reason_codes` and `reason_text` are projected from the
+    Eligibility_Table's paired `exclusion_reasons` column (the same
+    machine/human pairing the S2-06 explanation engine consumes), so the two
+    forms of an ``ExcludedRow`` are the engine's own and cannot drift
+    (Requirement 2.4).
+
+    The hard exclusions do not depend on the scoring weights, so the
+    Eligibility_Table is a screening-level artefact shared across Runs; the
+    ``run`` argument is accepted for a uniform read-operation signature and its
+    ``run_id`` establishes that the Run exists before the shared table is
+    served.
+
+    Parameters
+    ----------
+    run :
+        The Run to read, as the ``RunHandle`` returned by ``run_analysis`` or
+        its bare ``run_id`` string.
+
+    Returns
+    -------
+    list[ExcludedRow]
+        The excluded cells' rows, in the Eligibility_Table's own row order.
+        Empty when the Run excludes no cell (an empty-but-valid result, not an
+        error — CONTRACT.md §6).
+
+    Raises
+    ------
+    RunNotFoundError
+        The Run has no materialisation on disk (Requirement 7.1).
+    EngineOutputError
+        The Eligibility_Table is missing or unreadable — the error names the
+        missing input rather than fabricating a result (Requirement 7.3).
+    """
+    run_id = _run_id_of(run)
+
+    # Establish the Run exists (names the run_id if not) before serving the
+    # shared engine output, so a missing Run fails honestly (Requirement 7.1).
+    from .runs import load_run_manifest
+
+    load_run_manifest(run_id)
+
+    table = load_eligibility_table()
+
+    cell_col = _service_config.ELIGIBILITY_CELL_ID_COLUMN
+    eligible_col = _service_config.ELIGIBILITY_ELIGIBLE_COLUMN
+
+    frame = pd.DataFrame(
+        table.drop(columns=[table.geometry.name], errors="ignore")
+    )
+
+    if eligible_col not in frame.columns:
+        raise EngineOutputError(
+            f"Eligibility_Table has no {eligible_col!r} column; it cannot be "
+            f"resolved into excluded cells."
+        )
+
+    # EXCLUDED-ONLY: a row is excluded iff its `eligible` flag is False. Read
+    # the engine's own flag; never re-derive eligibility here.
+    excluded = frame[~frame[eligible_col].astype(bool)]
+
+    rows: list[ExcludedRow] = []
+    for _, row in excluded.iterrows():
+        codes, reason_text = _reason_codes_and_text(row)
+        rows.append(
+            ExcludedRow(
+                cell_id=str(row[cell_col]),
+                reason_codes=codes,
+                reason_text=reason_text,
+            )
+        )
+    return rows

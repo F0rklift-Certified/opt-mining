@@ -442,3 +442,210 @@ def test_site_detail_from_a_real_run_matches_ranked_results(runs_store):
     # Features and a verbatim S2-06 explanation are served for the cell.
     assert detail.features
     assert detail.explanation.get("cell_id") == top.cell_id
+
+
+# --------------------------------------------------------------------------- #
+# get_exclusions — the excluded cells + their reasons (Requirement 1.4).      #
+#                                                                             #
+# These pin the projection of the S2-03 Eligibility_Table into ExcludedRows:  #
+# the excluded-only rule, the machine (`reason_codes`) + human (`reason_text`) #
+# reason pairing read from the `exclusion_reasons` column verbatim, the flat-  #
+# column fallback, and the honest-failure behaviour, over a hand-written      #
+# Eligibility_Table so no built dataset is required.                          #
+# --------------------------------------------------------------------------- #
+
+from pipeline.exclusions import config as exclusions_config
+from pipeline.service import get_exclusions
+from pipeline.service.models import ExcludedRow
+
+
+def _materialise_run_and_eligibility(
+    store: Path,
+    tmp_path: Path,
+    run_id: str,
+    eligibility_rows: list[dict],
+    monkeypatch,
+) -> None:
+    """
+    Write a minimal Run manifest (so the Run "exists") plus a hand-written
+    Eligibility_Table, redirecting the service's Eligibility_Table path to it.
+
+    Each `eligibility_rows` dict carries at least `cell_id` and `eligible`; an
+    excluded row also carries the reason columns (`exclusion_reasons`,
+    `triggered_rules`, `exclusion_reason`) the exclusions stage writes.
+    """
+    target = store / run_id
+    target.mkdir(parents=True, exist_ok=True)
+    manifest = {"run_id": run_id, "weights_id": run_id, "scenario": None}
+    (target / service_config.RUN_MANIFEST_FILENAME).write_text(
+        json.dumps(manifest) + "\n", encoding="utf-8"
+    )
+
+    eligibility_path = tmp_path / f"eligibility_{run_id}.gpkg"
+    frame = gpd.GeoDataFrame(
+        eligibility_rows,
+        geometry=[Point(150.0 + i * 0.1, -30.0) for i in range(len(eligibility_rows))],
+        crs=scoring_config.STORAGE_CRS,
+    )
+    frame.to_file(eligibility_path, driver="GPKG")
+    monkeypatch.setattr(service_config, "ELIGIBILITY_TABLE_PATH", eligibility_path)
+
+
+def test_returns_excluded_rows_with_paired_reasons(runs_store, tmp_path, monkeypatch):
+    _materialise_run_and_eligibility(
+        runs_store,
+        tmp_path,
+        "runexcl000000001",
+        [
+            {"cell_id": "c1", "eligible": True, "exclusion_reason": None,
+             "triggered_rules": None, "exclusion_reasons": None},
+            {"cell_id": "cX", "eligible": False,
+             "exclusion_reason": "Protected area, Slope exceeds 15",
+             "triggered_rules": "protected_area, steep_slope",
+             "exclusion_reasons": json.dumps([
+                 {"code": "protected_area", "text": "Protected area"},
+                 {"code": "steep_slope", "text": "Slope exceeds 15"},
+             ])},
+        ],
+        monkeypatch,
+    )
+
+    result = get_exclusions("runexcl000000001")
+
+    # Only the ineligible cell is returned; the eligible one takes no part.
+    assert all(isinstance(r, ExcludedRow) for r in result)
+    assert [r.cell_id for r in result] == ["cX"]
+    # Machine-readable codes from exclusion_reasons[].code, in rule order.
+    assert result[0].reason_codes == ["protected_area", "steep_slope"]
+    # Human-readable text joined with the exclusions stage's own delimiter.
+    assert result[0].reason_text == "Protected area, Slope exceeds 15"
+
+
+def test_multiple_excluded_cells_carry_their_own_reasons(runs_store, tmp_path, monkeypatch):
+    _materialise_run_and_eligibility(
+        runs_store,
+        tmp_path,
+        "runexcl000000002",
+        [
+            {"cell_id": "cA", "eligible": False,
+             "exclusion_reason": "Missing wind data",
+             "triggered_rules": "missing_wind_data",
+             "exclusion_reasons": json.dumps([
+                 {"code": "missing_wind_data", "text": "Missing wind data"},
+             ])},
+            {"cell_id": "cB", "eligible": False,
+             "exclusion_reason": "Urban area",
+             "triggered_rules": "urban_area",
+             "exclusion_reasons": json.dumps([
+                 {"code": "urban_area", "text": "Urban area"},
+             ])},
+        ],
+        monkeypatch,
+    )
+
+    result = get_exclusions("runexcl000000002")
+
+    by_cell = {r.cell_id: r for r in result}
+    assert set(by_cell) == {"cA", "cB"}
+    assert by_cell["cA"].reason_codes == ["missing_wind_data"]
+    assert by_cell["cB"].reason_codes == ["urban_area"]
+
+
+def test_no_excluded_cells_returns_empty_but_valid(runs_store, tmp_path, monkeypatch):
+    _materialise_run_and_eligibility(
+        runs_store,
+        tmp_path,
+        "runexcl000000003",
+        [
+            {"cell_id": "c1", "eligible": True, "exclusion_reason": None,
+             "triggered_rules": None, "exclusion_reasons": None},
+        ],
+        monkeypatch,
+    )
+
+    result = get_exclusions("runexcl000000003")
+
+    assert result == []  # empty-but-valid, not an error
+
+
+def test_falls_back_to_flat_columns_when_paired_absent(runs_store, tmp_path, monkeypatch):
+    """An older Eligibility_Table without exclusion_reasons still yields codes+text."""
+    _materialise_run_and_eligibility(
+        runs_store,
+        tmp_path,
+        "runexcl000000004",
+        [
+            {"cell_id": "cX", "eligible": False,
+             "exclusion_reason": "Protected area, Urban area",
+             "triggered_rules": "protected_area, urban_area",
+             "exclusion_reasons": None},
+        ],
+        monkeypatch,
+    )
+
+    result = get_exclusions("runexcl000000004")
+
+    assert result[0].reason_codes == ["protected_area", "urban_area"]
+    assert result[0].reason_text == "Protected area, Urban area"
+
+
+def test_exclusions_missing_run_raises_naming_the_run(runs_store):
+    with pytest.raises(RunNotFoundError, match="nope000000000000"):
+        get_exclusions("nope000000000000")
+
+
+def test_exclusions_missing_eligibility_table_names_the_input(runs_store, tmp_path, monkeypatch):
+    target = runs_store / "runexcl000000005"
+    target.mkdir(parents=True, exist_ok=True)
+    manifest = {"run_id": "runexcl000000005", "weights_id": "x", "scenario": None}
+    (target / service_config.RUN_MANIFEST_FILENAME).write_text(
+        json.dumps(manifest) + "\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        service_config, "ELIGIBILITY_TABLE_PATH", tmp_path / "absent_eligibility.gpkg"
+    )
+
+    with pytest.raises(EngineOutputError, match="Eligibility_Table is missing"):
+        get_exclusions("runexcl000000005")
+
+
+def test_service_reason_wiring_matches_exclusions_stage(runs_store):
+    """The service composes its reason delimiter/columns from the exclusions stage."""
+    from pipeline.exclusions import rules as exclusions_rules
+
+    # The delimiter is the exclusions stage's own, not a re-typed literal.
+    assert service_config.REASON_DELIMITER == exclusions_rules.REASON_DELIMITER
+    # The reason columns the service reads are the ones the stage writes.
+    for column in (
+        service_config.EXCLUSION_REASONS_COLUMN,
+        service_config.TRIGGERED_RULES_COLUMN,
+        service_config.EXCLUSION_REASON_COLUMN,
+    ):
+        assert column in exclusions_config.OUTPUT_COLUMNS
+
+
+# --------------------------------------------------------------------------- #
+# Against the real engine (Requirement 1.4, 8.1).                             #
+# --------------------------------------------------------------------------- #
+
+ELIGIBILITY_TABLE_PATH = Path(service_config.ELIGIBILITY_TABLE_PATH)
+requires_eligibility_table = pytest.mark.skipif(
+    not ELIGIBILITY_TABLE_PATH.exists(),
+    reason=f"Eligibility_Table not built: {ELIGIBILITY_TABLE_PATH}",
+)
+
+
+@requires_engine_input
+@requires_eligibility_table
+def test_exclusions_from_a_real_run(runs_store):
+    handle = run_analysis(scenario="wind_led")
+    result = get_exclusions(handle)
+
+    assert result, "the frozen dataset has excluded cells"
+    for row in result:
+        # Every excluded cell carries at least one machine code and human text.
+        assert isinstance(row, ExcludedRow)
+        assert row.reason_codes
+        assert row.reason_text
+        # reason_text is the codes' texts joined in rule order; both non-empty.
+        assert all(isinstance(code, str) and code for code in row.reason_codes)

@@ -24,22 +24,27 @@ Modules:
     run_analysis — `run_analysis(weights|scenario) -> RunHandle`: drives the
                    S2-05 scoring engine UNCHANGED under the given weights or a
                    named Scenario, materialises the Run, and returns a handle.
-    results      — The read operations over a materialised Run's Scored_Table.
+    results      — The read operations over a materialised Run's engine output.
                    `get_ranked_results(run) -> [RankedRow]` projects the fixed
-                   engine output; `get_site_detail(run, cell_id) -> SiteDetail`
+                   Scored_Table; `get_site_detail(run, cell_id) -> SiteDetail`
                    serves one cell's full detail (features, contributions,
                    score, rank, eligibility, and the S2-06 Explanation_Structure
-                   carried through verbatim). Neither re-scores or re-ranks.
+                   carried through verbatim); `get_exclusions(run) ->
+                   [ExcludedRow]` serves the S2-03 Eligibility_Table's excluded
+                   cells with their machine- and human-readable reasons. None
+                   re-scores, re-ranks or re-evaluates an exclusion.
 """
 
-from .models import RankedRow, RunHandle, SiteDetail
-from .results import get_ranked_results, get_site_detail
+from .models import ExcludedRow, RankedRow, RunHandle, SiteDetail
+from .results import get_exclusions, get_ranked_results, get_site_detail
 from .run_analysis import run_analysis
 
 __all__ = [
+    "ExcludedRow",
     "RankedRow",
     "RunHandle",
     "SiteDetail",
+    "get_exclusions",
     "get_ranked_results",
     "get_site_detail",
     "run_analysis",

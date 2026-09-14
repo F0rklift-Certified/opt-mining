@@ -15,6 +15,8 @@ scenario never clobbers the default `DATA/scoring/` Scored_Table that the
 from pathlib import Path
 
 from .. import config as _shared
+from ..exclusions import config as _exclusions_config
+from ..exclusions import rules as _exclusions_rules
 from ..explanation import config as _explanation_config
 from ..scoring import config as _scoring_config
 
@@ -37,6 +39,44 @@ ELIGIBLE_COLUMN = _scoring_config.ELIGIBLE_COLUMN  # "eligible"
 # an explanation (CONTRACT.md §1, §5).
 EXPLANATION_PATH = _explanation_config.EXPLANATION_DIR / _explanation_config.OUTPUT_FILENAME
 EXPLANATION_CELL_ID_FIELD = _explanation_config.FIELD_CELL_ID  # "cell_id"
+
+# --- Input: the S2-03 Eligibility_Table (authoritative upstream: exclusions/) ---
+# get_exclusions reads the materialised Eligibility_Table the exclusions stage
+# wrote and serves its excluded cells verbatim as ExcludedRows. The path, layer
+# and reason column names are all composed from exclusions/config.py and
+# exclusions/rules.py (never re-typed as literals here) so an upstream rename of
+# the artefact or a reason column breaks loudly at import rather than silently
+# drifting; the service never recomputes an exclusion (CONTRACT.md §1, §5).
+ELIGIBILITY_TABLE_PATH = (
+    _exclusions_config.EXCLUSIONS_DIR / _exclusions_config.OUTPUT_FILENAME
+)
+# The exclusions stage writes the Eligibility_Table to the GeoPackage's default
+# (single) layer, so it is read back by path with no explicit layer name.
+ELIGIBILITY_TABLE_LAYER = None
+
+# The Eligibility_Table's cell-id column (authoritative: scoring/config.py, the
+# shared cell_id convention every layer joins on).
+ELIGIBILITY_CELL_ID_COLUMN = _scoring_config.CELL_ID_COLUMN  # "cell_id"
+
+# The S2-03 per-cell eligibility flag column (authoritative: scoring/config.py,
+# where the same "eligible" flag is read by the scoring engine).
+ELIGIBILITY_ELIGIBLE_COLUMN = _scoring_config.ELIGIBLE_COLUMN  # "eligible"
+
+# The reason columns the exclusions stage writes (authoritative:
+# exclusions/config.py OUTPUT_COLUMNS). `EXCLUSION_REASONS_COLUMN` is the
+# machine+human paired JSON form (a list of {"code", "text"} pairs) the S2-06
+# explanation engine also consumes; `TRIGGERED_RULES_COLUMN` and
+# `EXCLUSION_REASON_COLUMN` are the code-list and human-text forms, all derived
+# from ONE rule evaluation so they can never drift (see exclusions/apply.py).
+EXCLUSION_REASONS_COLUMN = "exclusion_reasons"
+TRIGGERED_RULES_COLUMN = "triggered_rules"
+EXCLUSION_REASON_COLUMN = "exclusion_reason"
+
+# The delimiter the exclusions stage uses to join multiple reason codes / texts,
+# in rule-config order (authoritative: exclusions/rules.REASON_DELIMITER). Reused
+# here so a served ExcludedRow's reason_text/reason_codes split and join exactly
+# as the engine wrote them.
+REASON_DELIMITER = _exclusions_rules.REASON_DELIMITER  # ", "
 
 # --- Input: the packaged weight sources (user inputs; authoritative upstream) ---
 DEFAULT_WEIGHTS_PATH = _scoring_config.DEFAULT_WEIGHTS_PATH

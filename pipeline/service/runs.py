@@ -8,7 +8,8 @@ derives a stable content-addressed `run_id`, drives the ENGINE UNCHANGED to
 score and rank, and writes the resulting Scored_Table to a per-run directory so
 the read operations (tasks 3.x) can serve it. It also RESOLVES a `run_id` back
 to those materialised artefacts (`load_run_manifest`, `load_scored_table`,
-`load_integrated_table`, `load_explanations`) for the read operations — pure I/O
+`load_integrated_table`, `load_explanations`) — plus the shared S2-03
+Eligibility_Table (`load_eligibility_table`) — for the read operations: pure I/O
 that reads the engine's own output verbatim, with honest failures
 (`RunNotFoundError`, `CellNotFoundError`, `EngineOutputError`) when a Run, a
 cell or an output is absent.
@@ -468,3 +469,47 @@ def load_explanations() -> dict[str, dict]:
         if isinstance(record, dict) and field in record:
             by_cell[str(record[field])] = record
     return by_cell
+
+
+def load_eligibility_table() -> gpd.GeoDataFrame:
+    """
+    Load the materialised S2-03 Eligibility_Table verbatim (CONTRACT.md §1).
+
+    Reads the exclusions stage's own output (`config.ELIGIBILITY_TABLE_PATH`)
+    and returns the frame exactly as written — the per-cell `eligible` flag and
+    the paired machine/human reason columns (`exclusion_reasons`,
+    `triggered_rules`, `exclusion_reason`). Nothing is recomputed, reordered or
+    reprojected; the service never re-evaluates an exclusion rule (CONTRACT.md
+    §1, Requirement 2.4).
+
+    The Eligibility_Table is a screening-level artefact shared across Runs (the
+    hard exclusions do not depend on the scoring weights), so — like the S2-06
+    explanation output — it is resolved once from its fixed location rather than
+    per-Run. `cell_id` is coerced to string so it joins to the grid and appears
+    in URL paths consistently regardless of the GeoPackage's stored column dtype;
+    no other value is touched.
+
+    Raises
+    ------
+    EngineOutputError
+        The Eligibility_Table is missing or unreadable — the error names the
+        missing input rather than fabricating a result (Requirement 7.3).
+    """
+    path = Path(config.ELIGIBILITY_TABLE_PATH)
+    if not path.exists():
+        raise EngineOutputError(
+            f"Eligibility_Table is missing: {path}. Run "
+            f"`python -m pipeline --only exclusions` to generate it before "
+            f"the excluded cells can be served."
+        )
+    try:
+        table = gpd.read_file(path, layer=config.ELIGIBILITY_TABLE_LAYER)
+    except Exception as exc:  # noqa: BLE001 — any read failure is fatal and named
+        raise EngineOutputError(
+            f"Eligibility_Table {path} is unreadable: {exc}"
+        ) from exc
+
+    cell_col = config.ELIGIBILITY_CELL_ID_COLUMN
+    if cell_col in table.columns:
+        table[cell_col] = table[cell_col].astype(str)
+    return table

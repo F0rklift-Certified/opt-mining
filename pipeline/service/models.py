@@ -9,9 +9,10 @@ CONTRACT.md §5). None of them carries decision logic: they are the shapes the
 service serves, populated verbatim from materialised engine outputs.
 
 `RunHandle` is needed by `run_analysis` (task 2.1), `RankedRow` by
-`get_ranked_results` (task 3.1) and `SiteDetail` by `get_site_detail`
-(task 3.2); the remaining models (ExcludedRow, ScenarioComparison,
-DataQualityStatus) are added by the read-operation tasks that produce them.
+`get_ranked_results` (task 3.1), `SiteDetail` by `get_site_detail` (task 3.2)
+and `ExcludedRow` by `get_exclusions` (task 3.3); the remaining models
+(ScenarioComparison, DataQualityStatus) are added by the read-operation tasks
+that produce them.
 """
 
 from __future__ import annotations
@@ -174,4 +175,55 @@ class SiteDetail:
             "rank": self.rank,
             "eligible": self.eligible,
             "explanation": dict(self.explanation),
+        }
+
+
+@dataclass(frozen=True)
+class ExcludedRow:
+    """
+    One excluded cell's eligibility reason(s) for a Run (CONTRACT.md §5,
+    Requirement 1.4).
+
+    An `ExcludedRow` is a verbatim projection of one EXCLUDED row of the S2-03
+    Eligibility_Table — never a recomputed value. `get_exclusions`
+    (`results.py`) reads the materialised Eligibility_Table and returns one
+    `ExcludedRow` per cell the engine flagged ineligible (`eligible == False`);
+    an eligible cell never becomes an `ExcludedRow`. The service performs no
+    exclusion arithmetic — the codes and text are the engine's, carried through
+    unchanged (CONTRACT.md §1, Requirement 2.4).
+
+    Both the machine-readable `reason_codes` and the human-readable
+    `reason_text` are derived from the SAME `exclusion_reasons` JSON pairs the
+    exclusions stage wrote (a list of ``{"code", "text"}`` produced from one
+    rule evaluation), so the two forms of an `ExcludedRow` can never disagree
+    with each other or with the engine's `triggered_rules` / `exclusion_reason`
+    columns.
+
+    Fields
+    ------
+    cell_id :
+        Analysis-cell id, copied verbatim from the Eligibility_Table so it
+        joins back to the analysis grid on `cell_id`.
+    reason_codes :
+        The machine-readable exclusion rule codes for the cell — the
+        `exclusion_reasons[].code` (equivalently `triggered_rules`) vocabulary
+        from S2-03 (Decision_Engine_Spec §6 / F16), in rule-config order. A
+        cell can carry more than one code.
+    reason_text :
+        The human-readable reason(s) for the cell — the
+        `exclusion_reasons[].text` values joined in rule-config order with the
+        exclusions stage's own reason delimiter, identical to the engine's
+        `exclusion_reason` column.
+    """
+
+    cell_id: str
+    reason_codes: list[str] = field(default_factory=list)
+    reason_text: str = ""
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 `ExcludedRow` shape."""
+        return {
+            "cell_id": self.cell_id,
+            "reason_codes": list(self.reason_codes),
+            "reason_text": self.reason_text,
         }
