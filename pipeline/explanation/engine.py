@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 from ..scoring.normalise import Bounds
 from . import config
 from .bands import band_for
+from .caveats import CriterionParticipation, data_quality_notes, proxy_caveats
 from .templates import ExplanationTemplates
 
 
@@ -50,12 +51,31 @@ class CriterionView:
     criterion added to the score); `norm` is the recomputed normalised value in
     [0, 1]; `bounds` carries the boolean/constant flags. All three come from the
     loader — the engine never recomputes them.
+
+    `participated` (S2-06b) is true when the cell had a non-null value for this
+    criterion, so it took part in the score; the proxy caveat is surfaced only
+    for participating proxy criteria.
     """
 
     feature: str
     contribution: float | None
     norm: float | None
     bounds: Bounds
+    participated: bool = True
+
+
+@dataclass(frozen=True)
+class CellConfidence:
+    """
+    One cell's S1-09 composite confidence facts (S2-06b).
+
+    `level` is `data_confidence` (high/medium/low); `notes` is the
+    `'; '`-joined `confidence_notes` (or the no-notes sentinel). Both feed the
+    data-quality caveat, which appears on every record.
+    """
+
+    level: str | None
+    notes: str | None
 
 
 @dataclass(frozen=True)
@@ -65,6 +85,24 @@ class CellExplanationInput:
     cell_id: str
     criteria: tuple[CriterionView, ...]
     order: tuple[str, ...] = field(default=())  # configured feature order (tie context only)
+    confidence: CellConfidence = field(default_factory=lambda: CellConfidence(None, None))
+
+
+@dataclass(frozen=True)
+class ExcludedCellInput:
+    """
+    Everything the pure engine needs to explain one EXCLUDED cell (S2-06b).
+
+    `exclusion_reasons` is the parsed F16 pair list ({code, text}, in
+    rule-config order) from the integrated table; `participation` records which
+    criteria the cell had a value for (for the proxy caveat) even though the
+    cell is excluded from scoring; `confidence` feeds the data-quality caveat.
+    """
+
+    cell_id: str
+    exclusion_reasons: tuple[dict, ...]
+    participation: tuple[CriterionParticipation, ...]
+    confidence: CellConfidence = field(default_factory=lambda: CellConfidence(None, None))
 
 
 def _favourable_enough(view: CriterionView) -> bool:
@@ -176,4 +214,58 @@ def explain_cell(
         config.FIELD_HEADLINE: templates.headline,
         config.FIELD_POSITIVE_FACTORS: positive,
         config.FIELD_WEAKNESSES: weaknesses,
+        config.FIELD_PROXY_CAVEATS: proxy_caveats(_participation(cell), templates),
+        config.FIELD_DATA_QUALITY_NOTES: data_quality_notes(
+            cell.confidence.level, cell.confidence.notes, templates
+        ),
+    }
+
+
+def _participation(cell: CellExplanationInput) -> tuple[CriterionParticipation, ...]:
+    """
+    Per-criterion participation for an eligible cell, in configured order.
+
+    A criterion participated when the cell had a value for it (the loader sets
+    `participated`); the proxy caveat is emitted only for participating proxy
+    criteria. Configured order comes from `cell.criteria`, which the loader
+    builds in weights order.
+    """
+    return tuple(
+        CriterionParticipation(feature=v.feature, participated=v.participated)
+        for v in cell.criteria
+    )
+
+
+def explain_excluded_cell(
+    cell: ExcludedCellInput,
+    templates: ExplanationTemplates,
+) -> dict:
+    """
+    Build the EXCLUDED Explanation_Structure for one cell (S2-06b). PURE and
+    deterministic.
+
+    Returns a dict with exactly the excluded-path fields — the machine- and
+    human-readable exclusion reason(s) from S2-03/F16, plus the proxy and
+    data-quality caveats that appear on every record:
+
+        {
+          "cell_id": "NSW002",
+          "eligible": false,
+          "exclusion_reasons": [{"code": "protected_area", "text": "..."}],
+          "proxy_caveats": [...],
+          "data_quality_notes": [...]
+        }
+
+    The exclusion reasons are carried through verbatim from the integrated
+    table (the loader validated them against the F16 pairing contract); the
+    engine neither recomputes eligibility nor reorders the reasons.
+    """
+    return {
+        config.FIELD_CELL_ID: cell.cell_id,
+        config.FIELD_ELIGIBLE: False,
+        config.FIELD_EXCLUSION_REASONS: [dict(r) for r in cell.exclusion_reasons],
+        config.FIELD_PROXY_CAVEATS: proxy_caveats(cell.participation, templates),
+        config.FIELD_DATA_QUALITY_NOTES: data_quality_notes(
+            cell.confidence.level, cell.confidence.notes, templates
+        ),
     }
