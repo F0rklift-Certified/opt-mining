@@ -215,3 +215,141 @@ def run_scenario(
     Returns the scored+ranked frame `score_and_rank` produces, unchanged.
     """
     return score_and_rank(features, scenario.weights, bounds=bounds)
+
+
+@dataclass(frozen=True)
+class ScenarioRow:
+    """
+    One cell's comparison across two scenarios.
+
+    `rank_delta = rank_a - rank_b` and `score_delta = score_a - score_b`. A
+    positive `rank_delta` means the cell holds a NUMERICALLY LARGER (worse)
+    rank under scenario A than under B — i.e. scenario B ranks it higher. Only
+    cells scored in BOTH runs appear, so every field is non-null.
+    """
+
+    cell_id: object
+    rank_a: int
+    rank_b: int
+    rank_delta: int
+    score_a: float
+    score_b: float
+    score_delta: float
+
+
+@dataclass(frozen=True)
+class ScenarioComparison:
+    """
+    A per-cell ranking comparison between two scenarios.
+
+    This is the contract the S2-08 Decision_Service wraps and the S3-06 UI
+    renders. `to_dict()` emits exactly the S2-08 `ScenarioComparison` shape —
+    `rows` of `{cell_id, rank_a, rank_b, rank_delta}` plus `labels {a, b}` —
+    extended with the additive score fields `score_a`, `score_b`,
+    `score_delta`. No S2-08 field is renamed, so the service layer can adopt
+    this structure without a contract renegotiation.
+
+    The comparison models a change of PREFERENCE, not uncertainty: the two
+    scenarios differ only in their weights, scored against one shared set of
+    normalisation bounds, so a rank change is attributable purely to the
+    change in weighting.
+    """
+
+    labels: dict[str, str]  # {"a": <scenario A label>, "b": <scenario B label>}
+    names: dict[str, str]  # {"a": <scenario A name>, "b": <scenario B name>}
+    rows: tuple[ScenarioRow, ...]
+
+    def to_dict(self) -> dict:
+        """Serialise to the S2-08-compatible structure (plus additive scores)."""
+        return {
+            "labels": dict(self.labels),
+            "names": dict(self.names),
+            "rows": [
+                {
+                    "cell_id": row.cell_id,
+                    "rank_a": row.rank_a,
+                    "rank_b": row.rank_b,
+                    "rank_delta": row.rank_delta,
+                    "score_a": row.score_a,
+                    "score_b": row.score_b,
+                    "score_delta": row.score_delta,
+                }
+                for row in self.rows
+            ],
+        }
+
+
+def compare_scenarios(
+    features: pd.DataFrame,
+    scenario_a: Scenario,
+    scenario_b: Scenario,
+) -> ScenarioComparison:
+    """
+    Run two scenarios over one feature table and compare their rankings.
+
+    ONLY WEIGHTS DIFFER. The two scenarios must score the SAME criteria feature
+    set (a mismatch raises), and the normalisation bounds are computed ONCE
+    from the eligible population and passed to both runs. Because the bounds
+    depend only on the eligible population and the criterion directions — never
+    on the weights — a ranking change between the two scenarios is attributable
+    purely to the change in preferences (the S2-07 consistency guarantee).
+
+    The comparison covers the cells scored in BOTH runs (identical on the
+    current data, where every eligible cell is scored under any weight set),
+    with `rank_delta = rank_a - rank_b` and `score_delta = score_a - score_b`.
+
+    Pure: feature frame in, `ScenarioComparison` out. Reuses `run_scenario`
+    (hence `score_and_rank`) unchanged for each scenario.
+    """
+    if scenario_a.features != scenario_b.features:
+        raise ScoringConfigError(
+            f"cannot compare scenarios '{scenario_a.name}' and '{scenario_b.name}': "
+            f"they score different criteria sets "
+            f"({list(scenario_a.features)} vs {list(scenario_b.features)}). Two "
+            f"scenarios are only comparable when they share the same criteria and "
+            f"differ only in weights, so the normalisation bounds are identical."
+        )
+
+    # Bounds ONCE from the eligible population, shared by both runs. The
+    # criteria sets are identical (asserted above), so one bounds dict serves
+    # both scenarios; scenario_a.weights.criteria is a representative spec set.
+    eligible = features.loc[eligible_mask(features)]
+    bounds = compute_bounds(eligible, scenario_a.weights.criteria)
+
+    scored_a = run_scenario(features, scenario_a, bounds=bounds).set_index(
+        config.CELL_ID_COLUMN
+    )
+    scored_b = run_scenario(features, scenario_b, bounds=bounds).set_index(
+        config.CELL_ID_COLUMN
+    )
+
+    # Cells scored (non-null rank) in BOTH runs, in scenario A's rank order so
+    # the comparison reads top-down under the first scenario.
+    ranked_a = scored_a[scored_a[config.RANK_COLUMN].notna()]
+    ranked_b = scored_b[scored_b[config.RANK_COLUMN].notna()]
+    common = ranked_a.index.intersection(ranked_b.index)
+    ordered = ranked_a.loc[common].sort_values(config.RANK_COLUMN).index
+
+    rows = []
+    for cell_id in ordered:
+        rank_a = int(scored_a.loc[cell_id, config.RANK_COLUMN])
+        rank_b = int(scored_b.loc[cell_id, config.RANK_COLUMN])
+        score_a = float(scored_a.loc[cell_id, config.SCORE_COLUMN])
+        score_b = float(scored_b.loc[cell_id, config.SCORE_COLUMN])
+        rows.append(
+            ScenarioRow(
+                cell_id=cell_id,
+                rank_a=rank_a,
+                rank_b=rank_b,
+                rank_delta=rank_a - rank_b,
+                score_a=score_a,
+                score_b=score_b,
+                score_delta=score_a - score_b,
+            )
+        )
+
+    return ScenarioComparison(
+        labels={"a": scenario_a.label, "b": scenario_b.label},
+        names={"a": scenario_a.name, "b": scenario_b.name},
+        rows=tuple(rows),
+    )

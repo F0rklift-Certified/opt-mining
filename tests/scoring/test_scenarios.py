@@ -22,11 +22,13 @@ from pipeline.scoring import config as scfg
 from pipeline.scoring.score import score_and_rank
 from pipeline.scoring.scenarios import (
     Scenario,
+    ScenarioComparison,
+    compare_scenarios,
     load_scenarios,
     parse_scenarios,
     run_scenario,
 )
-from pipeline.scoring.weights import ScoringConfigError
+from pipeline.scoring.weights import ScoringConfigError, parse_weights
 
 # A minimal but valid two-criteria scenario body used across the fault-path
 # tests. Two criteria (not the full six) keeps the fixtures readable; the
@@ -211,3 +213,91 @@ class TestRunScenarioIsPureReuse:
         via_scenario = run_scenario(features, scenario, bounds=bounds)
         direct = score_and_rank(features.copy(), scenario.weights, bounds=bounds)
         pd.testing.assert_frame_equal(via_scenario, direct, check_exact=True)
+
+
+def _two_criterion_scenario(name, label, w_wind, w_dist) -> Scenario:
+    """Build a two-criterion Scenario over wind_speed + dist_transmission_km."""
+    body = {
+        "criteria": [
+            {"feature": "wind_speed", "weight": w_wind,
+             "direction": "higher_is_better", "rationale": "resource"},
+            {"feature": "dist_transmission_km", "weight": w_dist,
+             "direction": "lower_is_better", "rationale": "grid cost"},
+        ]
+    }
+    return Scenario(name=name, label=label, description="desc",
+                    weights=parse_weights(body, config_id="x"))
+
+
+class TestCompareScenarios:
+    def test_mismatched_criteria_sets_raise(self):
+        wind = _two_criterion_scenario("wind_led", "Wind-led", 0.6, 0.4)
+        # A scenario over a different criteria set (adds slope_deg).
+        other = Scenario(
+            name="other", label="Other", description="desc",
+            weights=parse_weights(
+                {"criteria": [
+                    {"feature": "wind_speed", "weight": 0.5,
+                     "direction": "higher_is_better", "rationale": "r"},
+                    {"feature": "slope_deg", "weight": 0.5,
+                     "direction": "lower_is_better", "rationale": "r"},
+                ]}, config_id="x"),
+        )
+        with pytest.raises(ScoringConfigError, match="different criteria sets"):
+            compare_scenarios(_tiny_features(), wind, other)
+
+    def test_rows_cover_the_scored_intersection(self):
+        features = _tiny_features()  # 4 eligible cells, all scored under any weights
+        a = _two_criterion_scenario("wind_led", "Wind-led", 0.7, 0.3)
+        b = _two_criterion_scenario("grid_led", "Grid-led", 0.3, 0.7)
+
+        comparison = compare_scenarios(features, a, b)
+        assert isinstance(comparison, ScenarioComparison)
+        assert {row.cell_id for row in comparison.rows} == set(features["cell_id"])
+
+    def test_shared_bounds_only_weights_differ(self):
+        """
+        compare_scenarios must score both scenarios against ONE bounds set from
+        the eligible population. We verify by reproducing each scenario with
+        that shared bounds via run_scenario and asserting identical scores —
+        proving the comparison did not recompute bounds per scenario.
+        """
+        from pipeline.scoring.normalise import compute_bounds
+
+        features = _tiny_features()
+        a = _two_criterion_scenario("wind_led", "Wind-led", 0.7, 0.3)
+        b = _two_criterion_scenario("grid_led", "Grid-led", 0.3, 0.7)
+
+        shared = compute_bounds(features, a.weights.criteria)
+        expect_a = run_scenario(features, a, bounds=shared).set_index("cell_id")
+        expect_b = run_scenario(features, b, bounds=shared).set_index("cell_id")
+
+        comparison = compare_scenarios(features, a, b)
+        for row in comparison.rows:
+            assert row.score_a == pytest.approx(
+                expect_a.loc[row.cell_id, scfg.SCORE_COLUMN])
+            assert row.score_b == pytest.approx(
+                expect_b.loc[row.cell_id, scfg.SCORE_COLUMN])
+
+    def test_rank_and_score_deltas_are_consistent(self):
+        features = _tiny_features()
+        a = _two_criterion_scenario("wind_led", "Wind-led", 0.7, 0.3)
+        b = _two_criterion_scenario("grid_led", "Grid-led", 0.3, 0.7)
+        comparison = compare_scenarios(features, a, b)
+        for row in comparison.rows:
+            assert row.rank_delta == row.rank_a - row.rank_b
+            assert row.score_delta == pytest.approx(row.score_a - row.score_b)
+
+    def test_to_dict_matches_s2_08_shape(self):
+        features = _tiny_features()
+        a = _two_criterion_scenario("wind_led", "Wind-led", 0.7, 0.3)
+        b = _two_criterion_scenario("grid_led", "Grid-led", 0.3, 0.7)
+        payload = compare_scenarios(features, a, b).to_dict()
+
+        # S2-08 ScenarioComparison = { rows: [...], labels: {a, b} }
+        assert set(payload) >= {"rows", "labels"}
+        assert payload["labels"] == {"a": "Wind-led", "b": "Grid-led"}
+        for row in payload["rows"]:
+            # Required S2-08 fields plus the additive score fields.
+            assert set(row) >= {"cell_id", "rank_a", "rank_b", "rank_delta"}
+            assert set(row) >= {"score_a", "score_b", "score_delta"}
