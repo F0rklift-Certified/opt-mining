@@ -154,6 +154,75 @@ def test_null_contribution_is_omitted_not_fabricated(runs_store):
 
 
 # --------------------------------------------------------------------------- #
+# Display_Filter wiring — get_ranked_results(run, top_n=, min_score=)          #
+# delegates to filters.py; ranks/scores never change (Requirement 3.1–3.4).   #
+# --------------------------------------------------------------------------- #
+
+
+def _materialise_three_eligible(runs_store, run_id: str) -> None:
+    _materialise_fake_run(
+        runs_store,
+        run_id,
+        [
+            {"cell_id": "c2", "suitability_score": 0.6, "rank": 2,
+             "contrib_wind_speed": 0.6},
+            {"cell_id": "c1", "suitability_score": 0.9, "rank": 1,
+             "contrib_wind_speed": 0.9},
+            {"cell_id": "c3", "suitability_score": 0.3, "rank": 3,
+             "contrib_wind_speed": 0.3},
+        ],
+    )
+
+
+def test_ranked_results_top_n_filter(runs_store):
+    _materialise_three_eligible(runs_store, "runtopn000000001")
+
+    result = get_ranked_results("runtopn000000001", top_n=2)
+
+    assert [r.cell_id for r in result] == ["c1", "c2"]
+    assert [r.rank for r in result] == [1, 2]
+
+
+def test_ranked_results_min_score_filter(runs_store):
+    _materialise_three_eligible(runs_store, "runminscore00001")
+
+    result = get_ranked_results("runminscore00001", min_score=0.6)
+
+    assert [r.cell_id for r in result] == ["c1", "c2"]
+
+
+def test_ranked_results_top_n_beyond_count_returns_all(runs_store):
+    """Requirement 3.3 — top-N over the eligible count returns all, no padding."""
+    _materialise_three_eligible(runs_store, "runtopnbeyond001")
+
+    result = get_ranked_results("runtopnbeyond001", top_n=99)
+
+    assert [r.cell_id for r in result] == ["c1", "c2", "c3"]
+
+
+def test_ranked_results_all_excluding_threshold_is_empty(runs_store):
+    """Requirement 3.4 — an all-excluding threshold returns [], not an error."""
+    _materialise_three_eligible(runs_store, "runallexcl000001")
+
+    result = get_ranked_results("runallexcl000001", min_score=2.0)
+
+    assert result == []
+
+
+def test_ranked_results_both_filters_preserve_ranks(runs_store):
+    """Both filters: which cells change, ranks and scores do not (Requirement 3.2)."""
+    _materialise_three_eligible(runs_store, "runbothfilter001")
+
+    unfiltered = {r.cell_id: r for r in get_ranked_results("runbothfilter001")}
+    filtered = get_ranked_results("runbothfilter001", top_n=1, min_score=0.5)
+
+    assert [r.cell_id for r in filtered] == ["c1"]
+    for r in filtered:
+        assert r.rank == unfiltered[r.cell_id].rank
+        assert r.suitability_score == unfiltered[r.cell_id].suitability_score
+
+
+# --------------------------------------------------------------------------- #
 # Honest failure (Requirement 7.1, 7.3).                                      #
 # --------------------------------------------------------------------------- #
 

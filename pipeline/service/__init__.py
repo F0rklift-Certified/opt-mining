@@ -33,8 +33,16 @@ Modules:
                    [ExcludedRow]` serves the S2-03 Eligibility_Table's excluded
                    cells with their machine- and human-readable reasons. None
                    re-scores, re-ranks or re-evaluates an exclusion.
+    filters      — The Display_Filters (top-N, minimum-score) `get_ranked_results`
+                   accepts. PURE selections over the fixed `list[RankedRow]` a
+                   Run produced: they change WHICH cells are shown but never a
+                   cell's score or rank (CONTRACT.md §4.2, §7 P2). Top-N reuses
+                   the `pipeline/shortlist/select.py` selection-by-rank pattern;
+                   an all-excluding threshold or a top-N beyond the eligible
+                   count returns an empty-but-valid set, never an error.
 """
 
+from .filters import apply_display_filter, apply_min_score, apply_top_n
 from .models import ExcludedRow, RankedRow, RunHandle, SiteDetail
 from .results import get_exclusions, get_ranked_results, get_site_detail
 from .run_analysis import run_analysis
@@ -44,6 +52,9 @@ __all__ = [
     "RankedRow",
     "RunHandle",
     "SiteDetail",
+    "apply_display_filter",
+    "apply_min_score",
+    "apply_top_n",
     "get_exclusions",
     "get_ranked_results",
     "get_site_detail",

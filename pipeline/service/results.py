@@ -22,10 +22,12 @@ cells: it reads the S2-03 Eligibility_Table and returns one `ExcludedRow` per
 excluded cell, carrying the machine-readable reason codes and the
 human-readable reason text the exclusions stage wrote through UNCHANGED
 (Requirement 1.4) — it re-evaluates no rule. The display filters (top-N,
-minimum-score) the ranked-results operation will accept are pure SELECTIONS
-over this fixed output and are added by task 4.1; this module deliberately
-contains no selection logic yet, only the read-and-project core every read
-operation builds on.
+minimum-score) the ranked-results operation accepts are pure SELECTIONS over
+this fixed output; they live in `filters.py` and `get_ranked_results` delegates
+to them, so a Display_Filter changes WHICH cells are returned but never their
+score or rank (CONTRACT.md §4.2, §7 P2). No selection logic recomputes a value:
+the filters operate on the already-projected `RankedRow` list, downstream of the
+read-and-project core every read operation builds on.
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ import pandas as pd
 
 from ..scoring import config as _scoring_config
 from . import config as _service_config
+from .filters import apply_display_filter
 from .models import ExcludedRow, RankedRow, RunHandle, SiteDetail
 from .runs import (
     CellNotFoundError,
@@ -74,10 +77,15 @@ def _key_components(row: pd.Series, contribution_columns: list[str]) -> dict[str
     return components
 
 
-def get_ranked_results(run: RunHandle | str) -> list[RankedRow]:
+def get_ranked_results(
+    run: RunHandle | str,
+    top_n: int | None = None,
+    min_score: float | None = None,
+) -> list[RankedRow]:
     """
     Return the ranked results for a Run as a projection of its fixed
-    Scored_Table (CONTRACT.md §4.2, Requirement 1.2, 2.4, 6.3).
+    Scored_Table, optionally narrowed by a Display_Filter (CONTRACT.md §4.2,
+    Requirement 1.2, 2.4, 3.1, 3.2, 3.3, 3.4, 6.3).
 
     Reads the materialised S2-05 Scored_Table for the Run and returns one
     ``RankedRow`` per ELIGIBLE cell — a row with BOTH a non-null
@@ -94,18 +102,35 @@ def get_ranked_results(run: RunHandle | str) -> list[RankedRow]:
     own `rank`, so ties and gaps are preserved exactly as the engine assigned
     them — no rank is ever re-derived.
 
+    DISPLAY_FILTER. When ``top_n`` and/or ``min_score`` are supplied, the result
+    is narrowed by the pure selections in ``filters.py`` — a threshold then a
+    top-N over the survivors (CONTRACT.md §4.2). The filter changes WHICH cells
+    are returned but never their score or rank (Property P2, Requirement 3.1,
+    3.2): it operates on the already-projected ``RankedRow`` list, so there is
+    no path by which it could re-run normalisation or scoring. A ``top_n``
+    beyond the eligible count returns every eligible cell with no padding
+    (Requirement 3.3); a ``min_score`` that excludes every cell returns an empty
+    list, not an error (Requirement 3.4).
+
     Parameters
     ----------
     run :
         The Run to read, as the ``RunHandle`` returned by ``run_analysis`` or
         its bare ``run_id`` string.
+    top_n :
+        Optional Display_Filter: keep the ``top_n`` lowest-``rank`` eligible
+        cells. Must be a positive integer when given (CONTRACT.md §4.2).
+    min_score :
+        Optional Display_Filter: keep only cells with
+        ``suitability_score >= min_score``.
 
     Returns
     -------
     list[RankedRow]
-        The eligible cells' ranked rows, ordered by ascending `rank`. Empty
-        when the Run has no eligible cell (an empty-but-valid result, not an
-        error — CONTRACT.md §6).
+        The eligible cells' ranked rows, ordered by ascending `rank`, after any
+        Display_Filter. Empty when the Run has no eligible cell, or when a
+        filter legitimately excludes every cell (an empty-but-valid result, not
+        an error — CONTRACT.md §6).
 
     Raises
     ------
@@ -114,6 +139,8 @@ def get_ranked_results(run: RunHandle | str) -> list[RankedRow]:
     EngineOutputError
         The Run's Scored_Table is missing or unreadable — the error names the
         missing input rather than fabricating a result (Requirement 7.3).
+    ValueError
+        ``top_n`` is supplied but is not a positive integer (CONTRACT.md §4.2).
     """
     run_id = _run_id_of(run)
     table = load_scored_table(run_id)
@@ -146,7 +173,10 @@ def get_ranked_results(run: RunHandle | str) -> list[RankedRow]:
                 key_components=_key_components(row, contribution_columns),
             )
         )
-    return rows
+
+    # Apply the optional Display_Filter as a PURE selection over the fixed
+    # projected rows — never a re-score or a re-rank (CONTRACT.md §4.2, §7 P2).
+    return apply_display_filter(rows, top_n=top_n, min_score=min_score)
 
 
 def _opt_score(value: object) -> float | None:
