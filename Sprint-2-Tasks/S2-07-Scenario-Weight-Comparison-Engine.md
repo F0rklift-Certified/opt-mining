@@ -31,14 +31,26 @@ Guidance Step 7. The scoring module (S2-05) already accepts a weights config at 
 
 ## Acceptance Criteria
 
-- [ ] At least **two** weighting scenarios/configurations can be defined and run (satisfies **AC9**)
-- [ ] Presets are documented (e.g. "Wind-led" emphasising wind resource; "Grid-led" emphasising infrastructure accessibility)
-- [ ] Each scenario reuses the S2-05 scoring function unchanged — no duplicate scoring logic
-- [ ] Running two scenarios produces two ranked outputs plus a comparison (e.g. rank delta per cell)
-- [ ] Users can change weights or select a saved preset, rerun, and observe ranking changes
-- [ ] Scenarios are labelled as **preference/weighting** scenarios, explicitly **not** probabilistic uncertainty scenarios
-- [ ] Normalisation bounds remain consistent across scenarios for a given eligible population (only weights differ)
-- [ ] Unit tests verify that different weights produce different, correctly re-ranked outputs
+- [x] At least **two** weighting scenarios/configurations can be defined and run (satisfies **AC9**)
+- [x] Presets are documented (e.g. "Wind-led" emphasising wind resource; "Grid-led" emphasising infrastructure accessibility)
+- [x] Each scenario reuses the S2-05 scoring function unchanged — no duplicate scoring logic
+- [x] Running two scenarios produces two ranked outputs plus a comparison (e.g. rank delta per cell)
+- [x] Users can change weights or select a saved preset, rerun, and observe ranking changes
+- [x] Scenarios are labelled as **preference/weighting** scenarios, explicitly **not** probabilistic uncertainty scenarios
+- [x] Normalisation bounds remain consistent across scenarios for a given eligible population (only weights differ)
+- [x] Unit tests verify that different weights produce different, correctly re-ranked outputs
+
+---
+
+## Delivery
+
+Delivered as a pure library under `pipeline/scoring/` (no new pipeline stage), reusing the S2-05 engine unchanged:
+
+- `pipeline/scoring/scenarios.yaml` — the `wind_led` and `grid_led` presets (same six frozen criteria and directions; only weights differ).
+- `pipeline/scoring/scenarios.py` — `Scenario` / `load_scenarios` (each preset validated through the existing `parse_weights`), `run_scenario` (pure pass-through to `score_and_rank`), and `ScenarioComparison` / `compare_scenarios` (shared normalisation bounds computed once from the eligible population, same criteria set required, per-cell `rank_delta` and score deltas). `to_dict()` matches the S2-08 `ScenarioComparison` contract.
+- `pipeline/scoring/config.py` — `DEFAULT_SCENARIOS_PATH`.
+- `tests/scoring/test_scenarios.py` — loading/validation fault paths, `run_scenario` pure-reuse identity, `compare_scenarios` behaviour, and a controlled hand-computed re-ranking case (Wind-led vs Grid-led swap the top and bottom cells). Full scoring suite: 188 passed.
+- Documentation in `pipeline/scoring/README.md` and the package docstring.
 
 ---
 
