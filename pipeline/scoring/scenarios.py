@@ -189,3 +189,29 @@ def load_scenarios(path: Path | str | None = None) -> dict[str, Scenario]:
     from ..common.geo import sha256_file
 
     return parse_scenarios(raw, path=path, config_id=sha256_file(path))
+
+
+def run_scenario(
+    features: pd.DataFrame,
+    scenario: Scenario,
+    *,
+    bounds: Mapping[str, Bounds] | None = None,
+) -> pd.DataFrame:
+    """
+    Score and rank every eligible cell under one scenario's weight set.
+
+    This is a thin PASS-THROUGH to the S2-05 pure core
+    (`score.score_and_rank`): a scenario is fed to the engine exactly like the
+    default weights, so no scoring, normalisation or ranking arithmetic exists
+    here. Reusing the engine unchanged is the point — there is no
+    scenario-specific scorer to drift from the default one.
+
+    `bounds` may be supplied so several scenarios share ONE set of
+    normalisation bounds (computed once from the eligible population); this is
+    how `compare_scenarios` guarantees that only the weights differ between two
+    scenarios. When omitted, `score_and_rank` computes the bounds from the
+    eligible rows of `features`, exactly as a single-scenario run would.
+
+    Returns the scored+ranked frame `score_and_rank` produces, unchanged.
+    """
+    return score_and_rank(features, scenario.weights, bounds=bounds)

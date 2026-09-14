@@ -16,11 +16,15 @@ import copy
 import pytest
 import yaml
 
+import pandas as pd
+
 from pipeline.scoring import config as scfg
+from pipeline.scoring.score import score_and_rank
 from pipeline.scoring.scenarios import (
     Scenario,
     load_scenarios,
     parse_scenarios,
+    run_scenario,
 )
 from pipeline.scoring.weights import ScoringConfigError
 
@@ -167,3 +171,43 @@ class TestLoadScenariosFromDisk:
         path.write_text(yaml.safe_dump(_scenarios_body()), encoding="utf-8")
         scenarios = load_scenarios(path)
         assert set(scenarios) == {"wind_led", "grid_led"}
+
+
+def _tiny_features() -> pd.DataFrame:
+    """A two-criterion, four-cell eligible table for the pass-through tests."""
+    return pd.DataFrame(
+        {
+            "cell_id": ["a", "b", "c", "d"],
+            "wind_speed": [8.0, 6.0, 4.0, 2.0],
+            "dist_transmission_km": [10.0, 6.0, 4.0, 2.0],
+            "eligible": [True, True, True, True],
+            "data_confidence": ["high", "high", "high", "high"],
+        }
+    )
+
+
+class TestRunScenarioIsPureReuse:
+    """
+    run_scenario is a pass-through: its output must equal score_and_rank
+    called directly with the scenario's weights and the same bounds. If they
+    ever diverge, a scenario-specific scorer has crept in.
+    """
+
+    def test_output_equals_score_and_rank_no_bounds(self):
+        features = _tiny_features()
+        scenario = parse_scenarios(_scenarios_body(), config_id="x")["wind_led"]
+
+        via_scenario = run_scenario(features, scenario)
+        direct = score_and_rank(features.copy(), scenario.weights)
+        pd.testing.assert_frame_equal(via_scenario, direct, check_exact=True)
+
+    def test_output_equals_score_and_rank_with_shared_bounds(self):
+        from pipeline.scoring.normalise import compute_bounds
+
+        features = _tiny_features()
+        scenario = parse_scenarios(_scenarios_body(), config_id="x")["grid_led"]
+        bounds = compute_bounds(features, scenario.weights.criteria)
+
+        via_scenario = run_scenario(features, scenario, bounds=bounds)
+        direct = score_and_rank(features.copy(), scenario.weights, bounds=bounds)
+        pd.testing.assert_frame_equal(via_scenario, direct, check_exact=True)
