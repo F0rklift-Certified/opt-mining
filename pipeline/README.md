@@ -402,7 +402,8 @@ DATA/
 ├── integration/            # Integrated NSW Feature Table (S1-08) with data confidence (S1-09) + Task 5 analysis
 ├── scoring/                # Baseline suitability score, rank and per-criterion contributions (S1-10)
 ├── shortlist/              # Preliminary ranked shortlist — top-N eligible cells (CSV + GeoJSON) + summary (S1-11)
-└── sanity/                 # S1-12 sanity-check Results_Sidecar + provenance (the report itself is written to outputs/)
+├── sanity/                 # S1-12 sanity-check Results_Sidecar + provenance (the report itself is written to outputs/)
+└── service/                # S2-08 Decision_Service per-Run materialisations (runs/{run_id}/), created on demand by run_analysis
 ```
 
 The S1-12 sanity check writes its human-readable Validation_Report outside the `DATA/` tree, to `outputs/sprint1_validation_report.md`.
@@ -581,6 +582,31 @@ The `sanity` stage is the **terminal** stage and a preliminary-screening plausib
 | `DATA/sanity/DATA_PROVENANCE.md` | sanity | Generated derived-product row recording the five inputs and the UTC Run_Timestamp |
 
 **Scope note:** the `sanity` stage reads all inputs **read-only** — it never re-scores, re-ranks, re-weights or otherwise adjusts the model to make a check pass. It locates wind farms and landmarks to their grid cells by a point-in-polygon join performed in EPSG:3577 (the transform logged in the report), computes percentile/distribution statistics over the eligible cell population only, and records surprising results honestly as anomalies or Sprint 2 issues rather than suppressing them. Spot_Check_Cells count (`--sanity-spot-cells`, default 8, range 5–10) and the Wind_Generators path (`--wind-generators`) are runtime values, not frozen decisions (Q1–Q7). This is a plausibility screen at the ~5 km (0.05 degree) resolution — **not** a formal accuracy assessment and **not** a site approval.
+
+### Decision_Service (`DATA/service/`) — S2-08
+
+The Decision_Service is **not a pipeline stage** — it is the thin read-and-serve HTTP layer (`pipeline/service/`) that exposes the decision engine to the Sprint 3 web application. It is realised as a **FastAPI app** (`pipeline/service/app.py`) that maps the six transport-agnostic Service_Operations onto HTTP endpoints and publishes the OpenAPI schema the Sprint 3 typed client is generated from. The app is a thin transport shell: it imports the operation functions unchanged and holds **no** scoring, normalisation, ranking or exclusion logic (that all lives in S2-03..S2-07). Its human-readable contract is [`pipeline/service/CONTRACT.md`](service/CONTRACT.md) — **frozen** at the Sprint 2/Sprint 3 boundary; the OpenAPI schema is the authoritative machine-readable form.
+
+Run it with an ASGI server (e.g. `uvicorn pipeline.service.app:app`); the endpoints and published surfaces are:
+
+| Published surface / endpoint | Operation | Description |
+|------|------|-------------|
+| `GET /openapi.json`, `GET /docs`, `GET /redoc` | — | The frozen OpenAPI schema (machine-readable contract) and browsable API docs (Requirement 6.1, 6.4) |
+| `POST /runs` | `run_analysis` | Drive the S2-05 scoring engine under explicit weights or a named scenario; returns a `RunHandle`. Invalid weights / unknown scenario → 422, no Run (Requirement 4.4) |
+| `GET /runs/{run_id}/results` | `get_ranked_results` | Ranked rows over the Run's fixed Scored_Table, with optional `top_n` / `min_score` Display_Filters (pure selection, never re-scores) |
+| `GET /runs/{run_id}/sites/{cell_id}` | `get_site_detail` | One cell's features, contributions, score, rank, eligibility and the S2-06 explanation; same score/rank as the ranked results (Property P1). Unknown cell → 404 |
+| `GET /runs/{run_id}/exclusions` | `get_exclusions` | The Run's excluded cells with machine- and human-readable reasons from the Eligibility_Table |
+| `POST /scenario-comparison` | `compare_scenarios` | Per-cell rank comparison of two named scenarios; each scenario's ranks come from the engine, reused (Property P5) |
+| `GET /data-quality` | `get_data_quality` | The S2-02 Data_Quality_Status for a UI banner; a missing status fails honestly with 503 |
+
+Materialised outputs write under `DATA/service/`:
+
+| Path | Producer | Description |
+|------|------|-------------|
+| `runs/{run_id}/optmining_suitability-score_2026_nsw.gpkg` (+ `.csv`) | `run_analysis` | The per-Run Scored_Table the engine materialised for that weights/scenario (layer `suitability_score`), written atomically. The `run_id` is content-addressed on the resolved weights, so identical requests reuse the same Run rather than proliferating materialisations |
+| `runs/{run_id}/run.json` | `run_analysis` | Run manifest / provenance: the `weights_id`, scenario (if any), the criteria scored, the integrated-input path + SHA-256, the cell count and the UTC timestamp |
+
+**Scope note:** the service is deliberately thin — it reads materialised engine outputs and serves them, applying only pure display-level selection (top-N, minimum-score). This is the structural guarantee behind combined-sprint AC4: the Web_Application can only call this service, so it has no code path by which to recompute a score, a rank or an eligibility decision. Empty-but-valid results (a top-N over the eligible count, an all-excluding threshold) are returned as empty sets with a `200`, never as an error; a missing Run / `cell_id` / engine output fails honestly (404 / 404 / 503) rather than fabricating a result.
 
 ## Data Sources
 
