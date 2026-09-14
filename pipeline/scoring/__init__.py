@@ -50,6 +50,17 @@ Modules:
                 derived-product provenance triple.
     validate  — No-silent-passes checks over the Scored_Table.
     run       — Stage entry point: `run(verbose=False, ...) -> dict`.
+    scenarios — S2-07 scenario / weight-comparison engine. Named weighting
+                PRESETS (`scenarios.yaml`, validated by the same
+                `parse_weights` as the default weights) are fed to the S2-05
+                engine UNCHANGED: `run_scenario` is a thin pass-through to
+                `score.score_and_rank`, and `compare_scenarios` runs two
+                scenarios against ONE shared set of normalisation bounds
+                (computed once from the eligible population) so only the
+                weights differ, then diffs the ranks into a
+                `ScenarioComparison`. Scenarios model PREFERENCES, not
+                probabilistic uncertainty. The `ScenarioComparison` shape is
+                the contract the S2-08 Decision_Service wraps.
 
 Usage:
     from pipeline.scoring.run import run
@@ -59,4 +70,11 @@ Usage:
     from pipeline.scoring.score import score_frame
     from pipeline.scoring.weights import load_weights
     scored = score_frame(features, load_weights("path/to/weights.yaml"))
+
+    # or compare two weighting scenarios (S2-07), reusing the same engine:
+    from pipeline.scoring.scenarios import load_scenarios, compare_scenarios
+    scenarios = load_scenarios()
+    comparison = compare_scenarios(
+        features, scenarios["wind_led"], scenarios["grid_led"]
+    )
 """

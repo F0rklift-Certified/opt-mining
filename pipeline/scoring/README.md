@@ -110,3 +110,75 @@ the values are auditable per run rather than only described here.
   inversion, and `normalised_frame == normalise_frame`).
 * [`tests/scoring/test_scoring.py::TestNormalisation`](../../tests/scoring/test_scoring.py)
   — the same rules through the scoring `Criterion` path.
+
+---
+
+## Scenarios / Weight-Comparison Engine (S2-07)
+
+A **scenario** is a named weight set — one documented ordering of screening
+priorities. Running the engine under two scenarios shows that the ranking
+depends on the user's **preferences**: the same eligible cells, scored against
+the same normalisation bounds, re-rank when the weights change. Scenarios are
+**preference / weighting scenarios**; they are explicitly **not probabilistic
+uncertainty scenarios** and never model uncertainty in the data or the outcome.
+
+A scenario is **data, not code**. Presets live in
+[`scenarios.yaml`](./scenarios.yaml), exactly as the default weights live in
+[`scoring_weights.yaml`](./scoring_weights.yaml), and each preset's weight set is
+validated by the **same** validator as the default weights
+(`weights.parse_weights`), so an invalid preset fails loudly — naming the
+offending scenario — before any scoring is attempted. Two presets ship:
+
+| Scenario | Label | Emphasis |
+| --- | --- | --- |
+| `wind_led` | Wind-led | Wind-resource quality (`wind_speed` carries most of the weight) |
+| `grid_led` | Grid-led | Grid / infrastructure accessibility (`dist_transmission_km` and `inside_rez` carry most of the weight) |
+
+Both presets score the **same six criteria with the same directions** and
+differ **only** in their weights.
+
+### The engine is reused unchanged
+
+Every scenario is scored by the S2-05 pure core (`score.score_and_rank`);
+[`scenarios.py`](./scenarios.py) adds **no** scoring, normalisation or ranking
+arithmetic of its own. `run_scenario` is a thin pass-through, and
+`compare_scenarios` runs the engine once per scenario and diffs the ranks:
+
+```python
+from pipeline.scoring.scenarios import load_scenarios, compare_scenarios
+
+scenarios = load_scenarios()                     # -> {"wind_led": ..., "grid_led": ...}
+comparison = compare_scenarios(features, scenarios["wind_led"], scenarios["grid_led"])
+comparison.to_dict()                             # S2-08 ScenarioComparison shape
+```
+
+### Only the weights differ
+
+`compare_scenarios` requires the two scenarios to score the **same criteria
+feature set** (a mismatch raises), computes the normalisation bounds **once**
+from the eligible population, and passes those **shared** bounds to both runs.
+Because the bounds depend only on the eligible population and the criterion
+directions — never on the weights — a ranking change between two scenarios is
+attributable purely to the change in preferences. This is the same fixed-bounds
+guarantee the normalisation section describes, applied across scenarios: a
+scenario is a different, equally documented set of assumptions, so the engine
+still surfaces "higher-ranked candidate cells under the selected assumptions and
+criteria" — never an objectively "best" site.
+
+### Comparison structure (the S2-08 contract)
+
+`ScenarioComparison.to_dict()` emits exactly the shape the S2-08
+Decision_Service declares — `rows` of `{cell_id, rank_a, rank_b, rank_delta}`
+plus `labels {a, b}` — extended with the additive score fields `score_a`,
+`score_b`, `score_delta` (`rank_delta = rank_a − rank_b`, `score_delta =
+score_a − score_b`). No S2-08 field is renamed, so the service layer wraps this
+structure directly and the S3-06 UI renders it.
+
+### Tests
+
+* [`tests/scoring/test_scenarios.py`](../../tests/scoring/test_scenarios.py)
+  — scenario loading and every fault path, `run_scenario` pure-reuse identity
+  against `score_and_rank`, `compare_scenarios` (criteria-mismatch error,
+  shared-bounds usage, scored intersection, delta consistency, S2-08 payload
+  shape), and a controlled hand-computed re-ranking case where Wind-led and
+  Grid-led exchange the top and bottom cells.
