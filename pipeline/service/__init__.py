@@ -40,21 +40,39 @@ Modules:
                    the `pipeline/shortlist/select.py` selection-by-rank pattern;
                    an all-excluding threshold or a top-N beyond the eligible
                    count returns an empty-but-valid set, never an error.
+    scenarios    — `compare_scenarios(scenario_a, scenario_b) ->
+                   ScenarioComparison`: materialises each Scenario as its own
+                   S2-05 Run (via `run_analysis`) and reads the two rankings
+                   back (via `get_ranked_results`), returning a per-cell rank
+                   comparison with `rank_delta`. Each scenario's ranks are the
+                   ENGINE's, reused — never a second scorer (CONTRACT.md §4.5,
+                   §7 P5).
 """
 
 from .filters import apply_display_filter, apply_min_score, apply_top_n
-from .models import ExcludedRow, RankedRow, RunHandle, SiteDetail
+from .models import (
+    ExcludedRow,
+    RankedRow,
+    RunHandle,
+    ScenarioComparison,
+    ScenarioComparisonRow,
+    SiteDetail,
+)
 from .results import get_exclusions, get_ranked_results, get_site_detail
 from .run_analysis import run_analysis
+from .scenarios import compare_scenarios
 
 __all__ = [
     "ExcludedRow",
     "RankedRow",
     "RunHandle",
+    "ScenarioComparison",
+    "ScenarioComparisonRow",
     "SiteDetail",
     "apply_display_filter",
     "apply_min_score",
     "apply_top_n",
+    "compare_scenarios",
     "get_exclusions",
     "get_ranked_results",
     "get_site_detail",

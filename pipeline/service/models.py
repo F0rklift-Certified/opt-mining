@@ -10,9 +10,9 @@ service serves, populated verbatim from materialised engine outputs.
 
 `RunHandle` is needed by `run_analysis` (task 2.1), `RankedRow` by
 `get_ranked_results` (task 3.1), `SiteDetail` by `get_site_detail` (task 3.2)
-and `ExcludedRow` by `get_exclusions` (task 3.3); the remaining models
-(ScenarioComparison, DataQualityStatus) are added by the read-operation tasks
-that produce them.
+and `ExcludedRow` by `get_exclusions` (task 3.3); `ScenarioComparison` /
+`ScenarioComparisonRow` by `compare_scenarios` (task 5.1). The remaining model
+(DataQualityStatus) is added by the operation task that produces it.
 """
 
 from __future__ import annotations
@@ -226,4 +226,93 @@ class ExcludedRow:
             "cell_id": self.cell_id,
             "reason_codes": list(self.reason_codes),
             "reason_text": self.reason_text,
+        }
+
+
+@dataclass(frozen=True)
+class ScenarioComparisonRow:
+    """
+    One cell's rank comparison across two Scenarios (CONTRACT.md §5,
+    Requirement 1.5).
+
+    A `ScenarioComparisonRow` is assembled from the ranks of TWO materialised
+    Runs — one per Scenario, each produced by the S2-05 engine (never a second
+    scorer, Property P5 / Requirement 4.3). The service performs no scoring or
+    ranking to produce it; the two ranks are the engine's, read from each Run's
+    Scored_Table via `get_ranked_results`. The only arithmetic is the display
+    convenience `rank_delta = rank_a - rank_b` — a difference of two engine
+    ranks, not a re-derivation of either.
+
+    Fields
+    ------
+    cell_id :
+        Analysis-cell id, copied verbatim so it joins back to the grid. The
+        same `cell_id` identifies the cell under both Scenarios (the two Runs
+        score the same eligible population).
+    rank_a :
+        The cell's S2-05 rank under `scenario_a` (1 = highest-ranked), read from
+        that Run's Scored_Table. ``None`` when the cell is not eligible/ranked
+        under `scenario_a`.
+    rank_b :
+        The cell's S2-05 rank under `scenario_b`, read from that Run's
+        Scored_Table. ``None`` when the cell is not eligible/ranked under
+        `scenario_b`.
+    rank_delta :
+        ``rank_a - rank_b`` when BOTH ranks are present; ``None`` otherwise
+        (CONTRACT.md §5). A negative delta means the cell ranks BETTER (a lower,
+        i.e. more favourable, rank number) under `scenario_a` than under
+        `scenario_b`; a positive delta means it ranks better under `scenario_b`.
+    """
+
+    cell_id: str
+    rank_a: int | None = None
+    rank_b: int | None = None
+    rank_delta: int | None = None
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 `ScenarioComparisonRow` shape."""
+        return {
+            "cell_id": self.cell_id,
+            "rank_a": self.rank_a,
+            "rank_b": self.rank_b,
+            "rank_delta": self.rank_delta,
+        }
+
+
+@dataclass(frozen=True)
+class ScenarioComparison:
+    """
+    A per-cell rank comparison of two named Scenarios (CONTRACT.md §5,
+    Requirement 1.5, 4.3).
+
+    A `ScenarioComparison` is the result of `compare_scenarios`
+    (`scenarios.py`): it materialises each Scenario as its own S2-05 Run and
+    reads the two ranks per cell, so a rank change is attributable PURELY to the
+    weight difference — the two Runs share the same criteria, directions and
+    eligible-population normalisation bounds (CONTRACT.md §3, §4.5). The service
+    runs no second scorer; each scenario's ranks are the engine's, reused via
+    the Run store and `get_ranked_results` (Property P5).
+
+    Fields
+    ------
+    labels :
+        The two Scenario keys compared, as ``{"a": scenario_a, "b":
+        scenario_b}`` (CONTRACT.md §5), so the consumer can label the two rank
+        columns without re-deriving which side is which.
+    rows :
+        One `ScenarioComparisonRow` per cell that is eligible/ranked under at
+        least one of the two Scenarios, ordered by ascending `rank_a` (the
+        `scenario_a` ranking), with cells ranked only under `scenario_b` (no
+        `rank_a`) following in ascending `rank_b` order. A cell excluded under
+        both Scenarios takes no part.
+    """
+
+    labels: dict[str, str] = field(default_factory=dict)
+    rows: list[ScenarioComparisonRow] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 `ScenarioComparison` shape."""
+        return {
+            "labels": dict(self.labels),
+            "rows": [row.to_dict() for row in self.rows],
         }
