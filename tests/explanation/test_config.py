@@ -67,9 +67,47 @@ def test_default_templates_path_is_packaged_alongside_the_module():
 
 
 def test_eligible_schema_fields_are_stable_and_ordered():
+    # S2-06a fields first, then the two caveat fields S2-06b appends (both paths).
     assert ecfg.ELIGIBLE_FIELDS == (
         "cell_id", "eligible", "headline", "positive_factors", "weaknesses",
+        "proxy_caveats", "data_quality_notes",
     )
+
+
+def test_excluded_schema_fields_are_stable_and_ordered():
+    # S2-06b excluded path: identity + eligibility + reasons + caveats.
+    assert ecfg.EXCLUDED_FIELDS == (
+        "cell_id", "eligible", "exclusion_reasons",
+        "proxy_caveats", "data_quality_notes",
+    )
+
+
+def test_all_fields_is_the_csv_header_union():
+    # The CSV header is the union; existing eligible columns keep their order,
+    # the excluded-only field is appended last.
+    assert ecfg.ALL_FIELDS == (
+        "cell_id", "eligible", "headline", "positive_factors", "weaknesses",
+        "proxy_caveats", "data_quality_notes", "exclusion_reasons",
+    )
+
+
+def test_s2_06b_input_columns_composed_from_upstream_config():
+    """The excluded/confidence input columns are carried from upstream, never re-typed."""
+    from pipeline.exclusions import config as xcfg
+    from pipeline.exclusions import rules as xrules
+
+    # Option B: the integrated table carries the two DELIMITED F16 reason forms,
+    # not the paired JSON column; both names come from the exclusions config.
+    assert ecfg.TRIGGERED_RULES_COLUMN == "triggered_rules"
+    assert ecfg.EXCLUSION_REASON_COLUMN == "exclusion_reason"
+    assert ecfg.TRIGGERED_RULES_COLUMN in xcfg.OUTPUT_COLUMNS
+    assert ecfg.EXCLUSION_REASON_COLUMN in xcfg.OUTPUT_COLUMNS
+    assert ecfg.REASON_DELIMITER == xrules.REASON_DELIMITER
+    assert ecfg.CONFIDENCE_LEVEL_COLUMN == icfg.CONFIDENCE_COLUMNS[0]
+    assert ecfg.CONFIDENCE_SCORE_COLUMN == icfg.CONFIDENCE_COLUMNS[1]
+    assert ecfg.CONFIDENCE_NOTES_COLUMN == icfg.CONFIDENCE_COLUMNS[2]
+    assert ecfg.CONFIDENCE_NO_NOTES == icfg.CONFIDENCE_NO_NOTES
+    assert ecfg.CONFIDENCE_LEVELS == icfg.DATA_CONFIDENCE_LEVELS
 
 
 def test_stage_identity():

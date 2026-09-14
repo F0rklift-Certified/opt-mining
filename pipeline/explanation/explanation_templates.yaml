@@ -22,7 +22,7 @@
 # is a strategic screening output, never a site approval — the words "best
 # site" (and similar superlatives) must never appear. Validation asserts this.
 
-version: "1.0"
+version: "1.1"
 
 # --- Headline ---------------------------------------------------------------
 # The single screening-level headline used for every eligible cell. It states
@@ -73,9 +73,17 @@ criteria:
     positive: "Close to transmission"
     weakness: "Distant from transmission"
 
+  # demand_proxy is a PROXY variable (S2-06b): the MVP demand feature is a
+  # NEM-region annual mean allocated below the AEMO region, NOT measured local
+  # demand. When this criterion takes part in a cell's score, the caveat below
+  # is surfaced so the proxy is never read as a direct measurement (AC7).
   - feature: demand_proxy
     positive: "Near electrical demand"
     weakness: "Far from electrical demand"
+    proxy: true
+    proxy_caveat: >-
+      Demand shown is a spatial proxy allocated below the AEMO region, not
+      measured local demand
 
   - feature: dist_substation_km
     positive: "Close to a substation"
@@ -88,3 +96,14 @@ criteria:
   - feature: inside_rez
     positive: "Inside a Renewable Energy Zone"
     weakness: "Outside any Renewable Energy Zone"
+
+# --- Data-quality / confidence caveat (S2-06b) ------------------------------
+# Every record (eligible AND excluded) surfaces the S1-09 composite confidence
+# level for its cell, so a low-confidence ranking is never read as a firm one.
+#   level_template  — the level note; {level} is high/medium/low.
+#   notes_template  — joins the level note with the S1-09 confidence_notes
+#                     reasons when a cell has any ({level_note}, {notes}).
+# When a cell has no reduced-confidence reasons, only the level note is shown.
+data_quality:
+  level_template: "Confidence: {level}"
+  notes_template: "{level_note} — {notes}"

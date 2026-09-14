@@ -52,11 +52,36 @@ class Band:
 
 @dataclass(frozen=True)
 class CriterionPhrases:
-    """The positive and weakness phrasing for one criterion feature."""
+    """
+    The positive and weakness phrasing for one criterion feature.
+
+    A criterion may also be marked a PROXY (S2-06b): a variable that stands in
+    for something not measured directly. When `is_proxy` is true, `proxy_caveat`
+    is the (required) sentence surfaced whenever this criterion actually took
+    part in a cell's score, so the proxy is never presented as a direct
+    measurement. Non-proxy criteria carry `is_proxy=False` and no caveat.
+    """
 
     feature: str
     positive: str
     weakness: str
+    is_proxy: bool = False
+    proxy_caveat: str | None = None
+
+
+@dataclass(frozen=True)
+class DataQualityPhrases:
+    """
+    Phrasing for the data-quality / confidence caveat (S2-06b).
+
+    `level_template` is formatted with `{level}` (e.g. "Confidence: {level}");
+    `notes_template` joins the level note with the S1-09 `confidence_notes`
+    reasons, formatted with `{level_note}` and `{notes}` (e.g.
+    "{level_note} — {notes}"). Both are USER INPUT, superlative-checked.
+    """
+
+    level_template: str
+    notes_template: str
 
 
 @dataclass(frozen=True)
@@ -68,6 +93,7 @@ class ExplanationTemplates:
     boolean_true_label: str
     boolean_false_label: str
     phrases: dict[str, CriterionPhrases]  # keyed by feature
+    data_quality: DataQualityPhrases  # S2-06b confidence caveat phrasing
     config_id: str  # SHA-256 of the source YAML — the traceable templates identity
     version: str | None = None
     path: Path | None = None
@@ -197,10 +223,67 @@ def _parse_phrases(raw: object, path: Path) -> dict[str, CriterionPhrases]:
             )
         positive = _clean_text(entry.get("positive"), f"criteria['{feature}'].positive", path)
         weakness = _clean_text(entry.get("weakness"), f"criteria['{feature}'].weakness", path)
+
+        # S2-06b: an optional proxy marker. When present and true, a
+        # proxy_caveat sentence is REQUIRED, so a proxy variable can never be
+        # left unlabelled. A non-proxy criterion may not carry a caveat.
+        proxy_raw = entry.get("proxy", False)
+        if not isinstance(proxy_raw, bool):
+            raise ExplanationConfigError(
+                f"{path}: criteria['{feature}'].proxy must be true or false, "
+                f"got {proxy_raw!r}"
+            )
+        caveat_raw = entry.get("proxy_caveat")
+        if proxy_raw:
+            proxy_caveat = _clean_text(
+                caveat_raw, f"criteria['{feature}'].proxy_caveat", path
+            )
+        else:
+            if caveat_raw is not None:
+                raise ExplanationConfigError(
+                    f"{path}: criteria['{feature}'] carries a proxy_caveat but is "
+                    f"not marked 'proxy: true'; only proxy criteria may carry a "
+                    f"caveat, or the caveat would never be shown"
+                )
+            proxy_caveat = None
+
         phrases[feature] = CriterionPhrases(
-            feature=feature, positive=positive, weakness=weakness
+            feature=feature, positive=positive, weakness=weakness,
+            is_proxy=proxy_raw, proxy_caveat=proxy_caveat,
         )
     return phrases
+
+
+def _parse_data_quality(raw: object, path: Path) -> DataQualityPhrases:
+    """
+    Parse the S2-06b `data_quality` block.
+
+    Both templates are required non-empty strings, superlative-checked. The
+    level template must contain a `{level}` placeholder and the notes template
+    both `{level_note}` and `{notes}`, so a misconfigured template fails at load
+    rather than producing a caveat missing its data.
+    """
+    body = raw if isinstance(raw, dict) else {}
+    level_template = _clean_text(
+        body.get("level_template"), "data_quality.level_template", path
+    )
+    notes_template = _clean_text(
+        body.get("notes_template"), "data_quality.notes_template", path
+    )
+    if "{level}" not in level_template:
+        raise ExplanationConfigError(
+            f"{path}: data_quality.level_template must contain a '{{level}}' "
+            f"placeholder; got {level_template!r}"
+        )
+    for token in ("{level_note}", "{notes}"):
+        if token not in notes_template:
+            raise ExplanationConfigError(
+                f"{path}: data_quality.notes_template must contain a "
+                f"'{token}' placeholder; got {notes_template!r}"
+            )
+    return DataQualityPhrases(
+        level_template=level_template, notes_template=notes_template
+    )
 
 
 def parse_templates(
@@ -222,6 +305,7 @@ def parse_templates(
     bands = _parse_bands(body.get("bands"), where)
     true_label, false_label = _parse_boolean_labels(body.get("boolean_labels"), where)
     phrases = _parse_phrases(body.get("criteria"), where)
+    data_quality = _parse_data_quality(body.get("data_quality"), where)
 
     version = body.get("version")
     return ExplanationTemplates(
@@ -230,6 +314,7 @@ def parse_templates(
         boolean_true_label=true_label,
         boolean_false_label=false_label,
         phrases=phrases,
+        data_quality=data_quality,
         config_id=config_id,
         version=str(version) if version is not None else None,
         path=Path(path) if path is not None else None,

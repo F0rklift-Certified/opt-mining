@@ -169,3 +169,85 @@ def test_superlative_in_phrase_raises():
 def test_banned_list_nonempty():
     # Guard: the banned vocabulary is not accidentally emptied.
     assert "best site" in BANNED_SUPERLATIVES
+
+
+# --- S2-06b: proxy marker + data-quality block ------------------------------
+
+
+def test_shipped_demand_proxy_is_marked_and_carries_a_caveat():
+    t = load_templates(ecfg.DEFAULT_TEMPLATES_PATH)
+    demand = t.phrases["demand_proxy"]
+    assert demand.is_proxy is True
+    assert demand.proxy_caveat
+    assert "proxy" in demand.proxy_caveat.lower()
+    # A non-proxy criterion defaults to not-a-proxy, no caveat.
+    assert t.phrases["wind_speed"].is_proxy is False
+    assert t.phrases["wind_speed"].proxy_caveat is None
+
+
+def test_shipped_data_quality_block_parsed():
+    t = load_templates(ecfg.DEFAULT_TEMPLATES_PATH)
+    assert "{level}" in t.data_quality.level_template
+    assert "{level_note}" in t.data_quality.notes_template
+    assert "{notes}" in t.data_quality.notes_template
+
+
+def test_proxy_true_without_caveat_raises():
+    raw = _default_raw()
+    for c in raw["criteria"]:
+        if c["feature"] == "demand_proxy":
+            c["proxy"] = True
+            c.pop("proxy_caveat", None)
+    with pytest.raises(ExplanationConfigError, match="proxy_caveat"):
+        parse_templates(raw)
+
+
+def test_caveat_on_non_proxy_criterion_raises():
+    raw = _default_raw()
+    raw["criteria"][0]["proxy_caveat"] = "some caveat"  # wind_speed, not a proxy
+    with pytest.raises(ExplanationConfigError, match="not marked 'proxy: true'"):
+        parse_templates(raw)
+
+
+def test_non_boolean_proxy_marker_raises():
+    raw = _default_raw()
+    raw["criteria"][0]["proxy"] = "yes"
+    with pytest.raises(ExplanationConfigError, match="must be true or false"):
+        parse_templates(raw)
+
+
+def test_superlative_in_proxy_caveat_raises():
+    raw = _default_raw()
+    for c in raw["criteria"]:
+        if c["feature"] == "demand_proxy":
+            c["proxy_caveat"] = "The best site for demand"
+    with pytest.raises(ExplanationConfigError, match="best site"):
+        parse_templates(raw)
+
+
+def test_missing_data_quality_block_raises():
+    raw = _default_raw()
+    del raw["data_quality"]
+    with pytest.raises(ExplanationConfigError, match="data_quality"):
+        parse_templates(raw)
+
+
+def test_level_template_without_placeholder_raises():
+    raw = _default_raw()
+    raw["data_quality"]["level_template"] = "Confidence level"
+    with pytest.raises(ExplanationConfigError, match=r"\{level\}"):
+        parse_templates(raw)
+
+
+def test_notes_template_missing_placeholder_raises():
+    raw = _default_raw()
+    raw["data_quality"]["notes_template"] = "{level_note} only"
+    with pytest.raises(ExplanationConfigError, match=r"\{notes\}"):
+        parse_templates(raw)
+
+
+def test_superlative_in_data_quality_raises():
+    raw = _default_raw()
+    raw["data_quality"]["level_template"] = "best site confidence {level}"
+    with pytest.raises(ExplanationConfigError, match="best site"):
+        parse_templates(raw)
