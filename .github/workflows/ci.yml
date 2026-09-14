@@ -19,7 +19,7 @@ on:
   push:
     branches: [main, master]
   pull_request:
-    branches: [main, master]
+    branches: [main, master, s2-08]
 
 # Cancel in-progress runs for the same ref when a new commit is pushed.
 concurrency:
@@ -56,5 +56,8 @@ jobs:
           # requirements.txt and installed above.
           pip install pytest==9.1.1
 
-      - name: Run tests
-        run: pytest -v
+      - name: Run S2-09 backend integration gate
+        run: pytest -v tests/backend
+
+      - name: Run remaining unit and integration tests
+        run: pytest -v --ignore=tests/backend
