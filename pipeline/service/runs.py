@@ -9,7 +9,8 @@ score and rank, and writes the resulting Scored_Table to a per-run directory so
 the read operations (tasks 3.x) can serve it. It also RESOLVES a `run_id` back
 to those materialised artefacts (`load_run_manifest`, `load_scored_table`,
 `load_integrated_table`, `load_explanations`) — plus the shared S2-03
-Eligibility_Table (`load_eligibility_table`) — for the read operations: pure I/O
+Eligibility_Table (`load_eligibility_table`) and the shared S2-02
+Data_Quality_Status (`load_validation_result`) — for the read operations: pure I/O
 that reads the engine's own output verbatim, with honest failures
 (`RunNotFoundError`, `CellNotFoundError`, `EngineOutputError`) when a Run, a
 cell or an output is absent.
@@ -513,3 +514,49 @@ def load_eligibility_table() -> gpd.GeoDataFrame:
     if cell_col in table.columns:
         table[cell_col] = table[cell_col].astype(str)
     return table
+
+
+def load_validation_result() -> dict:
+    """
+    Load the materialised S2-02 Validation_Result sidecar verbatim (CONTRACT.md
+    §4.6, §5).
+
+    Reads the JSON sidecar the S2-02 validator (`pipeline/validate.py`) wrote
+    (`config.data_quality_result_path()`, composed from the producing module's
+    own constant) and returns the parsed object UNCHANGED — the `all_passed`
+    verdict and the ``{name, expected, observed, passed}`` Check_Records exactly
+    as the validator emitted them. The service re-runs no check and re-derives no
+    verdict; it surfaces the S2-02 status (CONTRACT.md §1, Requirement 2, 5.1).
+
+    The Data_Quality_Status is a screening-level artefact for the frozen
+    integrated dataset — it does not depend on the scoring weights — so it is
+    resolved once from its fixed location rather than per-Run, mirroring the
+    S2-03 Eligibility_Table and the S2-06 explanation output.
+
+    Raises
+    ------
+    EngineOutputError
+        The Validation_Result sidecar is missing, unreadable, or not the
+        expected object shape — the error NAMES the missing input rather than
+        fabricating a result or a passing verdict (Requirement 5.3, 7.3). A
+        missing data-quality status is never silently treated as "passed".
+    """
+    path = config.data_quality_result_path()
+    if not path.exists():
+        raise EngineOutputError(
+            f"Data_Quality_Status is missing: {path}. Run "
+            f"`python -m pipeline --only validate` to materialise the S2-02 "
+            f"validation result before the data-quality status can be served."
+        )
+    try:
+        result = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise EngineOutputError(
+            f"Data_Quality_Status {path} is unreadable: {exc}"
+        ) from exc
+    if not isinstance(result, dict):
+        raise EngineOutputError(
+            f"Data_Quality_Status {path} is not the expected object "
+            f"(got {type(result).__name__}); it carries no verdict or checks."
+        )
+    return result

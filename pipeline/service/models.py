@@ -11,8 +11,8 @@ service serves, populated verbatim from materialised engine outputs.
 `RunHandle` is needed by `run_analysis` (task 2.1), `RankedRow` by
 `get_ranked_results` (task 3.1), `SiteDetail` by `get_site_detail` (task 3.2)
 and `ExcludedRow` by `get_exclusions` (task 3.3); `ScenarioComparison` /
-`ScenarioComparisonRow` by `compare_scenarios` (task 5.1). The remaining model
-(DataQualityStatus) is added by the operation task that produces it.
+`ScenarioComparisonRow` by `compare_scenarios` (task 5.1); `DataQualityStatus` /
+`DataQualityCheck` by `get_data_quality` (task 5.2).
 """
 
 from __future__ import annotations
@@ -315,4 +315,89 @@ class ScenarioComparison:
         return {
             "labels": dict(self.labels),
             "rows": [row.to_dict() for row in self.rows],
+        }
+
+
+@dataclass(frozen=True)
+class DataQualityCheck:
+    """
+    One S2-02 input-contract check record (CONTRACT.md §5, Requirement 6.2, 6.3).
+
+    A `DataQualityCheck` is a verbatim projection of one Check_Record the S2-02
+    validator (`pipeline/validate.py`) wrote to the Validation_Result JSON
+    sidecar — the exact ``{name, expected, observed, passed}`` shape the
+    validator emits (`build_validation_result`), carried through UNCHANGED. The
+    service performs NO validation of its own; it re-runs no check and re-derives
+    no verdict (CONTRACT.md §1, Requirement 2). Every check is surfaced — passing
+    and failing alike — so there are no silent passes (CONTRACT.md §5).
+
+    Fields
+    ------
+    name :
+        The check name, copied verbatim (e.g. "Baseline hash matches the frozen
+        reference", "At least one Eligible_Cell").
+    expected :
+        The expected value/condition the validator recorded, as a string.
+    observed :
+        The observed value the validator recorded, as a string.
+    passed :
+        Whether this individual check passed. A ``False`` here is a failing
+        blocking check that a data-quality banner should surface (Requirement
+        5.2).
+    """
+
+    name: str
+    expected: str
+    observed: str
+    passed: bool
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 `DataQualityCheck` shape."""
+        return {
+            "name": self.name,
+            "expected": self.expected,
+            "observed": self.observed,
+            "passed": self.passed,
+        }
+
+
+@dataclass(frozen=True)
+class DataQualityStatus:
+    """
+    The S2-02 Data_Quality_Status for the frozen integrated dataset
+    (CONTRACT.md §5, Requirement 1.6, 5.1, 5.2, 5.3, 6.2, 6.3).
+
+    A `DataQualityStatus` mirrors the S2-02 machine-readable Validation_Result
+    (`integrated_input_validation.json`) the S2-02 validator materialised: the
+    overall ``all_passed`` verdict and the per-check records, carried through
+    UNCHANGED. `get_data_quality` (`quality.py`) reads that sidecar and projects
+    it into this shape — it performs no validation, re-runs no check and
+    re-derives no verdict (CONTRACT.md §1, Requirement 2). This is how the
+    Web_Application learns the frozen dataset failed a blocking check so it can
+    render a data-quality banner (Requirement 5.2), and the mechanism by which a
+    Run derived from a failed dataset never hides its failure — the failure is
+    always retrievable here (Requirement 5.3).
+
+    Fields
+    ------
+    passed :
+        The overall verdict — the S2-02 ``all_passed`` (the conjunction of every
+        input-contract Check_Record, including the baseline-hash match), carried
+        through unchanged. ``False`` means the frozen dataset failed a blocking
+        check and the Web_Application should show a data-quality banner
+        (Requirement 5.2).
+    checks :
+        The per-check records, one ``DataQualityCheck`` per S2-02 Check_Record,
+        in the validator's own order. Every check is surfaced — no silent passes
+        (CONTRACT.md §5).
+    """
+
+    passed: bool
+    checks: list[DataQualityCheck] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 `DataQualityStatus` shape."""
+        return {
+            "passed": self.passed,
+            "checks": [check.to_dict() for check in self.checks],
         }

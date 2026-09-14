@@ -82,6 +82,28 @@ REASON_DELIMITER = _exclusions_rules.REASON_DELIMITER  # ", "
 DEFAULT_WEIGHTS_PATH = _scoring_config.DEFAULT_WEIGHTS_PATH
 DEFAULT_SCENARIOS_PATH = _scoring_config.DEFAULT_SCENARIOS_PATH
 
+# --- Input: the S2-02 Data_Quality_Status (authoritative upstream: validate.py) ---
+# get_data_quality reads the Validation_Result JSON sidecar the S2-02 validator
+# materialised (`integrated_input_validation.json` under INTEGRATION_META_DIR)
+# and surfaces its `all_passed` verdict + per-check records VERBATIM. The path is
+# composed from `pipeline.validate`'s OWN constants (the module that produces the
+# sidecar) — never re-typed as a literal here — so an upstream rename of the
+# artefact or its directory breaks loudly at import rather than silently drifting.
+# The service never re-runs validation (CONTRACT.md §1, §4.6, §5). Imported lazily
+# inside the resolver so the thin service layer does not pull the validator's
+# heavy geospatial dependencies at import time.
+def data_quality_result_path() -> Path:
+    """
+    Absolute path to the S2-02 Validation_Result JSON sidecar.
+
+    Composed from `pipeline.validate.DEFAULT_VALIDATION_RESULT_PATH` (the
+    producing module's authoritative constant), so this path can never drift
+    from where the S2-02 validator writes it.
+    """
+    from .. import validate as _validate
+
+    return _validate.DEFAULT_VALIDATION_RESULT_PATH
+
 # --- Output: the per-Run materialisation store ---
 SERVICE_DIR = PROJECT_ROOT / "DATA" / "service"
 RUNS_DIR = SERVICE_DIR / "runs"

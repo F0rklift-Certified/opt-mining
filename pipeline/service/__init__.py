@@ -47,10 +47,21 @@ Modules:
                    comparison with `rank_delta`. Each scenario's ranks are the
                    ENGINE's, reused — never a second scorer (CONTRACT.md §4.5,
                    §7 P5).
+    quality      — `get_data_quality() -> DataQualityStatus`: surfaces the S2-02
+                   Data_Quality_Status for the frozen integrated dataset by
+                   reading the Validation_Result sidecar the S2-02 validator
+                   wrote and projecting its `all_passed` verdict + per-check
+                   records through VERBATIM, so the Web_Application can show a
+                   data-quality banner when a blocking check failed. It runs no
+                   validation of its own; a missing/unreadable status fails
+                   honestly rather than reporting a passing verdict (CONTRACT.md
+                   §4.6, Requirement 5.1–5.3).
 """
 
 from .filters import apply_display_filter, apply_min_score, apply_top_n
 from .models import (
+    DataQualityCheck,
+    DataQualityStatus,
     ExcludedRow,
     RankedRow,
     RunHandle,
@@ -58,11 +69,14 @@ from .models import (
     ScenarioComparisonRow,
     SiteDetail,
 )
+from .quality import get_data_quality
 from .results import get_exclusions, get_ranked_results, get_site_detail
 from .run_analysis import run_analysis
 from .scenarios import compare_scenarios
 
 __all__ = [
+    "DataQualityCheck",
+    "DataQualityStatus",
     "ExcludedRow",
     "RankedRow",
     "RunHandle",
@@ -73,6 +87,7 @@ __all__ = [
     "apply_min_score",
     "apply_top_n",
     "compare_scenarios",
+    "get_data_quality",
     "get_exclusions",
     "get_ranked_results",
     "get_site_detail",
