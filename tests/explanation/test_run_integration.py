@@ -41,11 +41,17 @@ def test_run_end_to_end(
         weights_path=weights_on_disk,
     )
 
-    # Return dict.
+    # Return dict (4 eligible + 1 excluded = 5 explained).
     assert summary["n_eligible_cells"] == 4
-    assert summary["n_explained"] == 4
+    assert summary["n_excluded_cells"] == 1
+    assert summary["n_explained"] == 5
+    assert summary["n_excluded_explained"] == 1
     assert summary["validation"]["failed"] == 0
     assert summary["templates_config_id"]
+    # The fixture weights do not include demand_proxy, so no proxy caveat is
+    # emitted here — the proxy path is exercised by the engine/caveat unit
+    # tests. The key is that the count is present and consistent (0 here).
+    assert summary["n_with_proxy_caveat"] == 0
 
     # Every artefact + report + provenance file exists.
     for key in [
@@ -55,12 +61,21 @@ def test_run_end_to_end(
     ]:
         assert Path(summary[key]).exists(), key
 
-    # The JSON has one record per eligible cell with the documented fields.
+    # The JSON has one record per cell; eligible and excluded shapes differ.
     records = json.loads(Path(summary["explanations_path"]).read_text(encoding="utf-8"))
-    assert len(records) == 4
-    assert all(set(r) == set(ecfg.ELIGIBLE_FIELDS) for r in records)
-    assert all(r["eligible"] is True for r in records)
-    assert all(r["headline"] for r in records)
+    assert len(records) == 5
+    eligible = [r for r in records if r["eligible"] is True]
+    excluded = [r for r in records if r["eligible"] is False]
+    assert len(eligible) == 4
+    assert len(excluded) == 1
+    assert all(set(r) == set(ecfg.ELIGIBLE_FIELDS) for r in eligible)
+    assert all(r["headline"] for r in eligible)
+    # Every record carries exactly one data-quality note (both paths).
+    assert all(len(r[ecfg.FIELD_DATA_QUALITY_NOTES]) == 1 for r in records)
+    # The excluded cell states its F16 exclusion reason and no factors.
+    ex = excluded[0]
+    assert set(ex) == set(ecfg.EXCLUDED_FIELDS)
+    assert ex[ecfg.FIELD_EXCLUSION_REASONS][0]["code"] == "protected_area"
 
 
 def test_run_is_byte_stable_across_reruns(

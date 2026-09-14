@@ -114,20 +114,28 @@ def run(
     # Every configured criterion must have phrasing before we render anything.
     for criterion in inputs.weights.criteria:
         templates.phrases_for(criterion.feature)
-    print(f"        {inputs.n_eligible_cells:,} eligible cells "
+    print(f"        {inputs.n_eligible_cells:,} eligible + "
+          f"{inputs.n_excluded_cells:,} excluded cells "
           f"({_rel(inputs.scored_table_path)}); reconciliation passed")
 
-    # [3/5] The pure engine, per eligible cell.
+    # [3/5] The pure engine, per eligible AND excluded cell (S2-06b).
     print("  [3/5] Generating deterministic explanations...")
-    records = build_explanations(inputs.cells, templates)
-    n_with_weaknesses = sum(1 for r in records if r[config.FIELD_WEAKNESSES])
+    records = build_explanations(inputs.cells, templates, inputs.excluded_cells)
+    n_with_weaknesses = sum(1 for r in records if r.get(config.FIELD_WEAKNESSES))
+    n_with_proxy = sum(1 for r in records if r.get(config.FIELD_PROXY_CAVEATS))
+    n_excluded = sum(1 for r in records if r.get(config.FIELD_EXCLUSION_REASONS))
     summary = {
         "n_eligible_cells": inputs.n_eligible_cells,
+        "n_excluded_cells": inputs.n_excluded_cells,
         "n_explained": len(records),
         "n_with_weaknesses": n_with_weaknesses,
+        "n_excluded_explained": n_excluded,
+        "n_with_proxy_caveat": n_with_proxy,
     }
-    print(f"        explained {len(records):,}; "
-          f"{n_with_weaknesses:,} carry at least one weakness")
+    print(f"        explained {len(records):,} "
+          f"({inputs.n_eligible_cells:,} eligible, {n_excluded:,} excluded); "
+          f"{n_with_weaknesses:,} carry a weakness, "
+          f"{n_with_proxy:,} carry a proxy caveat")
 
     # [4/5] Write outputs, then reports. The validation report is written even
     # when validation fails, so a failed run still leaves the evidence behind.
@@ -152,7 +160,9 @@ def run(
     # [5/5] Validate — no silent passes.
     print("  [5/5] Validating (no silent passes)...")
     result = validate_explanations(
-        records, templates, n_eligible_cells=inputs.n_eligible_cells
+        records, templates,
+        n_eligible_cells=inputs.n_eligible_cells,
+        n_excluded_cells=inputs.n_excluded_cells,
     )
     atomic_write_text(validation_path,
                       build_validation_report(result, generated_utc, commit))
@@ -206,10 +216,13 @@ def run(
     if verbose and records:
         sample = records[0]
         print(f"        sample [{sample[config.FIELD_CELL_ID]}]: "
-              f"+{sample[config.FIELD_POSITIVE_FACTORS]} "
-              f"-{sample[config.FIELD_WEAKNESSES]}")
+              f"+{sample.get(config.FIELD_POSITIVE_FACTORS)} "
+              f"-{sample.get(config.FIELD_WEAKNESSES)} "
+              f"proxy={sample.get(config.FIELD_PROXY_CAVEATS)} "
+              f"dq={sample.get(config.FIELD_DATA_QUALITY_NOTES)}")
 
-    print(f"        Eligible {inputs.n_eligible_cells:,}; explained {len(records):,}; "
+    print(f"        Eligible {inputs.n_eligible_cells:,} + excluded "
+          f"{inputs.n_excluded_cells:,}; explained {len(records):,}; "
           f"runtime {runtime_s:.1f}s")
 
     return {
@@ -222,8 +235,11 @@ def run(
         "provenance_path": str(provenance_path),
         "source_register_path": str(register_path),
         "n_eligible_cells": inputs.n_eligible_cells,
+        "n_excluded_cells": inputs.n_excluded_cells,
         "n_explained": len(records),
+        "n_excluded_explained": n_excluded,
         "n_with_weaknesses": n_with_weaknesses,
+        "n_with_proxy_caveat": n_with_proxy,
         "templates_config_id": templates.config_id,
         "templates_path": str(templates.path) if templates.path else None,
         "weights_config_id": inputs.weights.config_id,

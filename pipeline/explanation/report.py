@@ -80,14 +80,18 @@ def build_method_report(
     lines: list[str] = []
     add = lines.append
 
-    add("# Site Explanations — Method (S2-06a)\n")
+    add("# Site Explanations — Method (S2-06a + S2-06b)\n")
     add(banner(config.MODULE_NAME))
     add("")
     add("This is a **deterministic, template/rule-based** explanation of every "
-        "eligible site — **no language model is involved**. The same Scored_Table "
-        "and the same templates always produce byte-identical explanations, which "
-        "is more auditable than a generative model and cannot invent a factor the "
-        "data does not support.\n")
+        "site — eligible and excluded — with **no language model involved**. The "
+        "same Scored_Table, integrated table and templates always produce "
+        "byte-identical explanations, which is more auditable than a generative "
+        "model and cannot invent a factor the data does not support. Eligible "
+        "cells are explained by their strongest factors and weaknesses (S2-06a); "
+        "excluded cells state their machine- and human-readable exclusion "
+        "reason(s) (S2-06b). Every record — both paths — also carries any **proxy** "
+        "caveat and the cell's **data-quality / confidence** note (S2-06b, AC7).\n")
 
     # 1. Rule
     add("## 1. How factors are chosen\n")
@@ -146,13 +150,34 @@ def build_method_report(
             add(f"| `{feature}` | {cp.positive} | {cp.weakness} |")
     add("")
 
+    # 4b. Excluded path + caveats (S2-06b)
+    add("## 4b. Excluded cells and caveats (S2-06b)\n")
+    add("- **Excluded cells** carry their machine- and human-readable exclusion "
+        "reason(s) — a JSON list of `{code, text}` pairs from the integrated "
+        "table's `exclusion_reasons` (Decision-Engine Spec §6.5, frozen decision "
+        "F16), carried through verbatim in rule-config order. Eligibility and "
+        "scores are **not** recomputed here.")
+    add("- **Proxy caveats** flag any proxy variable a cell used, so a proxy is "
+        "never read as a direct measurement. A criterion is a proxy when the "
+        "templates mark it `proxy: true`; the caveat is surfaced only when the "
+        "cell had a value for that criterion. The MVP demand feature is a "
+        "spatial proxy allocated below the AEMO region, not measured local "
+        "demand.")
+    add(f"- **Data-quality notes** always surface the cell's S1-09 composite "
+        f"confidence level (including `high`), appending the reduced-confidence "
+        f"reasons from `{config.CONFIDENCE_NOTES_COLUMN}` when present. Exactly "
+        f"one note per record.\n")
+
     # 5. Counts
     add("## 5. What was explained\n")
     add("| Measure | Cells |")
     add("|---------|------:|")
     add(f"| Eligible cells in the Scored_Table | {summary['n_eligible_cells']:,} |")
-    add(f"| **Explained (eligible path)** | **{summary['n_explained']:,}** |")
-    add(f"| Records with at least one weakness | {summary['n_with_weaknesses']:,} |")
+    add(f"| Excluded cells in the integrated table | {summary.get('n_excluded_cells', 0):,} |")
+    add(f"| **Explained (both paths)** | **{summary['n_explained']:,}** |")
+    add(f"| Excluded cells explained | {summary.get('n_excluded_explained', 0):,} |")
+    add(f"| Eligible records with at least one weakness | {summary['n_with_weaknesses']:,} |")
+    add(f"| Records carrying a proxy caveat | {summary.get('n_with_proxy_caveat', 0):,} |")
     add("")
 
     # 6. Inputs / outputs
@@ -270,7 +295,9 @@ def record_provenance(
         },
         "counts": {
             "n_eligible_cells": summary["n_eligible_cells"],
+            "n_excluded_cells": summary.get("n_excluded_cells", 0),
             "n_explained": summary["n_explained"],
+            "n_excluded_explained": summary.get("n_excluded_explained", 0),
         },
     }
 
@@ -309,12 +336,16 @@ def record_provenance(
         f"  - criteria weights (user input): "
         f"`{_rel(inputs['weights_path']) if inputs['weights_path'] else '—'}` "
         f"(SHA-256 `{inputs['weights_config_id']}`)\n"
-        f"- **Method:** deterministic template/rule engine (NO LLM); positive "
-        f"factors ranked by S2-05 contribution, weaknesses by normalised value, "
-        f"qualitative bands recomputed via the scoring normaliser and reconciled "
-        f"to the persisted contributions; screening-level language only.\n"
-        f"- **Records:** {summary['n_eligible_cells']:,} eligible cells; "
-        f"{summary['n_explained']:,} explained\n"
+        f"- **Method:** deterministic template/rule engine (NO LLM); eligible "
+        f"cells: positive factors ranked by S2-05 contribution, weaknesses by "
+        f"normalised value, qualitative bands recomputed via the scoring "
+        f"normaliser and reconciled to the persisted contributions; excluded "
+        f"cells: F16 exclusion reason pairs carried through; every record also "
+        f"carries proxy and data-quality caveats; screening-level language only.\n"
+        f"- **Records:** {summary['n_eligible_cells']:,} eligible + "
+        f"{summary.get('n_excluded_cells', 0):,} excluded cells; "
+        f"{summary['n_explained']:,} explained "
+        f"({summary.get('n_excluded_explained', 0):,} excluded)\n"
         f"- **Regenerable:** yes — `python -m pipeline --only explanation` (after "
         f"`scoring`).\n"
         f"- **SHA-256 (JSON):** `{record['sha256_json']}`\n"
@@ -363,8 +394,9 @@ def _write_source_register(
         "vintage": config.EXPLANATION_VINTAGE,
         "size_or_count": f"{record['records']:,} records",
         "intended_use": (
-            "Deterministic eligible-cell site explanations (S2-06a); consumed by "
-            "S2-06b (extends), S2-08 get_site_detail and S3-05 site detail"
+            "Deterministic site explanations for eligible and excluded cells with "
+            "proxy and data-quality caveats (S2-06a + S2-06b); consumed by S2-08 "
+            "get_site_detail and S3-05 site detail"
         ),
         "notes": (
             f"templates_config_id {templates.config_id}; "

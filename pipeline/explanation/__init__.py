@@ -1,5 +1,5 @@
 """
-Explanation — deterministic site-level explanations (stage `explanation`, S2-06a).
+Explanation — deterministic site-level explanations (stage `explanation`, S2-06a + S2-06b).
 
 Position in the pipeline sequence: `explanation` is registered in
 `config.STAGES` immediately AFTER `scoring` (S2-05, which produces the sole
@@ -18,9 +18,17 @@ cell's strongest positive factors and its important weaknesses, in
 screening-level language ("higher-ranked candidate under the selected
 assumptions", never "best site").
 
-S2-06a owns the explanation ENGINE and the ELIGIBLE-cell path. The
-EXCLUDED-cell path and the proxy / data-quality caveat rules are S2-06b, which
-EXTENDS the schema defined here — it does not fork it.
+S2-06a owns the explanation ENGINE and the ELIGIBLE-cell path. S2-06b EXTENDS
+the same schema IN PLACE (it does not fork it) with:
+  - the EXCLUDED-cell path — a record stating the machine- and human-readable
+    exclusion reason(s) from the integrated table's `exclusion_reasons` (the
+    F16 {code, text} pairs, Decision-Engine Spec §6.5);
+  - PROXY caveats — a caveat for any proxy variable the cell used (marked
+    `proxy: true` in the templates), so the demand proxy is never read as
+    measured local demand;
+  - DATA-QUALITY notes — the cell's S1-09 composite confidence level on every
+    record, with reduced-confidence reasons appended when present.
+The proxy and data-quality caveats appear on BOTH paths (AC7).
 
 DETERMINISTIC, NO LLM
 ---------------------
