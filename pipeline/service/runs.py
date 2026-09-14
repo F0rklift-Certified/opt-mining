@@ -7,10 +7,11 @@ resolves a weights configuration (from explicit weights OR a named Scenario),
 derives a stable content-addressed `run_id`, drives the ENGINE UNCHANGED to
 score and rank, and writes the resulting Scored_Table to a per-run directory so
 the read operations (tasks 3.x) can serve it. It also RESOLVES a `run_id` back
-to those materialised artefacts (`load_run_manifest`, `load_scored_table`) for
-the read operations — pure I/O that reads the engine's own output verbatim, with
-honest failures (`RunNotFoundError`, `EngineOutputError`) when a Run or its
-output is absent.
+to those materialised artefacts (`load_run_manifest`, `load_scored_table`,
+`load_integrated_table`, `load_explanations`) for the read operations — pure I/O
+that reads the engine's own output verbatim, with honest failures
+(`RunNotFoundError`, `CellNotFoundError`, `EngineOutputError`) when a Run, a
+cell or an output is absent.
 
 NO DECISION ARITHMETIC LIVES HERE. Scoring, normalisation and ranking are the
 S2-05 pure core (`pipeline/scoring/score.py::score_and_rank`); the Scored_Table
@@ -283,6 +284,16 @@ class RunNotFoundError(LookupError):
     """
 
 
+class CellNotFoundError(LookupError):
+    """
+    A requested `cell_id` does not exist in the Run (Requirement 7.2).
+
+    Raised — naming the missing `cell_id` — rather than returning an empty or
+    fabricated success, so the Web_Application can present a real "no such cell"
+    error. The HTTP layer (a later task) maps this to a 404.
+    """
+
+
 class EngineOutputError(RuntimeError):
     """
     A materialised engine output required by a read operation is missing or
@@ -360,3 +371,100 @@ def load_scored_table(run_id: str) -> gpd.GeoDataFrame:
             table[_scoring_config.CELL_ID_COLUMN].astype(str)
         )
     return table
+
+
+def load_integrated_table(run_id: str) -> gpd.GeoDataFrame:
+    """
+    Load the S1-08 integrated feature table the Run scored (CONTRACT.md §1).
+
+    The Run's manifest records the exact `integrated_path`/`integrated_layer`
+    the engine read, so this resolves them and reads that table VERBATIM — the
+    per-cell input feature values and the S2-03 `eligible` flag that
+    `get_site_detail` serves as `features` and `eligible`. Nothing is
+    recomputed, reordered or reprojected; `cell_id` is coerced to string so it
+    joins to the Scored_Table and the URL path consistently.
+
+    Reading the manifest-recorded path (rather than the current
+    `config.INTEGRATED_PATH`) ties the served features to the SAME input the
+    Run scored, so the features and the score can never come from different
+    generations of the data.
+
+    Raises
+    ------
+    RunNotFoundError
+        The Run has no materialisation on disk (Requirement 7.1).
+    EngineOutputError
+        The integrated table the Run recorded is missing or unreadable — the
+        error names the missing input rather than fabricating a result
+        (Requirement 7.3).
+    """
+    manifest = load_run_manifest(run_id)
+    integrated_path = Path(
+        manifest.get("integrated_path", config.INTEGRATED_PATH)
+    )
+    integrated_layer = manifest.get("integrated_layer", config.INTEGRATED_LAYER)
+
+    if not integrated_path.exists():
+        raise EngineOutputError(
+            f"Run {run_id!r} integrated feature table is missing: "
+            f"{integrated_path}. The engine input the Run scored is absent; "
+            f"regenerate the integrated table or re-run the analysis."
+        )
+    try:
+        table = gpd.read_file(integrated_path, layer=integrated_layer)
+    except Exception as exc:  # noqa: BLE001 — any read failure is fatal and named
+        raise EngineOutputError(
+            f"Run {run_id!r} integrated feature table {integrated_path} is "
+            f"unreadable: {exc}"
+        ) from exc
+
+    if _scoring_config.CELL_ID_COLUMN in table.columns:
+        table[_scoring_config.CELL_ID_COLUMN] = (
+            table[_scoring_config.CELL_ID_COLUMN].astype(str)
+        )
+    return table
+
+
+def load_explanations() -> dict[str, dict]:
+    """
+    Load the materialised S2-06 Explanation_Structure records, keyed by cell_id.
+
+    Reads the explanation JSON artefact the S2-06 stage wrote
+    (`config.EXPLANATION_PATH`) and returns a mapping from `cell_id` to the
+    record CARRIED THROUGH VERBATIM — the service neither recomputes an
+    explanation nor renames/reorders any field (CONTRACT.md §1, §5). The
+    explanation output is a screening-level artefact shared across Runs; the
+    service resolves it by `cell_id` and serves it unchanged.
+
+    Raises
+    ------
+    EngineOutputError
+        The explanation output is missing, unreadable, or not the expected
+        list-of-records shape — the error names the missing input rather than
+        fabricating a result (Requirement 7.3).
+    """
+    path = Path(config.EXPLANATION_PATH)
+    if not path.exists():
+        raise EngineOutputError(
+            f"Explanation output is missing: {path}. Run "
+            f"`python -m pipeline --only explanation` to generate it before "
+            f"single-site detail can be served."
+        )
+    try:
+        records = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise EngineOutputError(
+            f"Explanation output {path} is unreadable: {exc}"
+        ) from exc
+    if not isinstance(records, list):
+        raise EngineOutputError(
+            f"Explanation output {path} is not the expected list of records "
+            f"(got {type(records).__name__}); it cannot be resolved by cell_id."
+        )
+
+    field = config.EXPLANATION_CELL_ID_FIELD
+    by_cell: dict[str, dict] = {}
+    for record in records:
+        if isinstance(record, dict) and field in record:
+            by_cell[str(record[field])] = record
+    return by_cell

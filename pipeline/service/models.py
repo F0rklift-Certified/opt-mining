@@ -8,15 +8,16 @@ OpenAPI schema, not this module, is the authoritative machine-readable form per
 CONTRACT.md §5). None of them carries decision logic: they are the shapes the
 service serves, populated verbatim from materialised engine outputs.
 
-`RunHandle` is needed by `run_analysis` (task 2.1) and `RankedRow` by
-`get_ranked_results` (task 3.1); the remaining models (SiteDetail, ExcludedRow,
-ScenarioComparison, DataQualityStatus) are added by the read-operation tasks
-that produce them.
+`RunHandle` is needed by `run_analysis` (task 2.1), `RankedRow` by
+`get_ranked_results` (task 3.1) and `SiteDetail` by `get_site_detail`
+(task 3.2); the remaining models (ExcludedRow, ScenarioComparison,
+DataQualityStatus) are added by the read-operation tasks that produce them.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -103,4 +104,74 @@ class RankedRow:
             "suitability_score": self.suitability_score,
             "rank": self.rank,
             "key_components": dict(self.key_components),
+        }
+
+
+@dataclass(frozen=True)
+class SiteDetail:
+    """
+    One cell's full detail for a Run (CONTRACT.md §5, Requirement 1.3, 6.2, 6.3).
+
+    A `SiteDetail` is assembled ENTIRELY from materialised engine outputs — it
+    is never recomputed (CONTRACT.md §1, Requirement 2.4). Its three sources are:
+
+    * the Run's S2-05 Scored_Table — the `suitability_score`, `rank` and the
+      per-criterion `contrib_{feature}` contributions, read from the SAME table
+      `get_ranked_results` reads, so the two operations agree for a `cell_id`
+      (the consistency guarantee, Requirement 2.3 / Property P1);
+    * the S1-08 integrated feature table the Run scored — the cell's input
+      `features` and its S2-03 `eligible` flag;
+    * the S2-06 explanation output — the `explanation` (Explanation_Structure),
+      carried through VERBATIM (its fields are neither renamed nor reordered,
+      CONTRACT.md §5).
+
+    Fields
+    ------
+    cell_id :
+        Analysis-cell id, copied verbatim so it joins back to the grid.
+    features :
+        The cell's input feature values (e.g. ``wind_speed``,
+        ``dist_transmission_km``, ``slope_deg``, ``inside_rez``), read from the
+        integrated table the Run scored. Carried through unchanged.
+    contributions :
+        The per-criterion contribution shares (``contrib_{feature}``) from the
+        Scored_Table, keyed by criterion `feature` (the ``contrib_`` prefix
+        stripped). For an eligible cell these sum to ``suitability_score``
+        within the engine's reconciliation tolerance; the service copies them
+        through, it does not compute them. A null contribution (a criterion
+        with no value for the cell) is omitted rather than fabricated as 0.0.
+    suitability_score :
+        The S2-05 score in ``[0, 1]``; IDENTICAL to what `get_ranked_results`
+        returns for this cell in this Run (Requirement 2.3). ``None`` for an
+        excluded cell (which carries no score).
+    rank :
+        The S2-05 integer rank (1 = highest-ranked); IDENTICAL to
+        `get_ranked_results`. ``None`` for an excluded cell (which carries no
+        rank).
+    eligible :
+        Whether the cell passed the S2-03 hard exclusions, read from the
+        integrated table's `eligible` flag.
+    explanation :
+        The S2-06 Explanation_Structure for the cell, carried through verbatim
+        (the eligible-path or excluded-path record exactly as S2-06 wrote it).
+    """
+
+    cell_id: str
+    features: dict[str, Any] = field(default_factory=dict)
+    contributions: dict[str, float] = field(default_factory=dict)
+    suitability_score: float | None = None
+    rank: int | None = None
+    eligible: bool = False
+    explanation: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 `SiteDetail` shape."""
+        return {
+            "cell_id": self.cell_id,
+            "features": dict(self.features),
+            "contributions": dict(self.contributions),
+            "suitability_score": self.suitability_score,
+            "rank": self.rank,
+            "eligible": self.eligible,
+            "explanation": dict(self.explanation),
         }

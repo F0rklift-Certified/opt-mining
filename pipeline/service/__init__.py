@@ -26,11 +26,21 @@ Modules:
                    named Scenario, materialises the Run, and returns a handle.
     results      — The read operations over a materialised Run's Scored_Table.
                    `get_ranked_results(run) -> [RankedRow]` projects the fixed
-                   engine output; it never re-scores or re-ranks.
+                   engine output; `get_site_detail(run, cell_id) -> SiteDetail`
+                   serves one cell's full detail (features, contributions,
+                   score, rank, eligibility, and the S2-06 Explanation_Structure
+                   carried through verbatim). Neither re-scores or re-ranks.
 """
 
-from .models import RankedRow, RunHandle
-from .results import get_ranked_results
+from .models import RankedRow, RunHandle, SiteDetail
+from .results import get_ranked_results, get_site_detail
 from .run_analysis import run_analysis
 
-__all__ = ["RankedRow", "RunHandle", "get_ranked_results", "run_analysis"]
+__all__ = [
+    "RankedRow",
+    "RunHandle",
+    "SiteDetail",
+    "get_ranked_results",
+    "get_site_detail",
+    "run_analysis",
+]
