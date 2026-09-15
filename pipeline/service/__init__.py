@@ -40,21 +40,45 @@ Modules:
                    the `pipeline/shortlist/select.py` selection-by-rank pattern;
                    an all-excluding threshold or a top-N beyond the eligible
                    count returns an empty-but-valid set, never an error.
+    scenarios    — `compare_scenarios(scenario_a, scenario_b) -> ScenarioComparison`:
+                   the scenario-comparison operation. DELEGATES the whole
+                   comparison to the S2-07 engine
+                   (`pipeline.scoring.scenarios.compare_scenarios`) and only maps
+                   its result onto the frozen service shape — no comparison or
+                   diff arithmetic of its own (CONTRACT.md §4.5, §7-P3).
+    data_quality — `get_data_quality() -> DataQualityStatus`: the data-quality
+                   read operation. READS the S2-02 Validation_Result JSON the
+                   `validate` stage wrote and projects it verbatim onto the
+                   typed status — no validation of its own; an absent result is
+                   an honest fault, never a green banner (CONTRACT.md §5, §6).
 """
 
+from .data_quality import get_data_quality
 from .filters import apply_display_filter, apply_min_score, apply_top_n
-from .models import ExcludedRow, RankedRow, RunHandle, SiteDetail
+from .models import (
+    DataQualityStatus,
+    ExcludedRow,
+    RankedRow,
+    RunHandle,
+    ScenarioComparison,
+    SiteDetail,
+)
 from .results import get_exclusions, get_ranked_results, get_site_detail
 from .run_analysis import run_analysis
+from .scenarios import compare_scenarios
 
 __all__ = [
+    "DataQualityStatus",
     "ExcludedRow",
     "RankedRow",
     "RunHandle",
+    "ScenarioComparison",
     "SiteDetail",
     "apply_display_filter",
     "apply_min_score",
     "apply_top_n",
+    "compare_scenarios",
+    "get_data_quality",
     "get_exclusions",
     "get_ranked_results",
     "get_site_detail",
