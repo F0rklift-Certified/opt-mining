@@ -1,0 +1,68 @@
+# Compose_Stack — S3-01a Application Shell Scaffold.
+#
+# Brings up the whole MVP web stack with a single command from app/:
+#
+#     docker compose up --build
+#
+# Two services:
+#   * api — the FastAPI Backend_App (app/api/Dockerfile), serving on 8000.
+#   * web — the Next.js/React Frontend_App (app/web/Dockerfile), serving on 3000.
+#
+# NO host-address literal appears in any service definition. Every cross-service
+# URL / origin flows through an environment variable with a documented default
+# using the ${ENV:-default} form (Requirement 6.5). The documented defaults are:
+#
+#   API_HOST_PORT             8000                   host port the API is published on
+#   WEB_HOST_PORT             3000                   host port the web app is published on
+#   NEXT_PUBLIC_API_BASE_URL  http://localhost:8000  browser -> API, via the published host port
+#   CORS_ALLOW_ORIGINS        http://localhost:3000  API's allowed CORS origins (the web app origin)
+#   API_INTERNAL_URL          http://api:8000        in-network web-container -> api-container URL
+#                                                    (Compose service-name DNS; server-side use only)
+#
+# There are two distinct notions of the backend URL and this file keeps both
+# explicit (design §"Configuration / environment matrix"):
+#   * NEXT_PUBLIC_API_BASE_URL is the BROWSER-reachable URL (published host port).
+#   * API_INTERNAL_URL is the IN-NETWORK service-name URL (http://api:8000) used
+#     by any server-side call; it is supplied via env, never a literal in a
+#     service definition (Requirement 6.5). This ticket's frontend makes no
+#     calls yet, so it is wired and documented for S3-01b to inherit.
+
+services:
+  # --- Backend_App (FastAPI) --------------------------------------------------
+  api:
+    # IMPORTANT: the API Dockerfile requires the build context to be the REPO
+    # ROOT so that the engine package (pipeline/) and the root requirements.txt
+    # are reachable. app/ is one level below the repo root, hence context: ..
+    # (see the header of app/api/Dockerfile — flagged by the Dockerfile author).
+    build:
+      context: ..
+      dockerfile: app/api/Dockerfile
+    environment:
+      # Allowed CORS origins for the web app; env-driven, comma-separated, no
+      # origin literal baked into source (Requirement 4.2, 6.5).
+      - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-http://localhost:3000}
+    ports:
+      # Publish the API on a documented host port via env (Requirement 6.6).
+      - "${API_HOST_PORT:-8000}:8000"
+
+  # --- Frontend_App (Next.js/React) ------------------------------------------
+  web:
+    # web/Dockerfile's context is app/web/, so build: ./web is correct here.
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_* is inlined at BUILD time by Next.js; supply the
+        # browser-facing API URL as a build ARG (the web Dockerfile declares it).
+        - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+    environment:
+      # Also expose at runtime for any server-side read, and wire the in-network
+      # service-name URL through env (never a literal here) so S3-01b inherits it.
+      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+      - API_INTERNAL_URL=${API_INTERNAL_URL:-http://api:8000}
+    ports:
+      # Publish the web app on a documented host port via env (Requirement 6.6).
+      - "${WEB_HOST_PORT:-3000}:3000"
+    # Start the web app after the API (Requirement 6.4).
+    depends_on:
+      - api
