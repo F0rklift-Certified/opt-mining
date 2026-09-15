@@ -139,3 +139,40 @@ To override a default for the whole stack, set the variable in the environment
 ```bash
 API_HOST_PORT=9000 WEB_HOST_PORT=4000 docker compose up --build
 ```
+
+---
+
+## Tests
+
+The backend/stack tests live under `tests/backend/` and run with `pytest` from
+the repository root.
+
+### Fast unit suite (default)
+
+```bash
+pytest tests/backend -m "not integration"
+```
+
+This excludes the slow, CI-tier `integration`-marked tests (see below), so it
+stays fast and needs no Docker.
+
+### CI-tier stack integration test
+
+`tests/backend/test_compose_stack_integration.py` brings the whole stack up with
+the single documented command (`docker compose up --build`), health-checks that
+both `web` and `api` come up, confirms the browser-facing API host port answers
+`/openapi.json` with `200`, and always tears the stack down afterwards. It is
+marked `@pytest.mark.integration` (registered in the repo-root `pytest.ini`) so
+it does **not** run in the fast unit suite.
+
+```bash
+pytest -m integration            # run only the CI-tier integration test(s)
+pytest -m "not integration"      # exclude them (the fast suite)
+```
+
+When Docker is unavailable — the `docker` CLI is missing, the Compose v2 plugin
+is absent, or the Docker daemon is not running — the test **skips with a clear
+reason** rather than failing. It runs for real in CI, where Docker is present.
+To avoid clashing with anything already bound on the default `8000`/`3000`, it
+publishes the stack on host ports `18000`/`13000` (driven through the same
+documented `API_HOST_PORT` / `WEB_HOST_PORT` env vars the Compose file reads).
