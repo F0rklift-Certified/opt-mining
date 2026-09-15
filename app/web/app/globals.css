@@ -1,0 +1,68 @@
+/*
+ * Global base styles for the Opt-Mining Frontend_App (S3-01a).
+ *
+ * Function-first, clarity-over-effects (Requirement 1.3): a plain system font
+ * stack, neutral colours, and no decorative effects. Layout-specific rules for
+ * the app shell live with their components; this file only sets sensible
+ * document defaults.
+ */
+
+:root {
+  --om-border: #d0d0d0;
+  --om-bar-bg: #1f2a37;
+  --om-bar-fg: #ffffff;
+  --om-text: #1a1a1a;
+  --om-muted: #5a5a5a;
+  --om-bg: #f7f7f7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  color: var(--om-text);
+  background: var(--om-bg);
+  line-height: 1.4;
+}
+
+/* Global title bar: fixed region, function-first, no visual effects. */
+.om-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--om-bar-bg);
+  color: var(--om-bar-fg);
+  border-bottom: 1px solid var(--om-border);
+}
+
+.om-titlebar__title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+/* Region is fixed to NSW for the MVP — a static label, NOT a selector. */
+.om-titlebar__region {
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 3px;
+}
+
+.om-main {
+  padding: 1rem;
+}
