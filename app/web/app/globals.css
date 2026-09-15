@@ -66,3 +66,32 @@ body {
 .om-main {
   padding: 1rem;
 }
+
+/*
+ * Placeholder region: a bordered, labelled empty box (S3-01a, task 6.3).
+ * Function-first, clarity-over-effects (Requirement 1.3) — a plain border, a
+ * heading, and static body text. No decoration, no animation. These regions are
+ * the fixed, empty substrate for S3-02 … S3-06 (Requirements 3.5, 8.1, 8.3).
+ */
+.om-region {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+  background: #ffffff;
+  border: 1px solid var(--om-border);
+  border-radius: 4px;
+}
+
+.om-region__heading {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--om-text);
+}
+
+.om-region__body {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--om-muted);
+}
