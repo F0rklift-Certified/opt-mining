@@ -112,11 +112,19 @@ _json_scalars = st.one_of(
     st.text(max_size=20),
 )
 
+# `run_id` / `cell_id` travel as single URL path segments. Real cell ids look
+# like ``S30.186_E151.636`` — dots are legitimate — but a segment that is a bare
+# ``.`` or ``..`` (or only dots) is a relative-path token that URL path
+# resolution collapses *before* the request reaches the route, regardless of
+# percent-encoding (a dot is RFC 3986 "unreserved", so ``quote(".", safe="")``
+# leaves it as ``.``). That is a URL/routing concern, not a pass-through one, so
+# we exclude values that are only dots. Every other value in this alphabet
+# survives as a single segment and exercises the property faithfully.
 _cell_ids = st.text(
     alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-",
     min_size=1,
     max_size=16,
-)
+).filter(lambda s: s.strip(".") != "")
 _scores = st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False)
 _ranks = st.integers(min_value=1, max_value=100_000)
 _component_maps = st.dictionaries(
