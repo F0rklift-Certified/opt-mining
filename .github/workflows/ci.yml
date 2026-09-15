@@ -50,11 +50,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r app/api/requirements.txt
-          # pytest is the test runner but is not a runtime dependency, so it is
-          # not in requirements.txt. Pinned here to the version verified locally
-          # on Python 3.13. hypothesis (used by property tests) is pinned in
-          # requirements.txt and installed above.
-          pip install pytest==9.1.1
+          # pytest and httpx support the test harness but are not runtime
+          # dependencies, so they are kept out of the production manifests.
+          # Pin both to the versions verified locally on Python 3.13.
+          # hypothesis (used by property tests) is installed above.
+          pip install pytest==9.1.1 httpx==0.28.1
 
       - name: Run S2-09 backend integration gate
         run: pytest -v tests/backend
