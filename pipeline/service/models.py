@@ -10,9 +10,11 @@ service serves, populated verbatim from materialised engine outputs.
 
 `RunHandle` is needed by `run_analysis` (task 2.1), `RankedRow` by
 `get_ranked_results` (task 3.1), `SiteDetail` by `get_site_detail` (task 3.2)
-and `ExcludedRow` by `get_exclusions` (task 3.3); the remaining models
-(ScenarioComparison, DataQualityStatus) are added by the read-operation tasks
-that produce them.
+and `ExcludedRow` by `get_exclusions` (task 3.3). `ScenarioComparison` is the
+service projection consumed by `compare_scenarios` and `DataQualityStatus` by
+`get_data_quality` — both mirror an existing frozen shape field-for-field (the
+S2-07 engine `ScenarioComparison` and the S2-02 validation record) and carry no
+decision or validation logic of their own.
 """
 
 from __future__ import annotations
@@ -226,4 +228,157 @@ class ExcludedRow:
             "cell_id": self.cell_id,
             "reason_codes": list(self.reason_codes),
             "reason_text": self.reason_text,
+        }
+
+
+@dataclass(frozen=True)
+class ScenarioComparisonRow:
+    """
+    One cell's rank comparison across two scenarios (CONTRACT.md §5).
+
+    A verbatim projection of one row of the engine's `ScenarioComparison`
+    (`pipeline.scoring.scenarios`) into the frozen S2-08 shape — the service
+    performs no comparison or diff arithmetic to produce it. Unlike the engine
+    row (which only carries cells ranked in BOTH runs, so every rank is
+    non-null, plus additive score fields), the CONTRACT.md §5 shape admits a
+    cell that is ranked in only one scenario: `rank_a`, `rank_b` and
+    `rank_delta` are each nullable and `rank_delta` is present only when both
+    ranks are.
+
+    Fields
+    ------
+    cell_id :
+        Analysis-cell id, carried through unchanged.
+    rank_a :
+        The cell's integer rank under `scenario_a` (1 = highest-ranked), or
+        ``None`` when the cell is not eligible/ranked under `scenario_a`.
+    rank_b :
+        The cell's integer rank under `scenario_b`, or ``None`` when the cell
+        is not eligible/ranked under `scenario_b`.
+    rank_delta :
+        ``rank_a - rank_b`` when both ranks are present; ``None`` otherwise.
+        The service copies this through from the engine, it does not compute it.
+    """
+
+    cell_id: str
+    rank_a: int | None = None
+    rank_b: int | None = None
+    rank_delta: int | None = None
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 `ScenarioComparisonRow` shape."""
+        return {
+            "cell_id": self.cell_id,
+            "rank_a": self.rank_a,
+            "rank_b": self.rank_b,
+            "rank_delta": self.rank_delta,
+        }
+
+
+@dataclass(frozen=True)
+class ScenarioComparison:
+    """
+    A per-cell ranking comparison between two scenarios (CONTRACT.md §5,
+    Requirement 1.5).
+
+    This is the service-layer projection of the S2-07 engine
+    `ScenarioComparison` (`pipeline.scoring.scenarios`) into the frozen S2-08
+    shape — `labels {a, b}` plus `rows` of `{cell_id, rank_a, rank_b,
+    rank_delta}`. The `compare_scenarios` operation (a later task) delegates to
+    the engine and maps its result onto this model; the model itself carries no
+    comparison arithmetic (CONTRACT.md §1, Requirement 2.4). The engine's
+    additive score fields (`score_a`, `score_b`, `score_delta`) are not part of
+    the frozen §5 shape and are not carried here.
+
+    Fields
+    ------
+    labels :
+        ``{"a": <scenario A label>, "b": <scenario B label>}`` — the two
+        Scenario keys/labels compared, carried through from the engine.
+    rows :
+        One `ScenarioComparisonRow` per compared cell, carried through from the
+        engine unchanged.
+    """
+
+    labels: dict[str, str] = field(default_factory=dict)
+    rows: list[ScenarioComparisonRow] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 `ScenarioComparison` shape."""
+        return {
+            "labels": dict(self.labels),
+            "rows": [row.to_dict() for row in self.rows],
+        }
+
+
+@dataclass(frozen=True)
+class DataQualityCheck:
+    """
+    One data-quality check record (CONTRACT.md §5, S2-02 shape).
+
+    A verbatim projection of one S2-02 machine-readable validation record
+    (`pipeline/validate.py`, `DATA/integration/metadata/`
+    `integrated_input_validation.json`) — the service carries it through
+    unchanged and computes no validation of its own (CONTRACT.md §1,
+    Requirement 2.4). No silent passes: every check the S2-02 record reports is
+    surfaced, whether it passed or failed.
+
+    Fields
+    ------
+    name :
+        The check name, copied verbatim from the S2-02 record.
+    expected :
+        The expected value/condition, copied verbatim.
+    observed :
+        The observed value, copied verbatim.
+    passed :
+        Whether this individual check passed, copied verbatim.
+    """
+
+    name: str
+    expected: str
+    observed: str
+    passed: bool
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 `DataQualityCheck` shape."""
+        return {
+            "name": self.name,
+            "expected": self.expected,
+            "observed": self.observed,
+            "passed": self.passed,
+        }
+
+
+@dataclass(frozen=True)
+class DataQualityStatus:
+    """
+    The S2-02 Data_Quality_Status for the frozen integrated dataset
+    (CONTRACT.md §5, Requirement 6.2, 6.3).
+
+    Mirrors the S2-02 machine-readable validation result — an overall verdict
+    plus per-check `{name, expected, observed, passed}` records — carried
+    through unchanged so the Web_Application can render a data-quality banner.
+    The `get_data_quality` operation (a later task) loads and passes the S2-02
+    JSON through; this model performs no validation itself (CONTRACT.md §1,
+    Requirement 2.4).
+
+    Fields
+    ------
+    passed :
+        The overall verdict (`all_passed` over the input-contract checks,
+        including the baseline hash match). ``False`` means the frozen dataset
+        failed a blocking check.
+    checks :
+        The per-check records, carried through verbatim from the S2-02 record.
+    """
+
+    passed: bool = False
+    checks: list[DataQualityCheck] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 `DataQualityStatus` shape."""
+        return {
+            "passed": self.passed,
+            "checks": [check.to_dict() for check in self.checks],
         }
