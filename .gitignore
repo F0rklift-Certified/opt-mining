@@ -58,3 +58,10 @@ DATA/electricity-demand/raw/
 # See DATA/geographic/DATA_PROVENANCE.md
 DATA/geographic/raw/
 DATA/geographic/**/*_national.tif
+
+# Decision_Service (S2-08): per-Run materialisations. Each Run under
+# DATA/service/runs/{run_id}/ is a regenerable re-materialisation of the S2-05
+# Scored_Table under a given weights/scenario, content-addressed by run_id and
+# recreated on demand from the frozen integrated table. Ephemeral runtime
+# output, never custodial data. See pipeline/service/CONTRACT.md and runs.py.
+DATA/service/runs/

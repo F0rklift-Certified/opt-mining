@@ -2,7 +2,7 @@
 CLI entry point for the data pipeline.
 
 Runs domain subpackages sequentially:
-  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → integration → scoring → shortlist → validate → sanity
+  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → integration → scoring → explanation → shortlist → validate → sanity
 
 Usage:
     python -m pipeline                          # run all stages
@@ -92,6 +92,9 @@ def _get_runner(stage: str):
     elif stage == "scoring":
         from .scoring.run import run
         return run
+    elif stage == "explanation":
+        from .explanation.run import run
+        return run
     elif stage == "shortlist":
         from .shortlist.run import run
         return run
@@ -147,7 +150,7 @@ def parse_args() -> argparse.Namespace:
         description=(
             "Opt-Mining Data Pipeline — Wind, Geographic, Infrastructure & Demand.\n\n"
             "Runs domain subpackages sequentially:\n"
-            "  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → integration → scoring → shortlist → cross-domain validate → sanity"
+            "  wind → geographic → infrastructure → demand → grid → feature layers → exclusions → integration → scoring → explanation → shortlist → cross-domain validate → sanity"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -158,6 +161,8 @@ def parse_args() -> argparse.Namespace:
             "  python -m pipeline --only integration --confidence-weights my_weights.yaml\n"
             "  python -m pipeline --only scoring\n"
             "  python -m pipeline --only scoring --scoring-weights my_weights.yaml\n"
+            "  python -m pipeline --only explanation\n"
+            "  python -m pipeline --only explanation --explanation-templates my_templates.yaml\n"
             "  python -m pipeline --only shortlist\n"
             "  python -m pipeline --only shortlist --shortlist-top-n 50\n"
             "  python -m pipeline --only sanity\n"
@@ -364,6 +369,21 @@ def parse_args() -> argparse.Namespace:
         help="Disable the S1-10 confidence discount (overrides the weights file).",
     )
 
+    # Explanation options (S2-06a)
+    parser.add_argument(
+        "--explanation-templates",
+        type=str,
+        default=None,
+        help=(
+            "Path to a custom explanation templates YAML for the 'explanation' "
+            "stage (S2-06a; default: "
+            "pipeline/explanation/explanation_templates.yaml). Explanation phrasing "
+            "and band labels are user inputs — edit this file to change the "
+            "narrative wording. The stage reuses --scoring-weights for the criteria "
+            "weights, which must match the ones the Scored_Table was produced from."
+        ),
+    )
+
     # Shortlist options (S1-11)
     parser.add_argument(
         "--shortlist-top-n",
@@ -502,6 +522,13 @@ def _build_kwargs(stage: str, args: argparse.Namespace, bbox: tuple) -> dict:
             kwargs["weights_path"] = Path(args.scoring_weights)
         if args.confidence_discount is not None:
             kwargs["confidence_discount"] = args.confidence_discount
+    if stage == "explanation":
+        # Phrasing config (its own flag) and the criteria weights (reused from
+        # scoring, so the recomputed norms match the Scored_Table's scores).
+        if args.explanation_templates:
+            kwargs["templates_path"] = Path(args.explanation_templates)
+        if args.scoring_weights:
+            kwargs["weights_path"] = Path(args.scoring_weights)
     if stage == "shortlist":
         kwargs["top_n"] = args.shortlist_top_n
     if stage == "sanity":

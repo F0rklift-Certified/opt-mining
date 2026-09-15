@@ -19,6 +19,7 @@ Importable entry point:
 from __future__ import annotations
 
 import io
+import json
 import os
 import time
 from pathlib import Path
@@ -269,7 +270,17 @@ def build_cell_table(
             "urban_area": urban[cell_id],
             "wind_speed_100m_ms": wind[cell_id],
         }
-        eligible, exclusion_reason, triggered = rules_mod.evaluate_cell(fields, rules)
+        eligible, reason_pairs = rules_mod.evaluate_cell_detailed(fields, rules)
+        # Derive the backward-compatible human string + machine name list from
+        # the same evaluation, so exclusion_reason / triggered_rules /
+        # exclusion_reasons can never disagree (rules.evaluate_cell does the
+        # same derivation; we inline it here to avoid a second evaluation).
+        exclusion_reason = (
+            rules_mod.REASON_DELIMITER.join(p["text"] for p in reason_pairs)
+            if reason_pairs
+            else None
+        )
+        triggered = [p["code"] for p in reason_pairs]
 
         # Non-exclusionary "soft" flag: outside the urban dataset's own
         # coverage window, `urban_area == False` is an absence of evidence,
@@ -288,6 +299,11 @@ def build_cell_table(
                 "eligible": eligible,
                 "exclusion_reason": exclusion_reason,
                 "triggered_rules": rules_mod.REASON_DELIMITER.join(triggered) if triggered else None,
+                # Machine+human paired reason schema (Decision_Engine_Spec §6
+                # F16): a JSON list of {"code": rule_name, "text": reason}
+                # pairs, consumed directly by the S2-06 explanation engine.
+                # Null for eligible cells, consistent with exclusion_reason.
+                "exclusion_reasons": json.dumps(reason_pairs) if reason_pairs else None,
                 "protected_area": fields["protected_area"],
                 "protected_area_name": fields["protected_area_name"],
                 "slope_deg": fields["slope_deg"],
@@ -398,6 +414,22 @@ def _write_report(
             out.write(f"  threshold: {r['threshold']}\n")
     out.write("```\n\n")
 
+    out.write("## Exclusion reason schema (machine + human readable)\n\n")
+    out.write(
+        "Every excluded cell retains its reason(s) in three consistent forms, all derived "
+        "from one rule evaluation so they can never drift:\n\n"
+        "- `exclusion_reason` — human-readable text, reasons joined with "
+        f"`{rules_mod.REASON_DELIMITER!r}` in rule-config order.\n"
+        "- `triggered_rules` — machine-readable rule-name codes, same delimiter and order.\n"
+        "- `exclusion_reasons` — a JSON list of `{\"code\": rule_name, \"text\": reason}` "
+        "pairs (null for eligible cells), the paired form the S2-06 explanation engine "
+        "consumes directly.\n\n"
+        "The `code` values are the frozen exclusion reason-code vocabulary — the rule "
+        "`name` values in the rules config above. This vocabulary is governed by the "
+        "Decision-Engine Specification §6 (frozen decision F16); adding or renaming a code "
+        "follows that document's change-control process. A cell can carry multiple reasons.\n\n"
+    )
+
     out.write(f"## Runtime\n\n- {runtime_s:.2f}s for {summary['total']:,} cells\n")
 
     atomic_write_text(path, out.getvalue())
@@ -455,6 +487,53 @@ def validate(table_path: Path, grid_path: Path) -> dict:
     n_eligible = int(eligible_mask.sum())
     n_excluded = int((~eligible_mask).sum())
     check("eligible + excluded == total", len(table), n_eligible + n_excluded, n_eligible + n_excluded == len(table))
+
+    # Structured machine+human reason schema (exclusion_reasons) is present and
+    # consistent with eligible / triggered_rules for EVERY row. This is the
+    # column the S2-06 explanation engine consumes, so a drift between it and
+    # the other two reason forms must be reported, never silently passed.
+    if "exclusion_reasons" not in table.columns:
+        check("exclusion_reasons column present", "present", "absent", False)
+    else:
+        n_inconsistent = 0
+        for _, row in table.iterrows():
+            raw = row["exclusion_reasons"]
+            is_null = raw is None or (isinstance(raw, float) and np.isnan(raw))
+            if bool(row["eligible"]):
+                # Eligible cells must carry no structured reasons.
+                if not is_null:
+                    n_inconsistent += 1
+                continue
+            # Excluded cells must carry a well-formed list of {code, text}
+            # pairs whose codes equal the triggered_rules names, in order.
+            if is_null:
+                n_inconsistent += 1
+                continue
+            try:
+                pairs = json.loads(raw)
+            except (ValueError, TypeError):
+                n_inconsistent += 1
+                continue
+            codes = [p.get("code") for p in pairs] if isinstance(pairs, list) else None
+            texts_ok = isinstance(pairs, list) and all(
+                isinstance(p, dict) and p.get("text") for p in pairs
+            )
+            triggered_raw = row["triggered_rules"]
+            triggered_null = triggered_raw is None or (
+                isinstance(triggered_raw, float) and np.isnan(triggered_raw)
+            )
+            expected_codes = (
+                [] if triggered_null else str(triggered_raw).split(rules_mod.REASON_DELIMITER)
+            )
+            if codes != expected_codes or not texts_ok or not pairs:
+                n_inconsistent += 1
+        check(
+            "exclusion_reasons pairs consistent with eligible/triggered_rules "
+            "(codes match, texts non-empty, null iff eligible)",
+            0,
+            n_inconsistent,
+            n_inconsistent == 0,
+        )
 
     passed = sum(1 for c in checks if c["passed"])
     return {"checks": checks, "passed": passed, "total": len(checks)}
