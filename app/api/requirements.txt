@@ -1,0 +1,43 @@
+# Backend_App (S3-01a) — Python dependency manifest for the FastAPI shell.
+#
+# Scope: this file declares exactly what the Backend_App container / dev venv
+# needs to run FastAPI over HTTP with an auto-generated OpenAPI schema
+# (Requirements 2.1, 2.2). The API delegates every operation to the frozen
+# S2-08 Decision_Service (`pipeline.service`) and adds NO decision logic of its
+# own (Requirement 2.4, combined-sprint AC4).
+#
+# Python: 3.13 only (>=3.13,<3.14), inherited from the repo-root pyproject.toml
+# / requirements.txt. The engine (numpy/shapely/geopandas) must not run on 3.14
+# — see the repo-root requirements.txt for why. Keep this pinned to 3.13.
+
+# --- Web transport layer -----------------------------------------------------
+# FastAPI: the ASGI web framework. It auto-generates the OpenAPI schema at
+# /openapi.json (+ /docs, /redoc) that satisfies the S2-08 machine-readable
+# contract requirement (Requirement 2.2).
+fastapi==0.115.6
+# Uvicorn (with the [standard] extras: uvloop, httptools, websockets, watchfiles
+# for --reload) is the ASGI server used to run the app in dev and in the
+# container: `uvicorn app:app --host 0.0.0.0 --port 8000` (Requirement 5.1).
+uvicorn[standard]==0.34.0
+
+# --- Decision engine (`pipeline.service`) — made importable, NOT listed here --
+# The Backend_App IMPORTS and DELEGATES to the pure operation functions in
+# pipeline/service/ so `import pipeline.service` must resolve at runtime. The
+# engine is deliberately NOT declared as an installable/editable dependency in
+# this manifest because the repo-root pyproject.toml declares [project] metadata
+# only — it has no [build-system] and no package discovery, so `pip install -e`
+# cannot build the `pipeline` package. Instead the engine is made importable by
+# putting the repo root on the import path:
+#
+#   * In the container (app/api/Dockerfile, task 7.1): the `pipeline/` package is
+#     copied into the image and the repo root is on PYTHONPATH (ENV PYTHONPATH).
+#   * In dev (Requirement 5.1): run uvicorn from `app/api/` with the repo root on
+#     PYTHONPATH (e.g. `PYTHONPATH=../.. uvicorn app:app --reload --port 8000`),
+#     mirroring how the repo's own pytest suite imports `pipeline` today.
+#
+# The engine's own runtime dependencies (pandas, geopandas, shapely, rasterio,
+# …) come from the repo-root requirements.txt, which the Dockerfile installs
+# before this manifest. If a build-system + package discovery are later added to
+# pyproject.toml, this can become a proper editable install (`-e <repo-root>`)
+# and the PYTHONPATH shims can be dropped — a repo-root change, tracked
+# separately from this task.
