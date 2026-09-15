@@ -56,11 +56,14 @@ from pipeline.service import (
 )
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 # `app/api/` is run as the working directory (`uvicorn app:app` per the design
 # run command and the api Dockerfile), so `models` and `settings` are sibling
 # top-level modules rather than a package — a plain absolute import matches how
-# the app is actually launched (dev + Compose).
+# the app is actually launched (dev + Compose). `settings` owns the env-driven
+# CORS origins (no origin literal lives in this module — Requirement 4.2).
+import settings
 from models import (
     DataQualityStatus,
     ExcludedRow,
@@ -84,10 +87,18 @@ app = FastAPI(
 )
 
 # ---------------------------------------------------------------------------
-# Seam for task 4.2 — env-driven CORS middleware.
-# Install CORSMiddleware with settings.get_cors_allow_origins() here (no origin
-# literal in this module). Not implemented in task 4.1.
-# ---------------------------------------------------------------------------
+# Task 4.2 — env-driven CORS middleware (Requirement 4.1, 4.2).
+# The allowed origins come ONLY from `settings.get_cors_allow_origins()`, which
+# parses the `CORS_ALLOW_ORIGINS` env var — no origin literal appears in this
+# module. The frontend↔backend boundary is HTTP (4.1); CORS is configured from
+# the environment rather than hard-coded (4.2, Property 3).
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.get_cors_allow_origins(),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ---------------------------------------------------------------------------
 # Seam for task 4.3 — centralised service-exception -> HTTP-code mapping.
