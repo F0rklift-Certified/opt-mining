@@ -72,6 +72,30 @@ EXCLUSION_REASONS_COLUMN = "exclusion_reasons"
 TRIGGERED_RULES_COLUMN = "triggered_rules"
 EXCLUSION_REASON_COLUMN = "exclusion_reason"
 
+# --- Input: the S2-02 Validation_Result JSON (authoritative upstream: validate.py) ---
+# get_data_quality reads the machine-readable input-contract Validation_Result
+# the S2-02 validate stage wrote and passes its per-check records + overall
+# `all_passed` verdict through VERBATIM as a DataQualityStatus. The path is
+# composed from `pipeline/validate.py` (its `DEFAULT_VALIDATION_RESULT_PATH`,
+# itself derived from `integration/config.INTEGRATION_META_DIR` +
+# `VALIDATION_RESULT_FILENAME`) — never re-typed as a literal here — so an
+# upstream rename of the artefact or its directory breaks loudly at import
+# rather than silently drifting; the service never re-runs validation
+# (CONTRACT.md §1, §5).
+from .. import validate as _validate
+
+VALIDATION_RESULT_PATH = _validate.DEFAULT_VALIDATION_RESULT_PATH
+# The Validation_Result's overall verdict key (`all_passed`) and its per-check
+# record fields (`checks` of `{name, expected, observed, passed}`), read by
+# get_data_quality and mapped onto DataQualityStatus / DataQualityCheck. Named
+# here so the reader never re-types the S2-02 record's own keys as literals.
+VALIDATION_ALL_PASSED_KEY = "all_passed"
+VALIDATION_CHECKS_KEY = "checks"
+VALIDATION_CHECK_NAME_KEY = "name"
+VALIDATION_CHECK_EXPECTED_KEY = "expected"
+VALIDATION_CHECK_OBSERVED_KEY = "observed"
+VALIDATION_CHECK_PASSED_KEY = "passed"
+
 # The delimiter the exclusions stage uses to join multiple reason codes / texts,
 # in rule-config order (authoritative: exclusions/rules.REASON_DELIMITER). Reused
 # here so a served ExcludedRow's reason_text/reason_codes split and join exactly
