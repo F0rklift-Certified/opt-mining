@@ -27,16 +27,16 @@ describes the frozen contract field-for-field. The `to_dict()` payloads the
 operations return already match those models, so FastAPI validates and
 serialises them into the declared `response_model`.
 
-SCOPE (task 4.1 only): this module wires and delegates the six routes. Two
-later tasks complete `app.py` and are deliberately NOT implemented here — they
-have a clean seam below:
+CORS (task 4.2) and the centralised service-exception -> HTTP-code mapping
+(task 4.3) are installed once, above the routes:
   * task 4.2 — env-driven CORS middleware (`settings.get_cors_allow_origins()`);
-  * task 4.3 — the centralised service-exception -> HTTP-code mapping
-    (CONTRACT.md §6: 422 invalid weights/unknown scenario, 404 missing
-    run/cell, 503 missing/unreadable engine output). Until 4.3 lands, a service
-    fault propagates as FastAPI's default 500; the empty-but-valid 200 cases
-    (top-N over the eligible count, an all-excluding `min_score`) already flow
-    through correctly because the service returns an empty list, never an error.
+  * task 4.3 — a single fault-class -> HTTP-status table maps the service fault
+    taxonomy to the frozen CONTRACT.md §6 codes (422 invalid weights/unknown
+    scenario, 404 missing run/cell, 503 missing/unreadable engine output whose
+    body names the missing input). It never turns an empty-but-valid result
+    into an error and never fabricates a 200 — the empty-but-valid cases (top-N
+    over the eligible count, an all-excluding `min_score`) raise no exception
+    and flow through as a normal 200.
 
 Run (dev):  uvicorn app:app --reload --port 8000   (from app/api/)
 """
@@ -55,8 +55,23 @@ from pipeline.service import (
     run_analysis,
 )
 
-from fastapi import FastAPI
+# The service fault taxonomy, imported as CONCRETE exception classes so the
+# HTTP mapping catches the exception types directly — never string-matches an
+# error message (design.md "Error Handling"; a small explicit taxonomy in the
+# decision layer, not the transport layer). `ScoringConfigError` (a ValueError
+# subclass) signals invalid weights / unknown scenario; `RunNotFoundError` and
+# `CellNotFoundError` (LookupError subclasses) signal a missing Run / cell_id;
+# `EngineOutputError` signals a missing/unreadable materialised engine output.
+from pipeline.scoring.weights import ScoringConfigError
+from pipeline.service.runs import (
+    CellNotFoundError,
+    EngineOutputError,
+    RunNotFoundError,
+)
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 # `app/api/` is run as the working directory (`uvicorn app:app` per the design
 # run command and the api Dockerfile), so `models` and `settings` are sibling
@@ -101,12 +116,70 @@ app.add_middleware(
 )
 
 # ---------------------------------------------------------------------------
-# Seam for task 4.3 — centralised service-exception -> HTTP-code mapping.
-# Register app.add_exception_handler(...) for the service fault taxonomy
-# (RunNotFoundError/CellNotFoundError -> 404, ScoringConfigError -> 422,
-# EngineOutputError -> 503) in ONE place here (CONTRACT.md §6). Not implemented
-# in task 4.1.
-# ---------------------------------------------------------------------------
+# Task 4.3 — centralised service-exception -> HTTP-code mapping (CONTRACT.md §6,
+# Requirement 2.4, 4.1).
+#
+# The service operations signal faults by raising the typed exceptions imported
+# above; the mapping from each fault CLASS to its frozen HTTP status lives here
+# in ONE place (a single table) so it is applied uniformly across all six
+# endpoints and cannot drift per-endpoint. The handlers catch the concrete
+# exception classes — not error-string patterns — so the fault classification
+# stays in the decision layer where it is raised, and the transport layer only
+# maps it (design.md "Error Handling").
+#
+#   | Fault                                   | Exception          | HTTP |
+#   | --------------------------------------- | ------------------ | ---- |
+#   | Invalid weights / unknown scenario      | ScoringConfigError | 422  |
+#   | Requested Run not found                 | RunNotFoundError   | 404  |
+#   | Requested cell_id not in the Run        | CellNotFoundError  | 404  |
+#   | Missing/unreadable engine output        | EngineOutputError  | 503  |
+#
+# Each handler returns a JSON body that NAMES the fault (the exception message,
+# which already identifies the bad weights/scenario, the missing run/cell, or —
+# for 503 — the missing input the operation could not read: CONTRACT.md §6
+# "naming the missing input"). No handler ever converts an empty-but-valid
+# result into an error, and none fabricates a 200: the empty-but-valid cases
+# (top-N over the eligible count, an all-excluding `min_score`) raise no
+# exception at all — the service returns an empty list, which flows straight
+# through as a normal 200 (CONTRACT.md §6, §7-P4). FastAPI/Pydantic still
+# emits its own 422 for a schema-invalid request body before any handler runs,
+# consistent with the contract's 422 for invalid weights.
+
+# The single fault-class -> HTTP-status table. `ScoringConfigError` is checked
+# by its own class rather than by its ValueError base so a stray ValueError
+# from elsewhere is not silently mapped to 422.
+_STATUS_FOR_FAULT: dict[type[Exception], int] = {
+    ScoringConfigError: 422,   # invalid weights / unknown scenario (no Run created)
+    RunNotFoundError: 404,     # missing Run
+    CellNotFoundError: 404,    # missing cell_id
+    EngineOutputError: 503,    # missing/unreadable engine output (body names it)
+}
+
+
+def _fault_response(exc: Exception, status_code: int) -> JSONResponse:
+    """Uniform error body naming the fault (CONTRACT.md §6).
+
+    The exception message is the service layer's own fault description — it
+    already names the invalid weights/scenario, the missing run/cell, or the
+    missing/unreadable input — so it is carried through verbatim as `detail`.
+    """
+    return JSONResponse(
+        status_code=status_code,
+        content={"detail": str(exc), "error": type(exc).__name__},
+    )
+
+
+def _register_fault_handler(exc_type: type[Exception], status_code: int) -> None:
+    """Bind one exception class to its frozen HTTP status, closing over the code."""
+
+    async def handler(_request: Request, exc: Exception) -> JSONResponse:
+        return _fault_response(exc, status_code)
+
+    app.add_exception_handler(exc_type, handler)
+
+
+for _fault_type, _status in _STATUS_FOR_FAULT.items():
+    _register_fault_handler(_fault_type, _status)
 
 
 # ---------------------------------------------------------------------------
