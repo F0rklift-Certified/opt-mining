@@ -95,3 +95,47 @@ body {
   font-size: 0.9rem;
   color: var(--om-muted);
 }
+
+/*
+ * App shell layout: the fixed four-region CSS grid (S3-01a, task 6.4).
+ * Function-first, clarity-over-effects (Requirement 1.3). The four regions —
+ * analysis controls, interactive map, ranked results, site detail/explanation —
+ * are the fixed substrate for S3-02 … S3-06 (Requirements 3.1–3.4, 8.3). No
+ * decoration, no animation.
+ */
+.om-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* Static config line surfacing NEXT_PUBLIC_API_BASE_URL — display only, no fetch. */
+.om-shell__config {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--om-muted);
+}
+
+.om-shell__config-value {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 0.85rem;
+  color: var(--om-text);
+}
+
+/*
+ * Fixed 2×2 grid: analysis controls (top-left), interactive map (top-right),
+ * ranked results (bottom-left), site detail/explanation (bottom-right). On
+ * narrow viewports the regions stack in a single column.
+ */
+.om-shell__grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 60rem) {
+  .om-shell__grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
