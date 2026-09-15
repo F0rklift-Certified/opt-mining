@@ -1,5 +1,5 @@
 /**
- * Global App Router layout for the Opt-Mining Frontend_App (S3-01a).
+ * Global App Router layout for the Opt-Mining Frontend_App.
  *
  * This is the root layout that wraps the whole application. It renders a fixed
  * global title bar and the page content beneath it.
@@ -26,7 +26,7 @@ export const metadata: Metadata = {
   title: "Opt-Mining — Site Suitability (NSW)",
   description:
     "Decision-support shell for renewable site suitability in NSW. " +
-    "Function-first application shell (S3-01a).",
+    "Decision-service-backed application shell (S3-01b).",
 };
 
 export default function RootLayout({

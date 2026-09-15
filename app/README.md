@@ -1,4 +1,4 @@
-# Opt-Mining Web Stack (S3-01a — Application Shell Scaffold)
+# Opt-Mining Web Stack (S3-01b — Decision-Service Integration)
 
 This directory holds the MVP web stack for the Opt-Mining decision tool:
 
@@ -6,15 +6,15 @@ This directory holds the MVP web stack for the Opt-Mining decision tool:
   `Decision_Service` operations over HTTP and publishes an auto-generated
   OpenAPI schema. It **delegates every operation to `pipeline.service`** and
   holds no decision logic of its own (combined-sprint AC4 / `CONTRACT.md` §1).
-- **`web/`** — the Next.js/React **Frontend_App**. A thin, decision-free shell
-  that lays out four labelled placeholder regions (analysis controls,
-  interactive map, ranked results, site detail/explanation) and reads the
-  backend URL from an environment variable. The region is fixed to **NSW**.
+- **`web/`** — the Next.js/React **Frontend_App**. A thin, decision-free client
+  generated from the FastAPI OpenAPI contract. It renders service-returned run,
+  ranking, exclusion and site-detail values in the four fixed shell regions and
+  shows the S2-02 data-quality status. The region is fixed to **NSW**.
 - **`docker-compose.yml`** — the **Compose_Stack** that builds and starts both
   apps with a single command.
 
-The typed service client and the data-quality banner are **S3-01b**, not this
-scaffold.
+All direct HTTP access is isolated in `web/app/api/decision-service.ts`; later
+Sprint 3 views should import that module rather than calling `fetch` directly.
 
 ---
 
@@ -76,6 +76,26 @@ Copy the env template first and point it at your backend:
 cp .env.example .env.local   # then edit NEXT_PUBLIC_API_BASE_URL if needed
 ```
 
+The initial page load requests the S2-02 data-quality status and starts the
+packaged `wind_led` scenario. Returned ranks, scores, exclusions and site detail
+are displayed unchanged; the browser contains no scoring, normalisation,
+ranking or exclusion implementation.
+
+### Regenerate the typed client
+
+After an approved FastAPI contract change, install both Python requirement
+files and regenerate the committed snapshot and TypeScript types:
+
+```bash
+cd app/web
+npm run generate:api-client
+```
+
+The command imports the live FastAPI app, writes
+`openapi/decision-service.openapi.json`, then regenerates
+`app/api/generated.ts`. The backend test suite fails when the committed OpenAPI
+snapshot differs from the live application.
+
 ### Frontend (built / production)
 
 Run from **`app/web/`**:
@@ -129,9 +149,9 @@ explicit:
 - **`NEXT_PUBLIC_API_BASE_URL`** is the **browser-reachable** URL (a published
   host port).
 - **`API_INTERNAL_URL`** (default `http://api:8000`, wired in
-  `docker-compose.yml`) is the **in-network** Compose service-name URL used by
-  any server-side call. This ticket's frontend makes no calls yet, so it is
-  wired and documented for S3-01b to inherit.
+  `docker-compose.yml`) is the **in-network** Compose service-name URL reserved
+  for server-side calls. The current integration runs in the browser and uses
+  `NEXT_PUBLIC_API_BASE_URL`.
 
 To override a default for the whole stack, set the variable in the environment
 (or an `app/.env` file) before `docker compose up --build`, e.g.:
@@ -146,6 +166,19 @@ API_HOST_PORT=9000 WEB_HOST_PORT=4000 docker compose up --build
 
 The backend/stack tests live under `tests/backend/` and run with `pytest` from
 the repository root.
+
+Frontend verification runs from `app/web/`:
+
+```bash
+npm test -- --runInBand
+npm run typecheck
+npm run build
+```
+
+The tests cover all six typed client operations, flagged and unavailable
+data-quality states, real service values rendered in the shell, the single
+integration-point rule, absence of decision arithmetic, and OpenAPI snapshot
+drift.
 
 ### Fast unit suite (default)
 
