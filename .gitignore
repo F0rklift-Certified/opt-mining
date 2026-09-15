@@ -17,6 +17,9 @@
 # Environment
 .env
 .env.*
+# ...but keep committed `.env.example` templates (documentation, no secrets).
+!.env.example
+!**/.env.example
 
 # Dependencies
 node_modules/
