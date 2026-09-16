@@ -65,6 +65,25 @@ jobs:
       - name: Run remaining non-Docker tests
         run: pytest -v -m "not integration" --ignore=tests/backend
 
+  docker-build:
+    name: Docker Compose build
+    runs-on: ubuntu-latest
+    # Build both Compose images so a broken image build fails CI instead of
+    # only surfacing on a developer's machine. This is build-only on purpose:
+    # it catches build-time failures (e.g. a stale host node_modules leaking in
+    # via COPY, or a missing .dockerignore) without the flaky readiness wait
+    # that keeps the full `docker compose up` smoke test (tests/backend/
+    # test_compose_stack_integration.py, marked `integration`) opt-in. Bringing
+    # the stack up and health-checking it remains available via `pytest -m
+    # integration`.
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Build Compose images
+        working-directory: app
+        run: docker compose build
+
   frontend:
     name: Frontend (Node 20)
     runs-on: ubuntu-latest
