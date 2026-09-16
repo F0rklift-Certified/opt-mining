@@ -201,7 +201,7 @@ def test_compose_up_build_brings_up_web_and_api_and_api_port_reachable():
             )
 
     env = _compose_env()
-    api_openapi_url = f"http://localhost:{API_HOST_PORT]/openapi.json"
+    api_openapi_url = f"http://localhost:{API_HOST_PORT}/openapi.json"
 
     try:
         # Single documented command, detached so we can poll for readiness.
