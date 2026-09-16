@@ -68,14 +68,9 @@ jobs:
   docker-build:
     name: Docker Compose build
     runs-on: ubuntu-latest
-    # Build both Compose images so a broken image build fails CI instead of
-    # only surfacing on a developer's machine. This is build-only on purpose:
-    # it catches build-time failures (e.g. a stale host node_modules leaking in
-    # via COPY, or a missing .dockerignore) without the flaky readiness wait
-    # that keeps the full `docker compose up` smoke test (tests/backend/
-    # test_compose_stack_integration.py, marked `integration`) opt-in. Bringing
-    # the stack up and health-checking it remains available via `pytest -m
-    # integration`.
+    # Build and boot both images, then exercise the same six HTTP operations
+    # as the browser. A successful image build alone cannot catch import-time
+    # shared-library errors, missing input data or rejected CORS requests.
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -83,6 +78,23 @@ jobs:
       - name: Build Compose images
         working-directory: app
         run: docker compose build
+
+      - name: Start Compose stack
+        working-directory: app
+        run: docker compose up -d
+
+      - name: Verify browser-facing service operations
+        run: python3 app/smoke_test.py
+
+      - name: Show container logs on failure
+        if: failure()
+        working-directory: app
+        run: docker compose logs --no-color
+
+      - name: Stop Compose stack
+        if: always()
+        working-directory: app
+        run: docker compose down
 
   frontend:
     name: Frontend (Node 20)
