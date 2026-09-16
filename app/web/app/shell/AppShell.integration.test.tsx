@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import type { DecisionService } from "../api/decision-service";
 import AppShell from "./AppShell";
@@ -67,5 +67,28 @@ describe("AppShell service integration", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Data-quality status is unavailable",
     );
+  });
+
+  it("re-runs the analysis under the selected preset when Run is clicked (S3-02)", async () => {
+    const service = serviceWithFlaggedDataset();
+    service.runAnalysis = jest.fn().mockImplementation(
+      async ({ scenario }: { scenario?: string | null }) => ({
+        run_id: scenario === "grid_led" ? "run-grid-1" : "run-wind-1",
+        weights_id: scenario ?? "wind_led",
+        scenario,
+      }),
+    );
+    render(<AppShell service={service} />);
+
+    await screen.findByText("run-wind-1");
+
+    fireEvent.click(screen.getByRole("radio", { name: "Grid-led" }));
+    fireEvent.click(screen.getByRole("button", { name: /run analysis/i }));
+
+    expect(await screen.findByText("run-grid-1")).toBeInTheDocument();
+    expect(service.runAnalysis).toHaveBeenLastCalledWith({ scenario: "grid_led" });
+    // The engine, not the UI, produced this run — the client sends the
+    // preset id and nothing else (AC: no scoring/normalisation in the UI).
+    expect(service.getRankedResults).toHaveBeenLastCalledWith("run-grid-1", { top_n: 10 });
   });
 });

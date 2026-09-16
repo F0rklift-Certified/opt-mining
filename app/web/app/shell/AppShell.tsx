@@ -1,8 +1,9 @@
 "use client";
 
-/** Service-backed shell for S3-01b. All decision values arrive over HTTP. */
-import { useEffect, useState } from "react";
+/** Service-backed shell for S3-01b/S3-02. All decision values arrive over HTTP. */
+import { useCallback, useEffect, useRef, useState } from "react";
 
+import AnalysisControls, { DEFAULT_SCENARIO } from "./AnalysisControls";
 import {
   createDecisionServiceClient,
   type DataQualityStatus,
@@ -57,12 +58,49 @@ function RankedResults({ rows }: { rows: RankedRow[] }): JSX.Element {
 
 /** Render the fixed shell and populate it exclusively with service output. */
 export default function AppShell({ service }: AppShellProps = {}): JSX.Element {
+  const [scenario, setScenario] = useState(DEFAULT_SCENARIO);
   const [engine, setEngine] = useState<EngineView | null>(null);
   const [engineError, setEngineError] = useState<string | null>(null);
   const [quality, setQuality] = useState<DataQualityStatus | null>(null);
   const [qualityError, setQualityError] = useState<string | null>(null);
   const [engineLoading, setEngineLoading] = useState(true);
   const [qualityLoading, setQualityLoading] = useState(true);
+
+  // Stable across renders; set once the client is ready (or fails to build).
+  const apiRef = useRef<DecisionService | null>(null);
+  // Guards a stale response (e.g. the mount run) from overwriting a later one
+  // (e.g. a Run-button click) should they ever resolve out of order.
+  const requestIdRef = useRef(0);
+
+  const runScenario = useCallback(async (scenarioId: string) => {
+    const api = apiRef.current;
+    if (!api) return;
+    const requestId = ++requestIdRef.current;
+    setEngineLoading(true);
+    setEngineError(null);
+    try {
+      const run = await api.runAnalysis({ scenario: scenarioId });
+      const [results, exclusions] = await Promise.all([
+        api.getRankedResults(run.run_id, { top_n: 10 }),
+        api.getExclusions(run.run_id),
+      ]);
+      const first = results[0];
+      const site = first
+        ? await api.getSiteDetail(run.run_id, first.cell_id)
+        : null;
+      if (requestIdRef.current === requestId) {
+        setEngine({ run, results, exclusions, site });
+      }
+    } catch (error) {
+      if (requestIdRef.current === requestId) {
+        setEngineError(errorMessage(error));
+      }
+    } finally {
+      if (requestIdRef.current === requestId) {
+        setEngineLoading(false);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -79,6 +117,7 @@ export default function AppShell({ service }: AppShellProps = {}): JSX.Element {
       }
       return () => { active = false; };
     }
+    apiRef.current = api;
 
     async function loadQuality(): Promise<void> {
       try {
@@ -91,29 +130,14 @@ export default function AppShell({ service }: AppShellProps = {}): JSX.Element {
       }
     }
 
-    async function loadEngine(): Promise<void> {
-      try {
-        const run = await api.runAnalysis({ scenario: "wind_led" });
-        const [results, exclusions] = await Promise.all([
-          api.getRankedResults(run.run_id, { top_n: 10 }),
-          api.getExclusions(run.run_id),
-        ]);
-        const first = results[0];
-        const site = first
-          ? await api.getSiteDetail(run.run_id, first.cell_id)
-          : null;
-        if (active) setEngine({ run, results, exclusions, site });
-      } catch (error) {
-        if (active) setEngineError(errorMessage(error));
-      } finally {
-        if (active) setEngineLoading(false);
-      }
-    }
-
     void loadQuality();
-    void loadEngine();
+    void runScenario(DEFAULT_SCENARIO);
     return () => { active = false; };
-  }, [service]);
+  }, [service, runScenario]);
+
+  const handleRun = useCallback(() => {
+    void runScenario(scenario);
+  }, [runScenario, scenario]);
 
   const loadingText = engineLoading ? "Loading decision-service output…" : null;
   const failureText = engineError ? `Decision service unavailable: ${engineError}` : null;
@@ -131,13 +155,15 @@ export default function AppShell({ service }: AppShellProps = {}): JSX.Element {
           id="region-analysis-controls"
           label="Analysis controls"
           ariaLabel="Analysis controls"
-          body={engine ? (
-            <dl className="om-facts">
-              <div><dt>Scenario</dt><dd>{engine.run.scenario}</dd></div>
-              <div><dt>Run</dt><dd><code>{engine.run.run_id}</code></dd></div>
-              <div><dt>Weights</dt><dd><code>{engine.run.weights_id}</code></dd></div>
-            </dl>
-          ) : loadingText ?? "No run is available."}
+          body={
+            <AnalysisControls
+              scenario={scenario}
+              onScenarioChange={setScenario}
+              onRun={handleRun}
+              running={engineLoading}
+              activeRun={engine?.run ?? null}
+            />
+          }
         />
         <PlaceholderRegion
           id="region-interactive-map"
