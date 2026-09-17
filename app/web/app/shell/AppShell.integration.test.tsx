@@ -1,14 +1,15 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import type { DecisionService } from "../api/decision-service";
+import { BASELINE_CRITERIA } from "./AnalysisControls";
 import AppShell from "./AppShell";
 
 function serviceWithFlaggedDataset(): DecisionService {
   return {
     runAnalysis: jest.fn().mockResolvedValue({
       run_id: "run-wind-1",
-      weights_id: "wind_led",
-      scenario: "wind_led",
+      weights_id: "baseline-hash",
+      scenario: null,
     }),
     getRankedResults: jest.fn().mockResolvedValue([
       { cell_id: "S30.100_E151.200", suitability_score: 0.912, rank: 1 },
@@ -49,7 +50,9 @@ describe("AppShell service integration", () => {
     expect(screen.getByText("2 ranked cells loaded from the engine; map rendering follows in S3-03a.")).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(service.runAnalysis).toHaveBeenCalledWith({ scenario: "wind_led" });
+      expect(service.runAnalysis).toHaveBeenCalledWith({
+        weights: { criteria: BASELINE_CRITERIA },
+      });
       expect(service.getRankedResults).toHaveBeenCalledWith("run-wind-1", { top_n: 10 });
       expect(service.getSiteDetail).toHaveBeenCalledWith(
         "run-wind-1",
@@ -90,5 +93,28 @@ describe("AppShell service integration", () => {
     // The engine, not the UI, produced this run — the client sends the
     // preset id and nothing else (AC: no scoring/normalisation in the UI).
     expect(service.getRankedResults).toHaveBeenLastCalledWith("run-grid-1", { top_n: 10 });
+  });
+
+  it("sends the edited Baseline weight, unmodified, when Run is clicked (S3-02)", async () => {
+    const service = serviceWithFlaggedDataset();
+    render(<AppShell service={service} />);
+
+    await screen.findByText("run-wind-1");
+
+    fireEvent.change(screen.getByLabelText("Wind speed weight"), {
+      target: { value: "0.5" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /run analysis/i }));
+
+    await waitFor(() => {
+      const lastCall = (service.runAnalysis as jest.Mock).mock.calls.at(-1)[0];
+      expect(lastCall.weights.criteria[0]).toMatchObject({
+        feature: "wind_speed",
+        weight: 0.5,
+      });
+      // Every other criterion is carried through unchanged — the UI edits
+      // only the field the user touched, never re-derives the rest.
+      expect(lastCall.weights.criteria.slice(1)).toEqual(BASELINE_CRITERIA.slice(1));
+    });
   });
 });

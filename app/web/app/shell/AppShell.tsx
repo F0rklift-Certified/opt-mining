@@ -3,14 +3,20 @@
 /** Service-backed shell for S3-01b/S3-02. All decision values arrive over HTTP. */
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import AnalysisControls, { DEFAULT_SCENARIO } from "./AnalysisControls";
+import AnalysisControls, {
+  BASELINE_CRITERIA,
+  DEFAULT_OPTION_ID,
+  WEIGHTING_OPTIONS,
+} from "./AnalysisControls";
 import {
   createDecisionServiceClient,
+  type Criterion,
   type DataQualityStatus,
   type DecisionService,
   type ExcludedRow,
   type RankedRow,
   type RunHandle,
+  type RunRequest,
   type SiteDetail,
 } from "../api/decision-service";
 import DataQualityBanner from "./DataQualityBanner";
@@ -56,9 +62,19 @@ function RankedResults({ rows }: { rows: RankedRow[] }): JSX.Element {
   );
 }
 
+/** Build the `run_analysis` request for the given weighting option (S3-02). */
+function buildRunRequest(optionId: string, baselineCriteria: Criterion[]): RunRequest {
+  const option = WEIGHTING_OPTIONS.find((candidate) => candidate.id === optionId);
+  if (option?.editable) {
+    return { weights: { criteria: baselineCriteria } };
+  }
+  return { scenario: optionId };
+}
+
 /** Render the fixed shell and populate it exclusively with service output. */
 export default function AppShell({ service }: AppShellProps = {}): JSX.Element {
-  const [scenario, setScenario] = useState(DEFAULT_SCENARIO);
+  const [optionId, setOptionId] = useState(DEFAULT_OPTION_ID);
+  const [baselineCriteria, setBaselineCriteria] = useState<Criterion[]>(BASELINE_CRITERIA);
   const [engine, setEngine] = useState<EngineView | null>(null);
   const [engineError, setEngineError] = useState<string | null>(null);
   const [quality, setQuality] = useState<DataQualityStatus | null>(null);
@@ -72,14 +88,14 @@ export default function AppShell({ service }: AppShellProps = {}): JSX.Element {
   // (e.g. a Run-button click) should they ever resolve out of order.
   const requestIdRef = useRef(0);
 
-  const runScenario = useCallback(async (scenarioId: string) => {
+  const runWith = useCallback(async (request: RunRequest) => {
     const api = apiRef.current;
     if (!api) return;
     const requestId = ++requestIdRef.current;
     setEngineLoading(true);
     setEngineError(null);
     try {
-      const run = await api.runAnalysis({ scenario: scenarioId });
+      const run = await api.runAnalysis(request);
       const [results, exclusions] = await Promise.all([
         api.getRankedResults(run.run_id, { top_n: 10 }),
         api.getExclusions(run.run_id),
@@ -131,13 +147,13 @@ export default function AppShell({ service }: AppShellProps = {}): JSX.Element {
     }
 
     void loadQuality();
-    void runScenario(DEFAULT_SCENARIO);
+    void runWith(buildRunRequest(DEFAULT_OPTION_ID, BASELINE_CRITERIA));
     return () => { active = false; };
-  }, [service, runScenario]);
+  }, [service, runWith]);
 
   const handleRun = useCallback(() => {
-    void runScenario(scenario);
-  }, [runScenario, scenario]);
+    void runWith(buildRunRequest(optionId, baselineCriteria));
+  }, [runWith, optionId, baselineCriteria]);
 
   const loadingText = engineLoading ? "Loading decision-service output…" : null;
   const failureText = engineError ? `Decision service unavailable: ${engineError}` : null;
@@ -157,8 +173,10 @@ export default function AppShell({ service }: AppShellProps = {}): JSX.Element {
           ariaLabel="Analysis controls"
           body={
             <AnalysisControls
-              scenario={scenario}
-              onScenarioChange={setScenario}
+              optionId={optionId}
+              onOptionChange={setOptionId}
+              baselineCriteria={baselineCriteria}
+              onBaselineCriteriaChange={setBaselineCriteria}
               onRun={handleRun}
               running={engineLoading}
               activeRun={engine?.run ?? null}

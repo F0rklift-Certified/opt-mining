@@ -164,6 +164,37 @@ body {
   font-weight: 400;
 }
 
+.om-weights {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.om-weights caption {
+  text-align: left;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.om-weights th,
+.om-weights td {
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--om-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.om-weights input[type="number"] {
+  width: 4.5rem;
+}
+
+.om-controls__error {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--om-warning-border);
+  background: var(--om-warning-bg);
+  border-radius: 4px;
+}
+
 .om-facts {
   display: grid;
   gap: 0.35rem;
