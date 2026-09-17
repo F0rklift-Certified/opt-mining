@@ -11,6 +11,10 @@
 *.swp
 *.swo
 
+# Playwright MCP browser-automation artefacts (snapshots, console logs,
+# screenshots) written to the repo root during local UI checks.
+.playwright-mcp/
+
 # Kiro
 .kiro/
 

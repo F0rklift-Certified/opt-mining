@@ -18,6 +18,8 @@
   --om-success-border: #4d8753;
   --om-warning-bg: #fff4dc;
   --om-warning-border: #a76500;
+  --om-selected-bg: #e6eef8;
+  --om-selected-border: #2f5d8f;
 }
 
 * {
@@ -198,18 +200,86 @@ body {
 }
 
 /*
+ * Ranked shortlist (S3-04): rows follow the engine's order; one row is the
+ * selected site shared with the map and detail view. The table scrolls
+ * sideways rather than squeezing the component columns.
+ */
+.om-shortlist {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.om-shortlist__note {
+  font-size: 0.8rem;
+}
+
+.om-results__scroll {
+  overflow-x: auto;
+}
+
+.om-results th.om-results__num,
+.om-results td.om-results__num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.om-results thead th {
+  vertical-align: bottom;
+}
+
+.om-results td.om-results__num {
+  white-space: nowrap;
+}
+
+.om-results__row {
+  cursor: pointer;
+}
+
+.om-results__row:hover {
+  background: var(--om-bg);
+}
+
+.om-results__row--selected,
+.om-results__row--selected:hover {
+  background: var(--om-selected-bg);
+  color: var(--om-text);
+}
+
+.om-results__row--selected > :first-child {
+  box-shadow: inset 3px 0 0 var(--om-selected-border);
+}
+
+.om-results__select {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.om-results__select:focus-visible {
+  outline: 2px solid var(--om-selected-border);
+  outline-offset: 2px;
+}
+
+/*
  * Fixed 2×2 grid: analysis controls (top-left), interactive map (top-right),
  * ranked results (bottom-left), site detail/explanation (bottom-right). On
- * narrow viewports the regions stack in a single column.
+ * narrow viewports the regions stack in a single column. `minmax(0, 1fr)`
+ * keeps wide content (the shortlist table) from stretching its column; that
+ * content scrolls inside its own region instead.
  */
 .om-shell__grid {
   display: grid;
   gap: 1rem;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 @media (min-width: 60rem) {
   .om-shell__grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 }
