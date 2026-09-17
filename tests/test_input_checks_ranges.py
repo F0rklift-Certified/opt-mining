@@ -191,8 +191,13 @@ class TestInjectedMissingValue:
         assert record["passed"] is False, (
             f"an injected null must fail check 9 for {column}: {record}"
         )
-        assert record["observed"] == "1 missing values", (
+        # The null was injected into the FIRST cell, which the fixture makes
+        # eligible, so it is counted (check 9 scopes to the eligible population).
+        assert record["observed"].startswith("1 missing values"), (
             f"check 9 should report exactly one missing value for {column}: {record}"
+        )
+        assert "eligible cells" in record["observed"], (
+            f"check 9 observed should name the eligible-population scope: {record}"
         )
 
     def test_other_scored_columns_report_zero_missing(self, tmp_path):
@@ -210,3 +215,112 @@ class TestInjectedMissingValue:
                 f"unrelated check 9 for {other} should still pass: {record}"
             )
             assert "0 missing values" in record["observed"]
+
+
+# ---------------------------------------------------------------------------
+# Resolve the scored-criteria vs context split from the authoritative source
+# (the scoring weights) so these tests track the real model, not a literal.
+# ---------------------------------------------------------------------------
+
+from pipeline.validate import _resolve_scored_criteria
+
+_SCORED_CRITERIA, _ = _resolve_scored_criteria()
+_CONTEXT_FEATURES = [c for c in SCORED_FEATURE_COLUMNS if c not in _SCORED_CRITERIA]
+# A scored criterion that is also a plain numeric feature we can null out.
+_A_CRITERION = "slope_deg"
+
+
+# ---------------------------------------------------------------------------
+# Eligible-population scope (Requirement 6.4): a null in an INELIGIBLE cell is
+# not counted, because a ranking is only ever emitted from Eligible_Cells.
+# ---------------------------------------------------------------------------
+
+class TestMissingValueEligibleScope:
+    def test_null_in_ineligible_cell_is_not_counted(self, tmp_path):
+        # The fixture makes the LAST cell ineligible. A null there is outside the
+        # ranked population, so check 9 must still pass and report 0 missing.
+        # Use a scored CRITERION so the pass is due to eligible-scoping, not the
+        # context-tier informational rule.
+        column = _A_CRITERION
+        assert column in _SCORED_CRITERIA
+
+        gdf = make_integrated_fixture()
+        ineligible_idx = gdf.index[-1]
+        assert bool(gdf.loc[ineligible_idx, "eligible"]) is False, (
+            "fixture contract: the last cell is ineligible"
+        )
+        gdf.loc[ineligible_idx, column] = np.nan
+        _, checks = _run_on(gdf, tmp_path)
+
+        record = _find(checks, _missing_name(column))
+        assert record["passed"] is True, (
+            f"a null in an ineligible cell must NOT fail check 9 for {column}: {record}"
+        )
+        assert record["observed"].startswith("0 missing values"), (
+            f"ineligible-cell null must not be counted for {column}: {record}"
+        )
+
+    def test_null_in_eligible_cell_is_counted(self, tmp_path):
+        # Same criterion, but the null is in an eligible cell -> counted, fails.
+        column = _A_CRITERION
+        gdf = make_integrated_fixture()
+        eligible_idx = gdf.index[0]
+        assert bool(gdf.loc[eligible_idx, "eligible"]) is True
+        gdf.loc[eligible_idx, column] = np.nan
+        _, checks = _run_on(gdf, tmp_path)
+
+        record = _find(checks, _missing_name(column))
+        assert record["passed"] is False, (
+            f"a null in an eligible criterion cell must fail check 9 for {column}: {record}"
+        )
+        assert record["observed"].startswith("1 missing values")
+
+
+# ---------------------------------------------------------------------------
+# Scored-vs-context tier split (Requirement 6.5): a null in a CONTEXT feature
+# is informational (does not fail); a null in a scored CRITERION fails. Every
+# record names its tier.
+# ---------------------------------------------------------------------------
+
+class TestMissingValueTierSplit:
+    def test_context_feature_null_is_informational_not_a_failure(self, tmp_path):
+        # dist_connection_km is a context feature (tracked, but not a scored
+        # criterion). A null among eligible cells is reported but does NOT fail.
+        assert _CONTEXT_FEATURES, "expected at least one context feature"
+        column = _CONTEXT_FEATURES[0]  # dist_connection_km in the current model
+
+        gdf = make_integrated_fixture()
+        gdf.loc[gdf.index[0], column] = np.nan  # eligible cell
+        _, checks = _run_on(gdf, tmp_path)
+
+        record = _find(checks, _missing_name(column))
+        assert record["passed"] is True, (
+            f"a context-feature null must NOT fail the gate: {record}"
+        )
+        assert record["observed"].startswith("1 missing values"), (
+            f"the count must still be reported verbatim (no silent pass): {record}"
+        )
+        assert "context, informational" in record["observed"], (
+            f"the record must name the context tier: {record}"
+        )
+
+    def test_criterion_null_fails_and_names_tier(self, tmp_path):
+        column = _A_CRITERION
+        gdf = make_integrated_fixture()
+        gdf.loc[gdf.index[0], column] = np.nan  # eligible cell
+        _, checks = _run_on(gdf, tmp_path)
+
+        record = _find(checks, _missing_name(column))
+        assert record["passed"] is False
+        assert "scored criterion" in record["observed"], (
+            f"the record must name the scored-criterion tier: {record}"
+        )
+
+    def test_every_scored_column_still_emits_a_record(self, tmp_path):
+        # No silent omission: one record per SCORED_FEATURE_COLUMNS regardless
+        # of tier.
+        gdf = make_integrated_fixture()
+        _, checks = _run_on(gdf, tmp_path)
+        names = {c["name"] for c in checks}
+        for column in SCORED_FEATURE_COLUMNS:
+            assert _missing_name(column) in names, column
