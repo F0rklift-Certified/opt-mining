@@ -39,6 +39,7 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -132,6 +133,7 @@ def _compose_env() -> dict[str, str]:
     env = os.environ.copy()
     env.update(
         {
+            "COMPOSE_PROJECT_NAME": "optmining-integration-test",
             "API_HOST_PORT": str(API_HOST_PORT),
             "WEB_HOST_PORT": str(WEB_HOST_PORT),
             "NEXT_PUBLIC_API_BASE_URL": f"http://localhost:{API_HOST_PORT}",
@@ -239,6 +241,11 @@ def test_compose_up_build_brings_up_web_and_api_and_api_port_reachable():
             f"{BUILD_AND_START_TIMEOUT_S}s — /openapi.json did not return 200 "
             f"(Requirement 6.3).\n{_compose('ps', env=env, timeout=60).stdout}"
         )
+        smoke = subprocess.run(
+            [sys.executable, str(APP_DIR / "smoke_test.py")],
+            env=env, capture_output=True, text=True, timeout=300,
+        )
+        assert smoke.returncode == 0, smoke.stdout + smoke.stderr
     finally:
         # Always tear the stack down, even on failure (remove volumes/orphans so
         # a re-run starts clean). Best-effort: never mask the real assertion.

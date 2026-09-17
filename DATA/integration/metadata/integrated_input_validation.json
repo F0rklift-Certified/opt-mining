@@ -1,0 +1,192 @@
+{
+  "generated_at_utc": "2026-09-17T01:59:31+00:00",
+  "generator": "pipeline.validate",
+  "baseline": {
+    "artefact": "s1-08 integrated feature table",
+    "path": "DATA/integration/optmining_integrated-features_2026_nsw.gpkg",
+    "layer": "integrated_features",
+    "version": "2026",
+    "sha256": "8b300ca520ff42028fbb7b09024916580c105967c92fa8ade575c4e006c196fd",
+    "bytes": 33161216,
+    "bytes_human": "33.2 MB",
+    "storage_crs": "EPSG:4326",
+    "computation_crs": "EPSG:3577",
+    "frozen_at_utc": "2026-09-15T03:23:25+00:00",
+    "frozen_by": "pipeline.validate.freeze_baseline",
+    "verified_at_utc": "2026-09-17T01:59:31+00:00",
+    "hash_ok": true
+  },
+  "all_passed": true,
+  "n_checks": 28,
+  "n_passed": 28,
+  "checks": [
+    {
+      "name": "Baseline hash matches the frozen reference",
+      "expected": "sha256 == frozen reference",
+      "observed": "match",
+      "passed": true
+    },
+    {
+      "name": "Required columns present",
+      "expected": "all 30 OUTPUT_COLUMNS present",
+      "observed": "0 missing",
+      "passed": true
+    },
+    {
+      "name": "Scored feature columns present",
+      "expected": "all 10 SCORED_FEATURE_COLUMNS present",
+      "observed": "0 missing",
+      "passed": true
+    },
+    {
+      "name": "cell_id non-null",
+      "expected": "0 null cell_id values",
+      "observed": "0 null cell_id values",
+      "passed": true
+    },
+    {
+      "name": "cell_id unique",
+      "expected": "0 duplicate cell_id values",
+      "observed": "0 duplicate cell_id values",
+      "passed": true
+    },
+    {
+      "name": "Coordinates valid and within the NSW analysis bounding box",
+      "expected": "centroid_lat \u2208 [-90, 90], centroid_lon \u2208 [-180, 180], centroid within NSW_BBOX (141.0, -37.55, 153.7, -28.15)",
+      "observed": "0 out-of-range centroids",
+      "passed": true
+    },
+    {
+      "name": "Geometry valid and stored in the storage CRS",
+      "expected": "all geometries valid and crs == EPSG:4326",
+      "observed": "0 invalid geometries; crs=EPSG:4326",
+      "passed": true
+    },
+    {
+      "name": "Units/ranges within sanity bound: wind_speed",
+      "expected": "all values within Sanity_Range [0, 25]",
+      "observed": "0 out-of-range values",
+      "passed": true
+    },
+    {
+      "name": "Units/ranges within sanity bound: demand_proxy",
+      "expected": "all values within Sanity_Range [0, 1]",
+      "observed": "0 out-of-range values",
+      "passed": true
+    },
+    {
+      "name": "Units/ranges within sanity bound: dist_transmission_km",
+      "expected": "all values within Sanity_Range [0, 2000]",
+      "observed": "0 out-of-range values",
+      "passed": true
+    },
+    {
+      "name": "Units/ranges within sanity bound: dist_substation_km",
+      "expected": "all values within Sanity_Range [0, 2000]",
+      "observed": "0 out-of-range values",
+      "passed": true
+    },
+    {
+      "name": "Units/ranges within sanity bound: inside_rez",
+      "expected": "all values within Sanity_Range {false, true}",
+      "observed": "0 out-of-range values",
+      "passed": true
+    },
+    {
+      "name": "Units/ranges within sanity bound: elevation_m",
+      "expected": "all values within Sanity_Range [-20, 3000]",
+      "observed": "0 out-of-range values",
+      "passed": true
+    },
+    {
+      "name": "Units/ranges within sanity bound: slope_deg",
+      "expected": "all values within Sanity_Range [0, 90]",
+      "observed": "0 out-of-range values",
+      "passed": true
+    },
+    {
+      "name": "Units/ranges within sanity bound: protected_area",
+      "expected": "all values within Sanity_Range {false, true}",
+      "observed": "0 out-of-range values",
+      "passed": true
+    },
+    {
+      "name": "Missing-value count: wind_speed",
+      "expected": "0 missing values among eligible cells (scored criterion)",
+      "observed": "0 missing values over 1,233 eligible cells (scored criterion)",
+      "passed": true
+    },
+    {
+      "name": "Missing-value count: demand_proxy",
+      "expected": "0 missing values among eligible cells (scored criterion)",
+      "observed": "0 missing values over 1,233 eligible cells (scored criterion)",
+      "passed": true
+    },
+    {
+      "name": "Missing-value count: dist_transmission_km",
+      "expected": "0 missing values among eligible cells (scored criterion)",
+      "observed": "0 missing values over 1,233 eligible cells (scored criterion)",
+      "passed": true
+    },
+    {
+      "name": "Missing-value count: dist_substation_km",
+      "expected": "0 missing values among eligible cells (scored criterion)",
+      "observed": "0 missing values over 1,233 eligible cells (scored criterion)",
+      "passed": true
+    },
+    {
+      "name": "Missing-value count: dist_connection_km",
+      "expected": "0 missing values among eligible cells (context, informational)",
+      "observed": "1,233 missing values over 1,233 eligible cells (context, informational)",
+      "passed": true
+    },
+    {
+      "name": "Missing-value count: inside_rez",
+      "expected": "0 missing values among eligible cells (scored criterion)",
+      "observed": "0 missing values over 1,233 eligible cells (scored criterion)",
+      "passed": true
+    },
+    {
+      "name": "Missing-value count: elevation_m",
+      "expected": "0 missing values among eligible cells (context, informational)",
+      "observed": "0 missing values over 1,233 eligible cells (context, informational)",
+      "passed": true
+    },
+    {
+      "name": "Missing-value count: slope_deg",
+      "expected": "0 missing values among eligible cells (scored criterion)",
+      "observed": "0 missing values over 1,233 eligible cells (scored criterion)",
+      "passed": true
+    },
+    {
+      "name": "Missing-value count: land_use",
+      "expected": "0 missing values among eligible cells (context, informational)",
+      "observed": "0 missing values over 1,233 eligible cells (context, informational)",
+      "passed": true
+    },
+    {
+      "name": "Missing-value count: protected_area",
+      "expected": "0 missing values among eligible cells (context, informational)",
+      "observed": "0 missing values over 1,233 eligible cells (context, informational)",
+      "passed": true
+    },
+    {
+      "name": "eligible present, boolean, no nulls",
+      "expected": "boolean dtype, 0 nulls",
+      "observed": "dtype bool, 0 nulls",
+      "passed": true
+    },
+    {
+      "name": "eligible/exclusion_reason consistent",
+      "expected": "0 inconsistent rows",
+      "observed": "0 inconsistent rows",
+      "passed": true
+    },
+    {
+      "name": "At least one Eligible_Cell",
+      "expected": "\u2265 1 eligible cell",
+      "observed": "1,233 eligible cells",
+      "passed": true
+    }
+  ]
+}

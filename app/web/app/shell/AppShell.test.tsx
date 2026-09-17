@@ -1,5 +1,5 @@
 /**
- * Render test for the Opt-Mining application shell (S3-01a, task 6.5).
+ * Render test for the stable Opt-Mining application shell.
  *
  * Asserts the fixed, decision-free substrate this ticket stands up:
  *   - the App_Shell renders all four labelled `PlaceholderRegion`s — analysis
@@ -18,7 +18,7 @@ import { render, screen, within } from "@testing-library/react";
 import RootLayout from "../layout";
 import AppShell from "./AppShell";
 
-describe("AppShell — four fixed placeholder regions (R3.1–3.4)", () => {
+describe("AppShell — four fixed regions (R3.1–3.4)", () => {
   const REGION_LABELS = [
     "Analysis controls",
     "Interactive map",
