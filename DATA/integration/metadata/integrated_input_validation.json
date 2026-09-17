@@ -1,24 +1,24 @@
 {
-  "generated_at_utc": "2026-09-15T03:23:25+00:00",
+  "generated_at_utc": "2026-09-17T01:59:31+00:00",
   "generator": "pipeline.validate",
   "baseline": {
     "artefact": "s1-08 integrated feature table",
     "path": "DATA/integration/optmining_integrated-features_2026_nsw.gpkg",
     "layer": "integrated_features",
     "version": "2026",
-    "sha256": "b7cd3d261abfdedd613301e0e2fdd07e3381178deb8ce8aff506a066117a1e61",
-    "bytes": 32821248,
-    "bytes_human": "32.8 MB",
+    "sha256": "8b300ca520ff42028fbb7b09024916580c105967c92fa8ade575c4e006c196fd",
+    "bytes": 33161216,
+    "bytes_human": "33.2 MB",
     "storage_crs": "EPSG:4326",
     "computation_crs": "EPSG:3577",
     "frozen_at_utc": "2026-09-15T03:23:25+00:00",
     "frozen_by": "pipeline.validate.freeze_baseline",
-    "verified_at_utc": "2026-09-15T03:23:25+00:00",
+    "verified_at_utc": "2026-09-17T01:59:31+00:00",
     "hash_ok": true
   },
-  "all_passed": false,
+  "all_passed": true,
   "n_checks": 28,
-  "n_passed": 23,
+  "n_passed": 28,
   "checks": [
     {
       "name": "Baseline hash matches the frozen reference",
@@ -112,62 +112,62 @@
     },
     {
       "name": "Missing-value count: wind_speed",
-      "expected": "0 missing values",
-      "observed": "0 missing values",
+      "expected": "0 missing values among eligible cells (scored criterion)",
+      "observed": "0 missing values over 1,233 eligible cells (scored criterion)",
       "passed": true
     },
     {
       "name": "Missing-value count: demand_proxy",
-      "expected": "0 missing values",
-      "observed": "6,637 missing values",
-      "passed": false
+      "expected": "0 missing values among eligible cells (scored criterion)",
+      "observed": "0 missing values over 1,233 eligible cells (scored criterion)",
+      "passed": true
     },
     {
       "name": "Missing-value count: dist_transmission_km",
-      "expected": "0 missing values",
-      "observed": "0 missing values",
+      "expected": "0 missing values among eligible cells (scored criterion)",
+      "observed": "0 missing values over 1,233 eligible cells (scored criterion)",
       "passed": true
     },
     {
       "name": "Missing-value count: dist_substation_km",
-      "expected": "0 missing values",
-      "observed": "0 missing values",
+      "expected": "0 missing values among eligible cells (scored criterion)",
+      "observed": "0 missing values over 1,233 eligible cells (scored criterion)",
       "passed": true
     },
     {
       "name": "Missing-value count: dist_connection_km",
-      "expected": "0 missing values",
-      "observed": "47,311 missing values",
-      "passed": false
+      "expected": "0 missing values among eligible cells (context, informational)",
+      "observed": "1,233 missing values over 1,233 eligible cells (context, informational)",
+      "passed": true
     },
     {
       "name": "Missing-value count: inside_rez",
-      "expected": "0 missing values",
-      "observed": "0 missing values",
+      "expected": "0 missing values among eligible cells (scored criterion)",
+      "observed": "0 missing values over 1,233 eligible cells (scored criterion)",
       "passed": true
     },
     {
       "name": "Missing-value count: elevation_m",
-      "expected": "0 missing values",
-      "observed": "45,711 missing values",
-      "passed": false
+      "expected": "0 missing values among eligible cells (context, informational)",
+      "observed": "0 missing values over 1,233 eligible cells (context, informational)",
+      "passed": true
     },
     {
       "name": "Missing-value count: slope_deg",
-      "expected": "0 missing values",
-      "observed": "45,711 missing values",
-      "passed": false
+      "expected": "0 missing values among eligible cells (scored criterion)",
+      "observed": "0 missing values over 1,233 eligible cells (scored criterion)",
+      "passed": true
     },
     {
       "name": "Missing-value count: land_use",
-      "expected": "0 missing values",
-      "observed": "45,240 missing values",
-      "passed": false
+      "expected": "0 missing values among eligible cells (context, informational)",
+      "observed": "0 missing values over 1,233 eligible cells (context, informational)",
+      "passed": true
     },
     {
       "name": "Missing-value count: protected_area",
-      "expected": "0 missing values",
-      "observed": "0 missing values",
+      "expected": "0 missing values among eligible cells (context, informational)",
+      "observed": "0 missing values over 1,233 eligible cells (context, informational)",
       "passed": true
     },
     {

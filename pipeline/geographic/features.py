@@ -1487,13 +1487,32 @@ def _write_report(report_text: str, path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def run(verbose: bool = False) -> dict:
+def run(
+    verbose: bool = False,
+    *,
+    grid_path: Path = GRID_PATH,
+    elevation_path: Path = ELEVATION_PATH,
+    slope_path: Path = SLOPE_PATH,
+    tri_path: Path = TRI_PATH,
+    nlum_path: Path = NLUM_PATH,
+    capad_path: Path = CAPAD_PATH,
+) -> dict:
     """
     Build per-cell geographic/environmental features on the common analysis grid.
 
     Reads the grid (cell_id + geometry) and the Sprint-0 geographic sources, derives
     one Feature_Table row per cell_id, writes it atomically as a GeoPackage, and
     writes a do-not-edit method report.
+
+    Source-path parameters
+    -----------------------
+    All source paths default to the module-level New-England-REZ constants, so
+    the historical call ``run()`` / ``run(verbose=True)`` behaves exactly as
+    before (backward-compatible). To re-run over a different coverage — e.g. the
+    full-NSW SRTM/NLUM clips produced by ``scripts/fetch_build_geographic_nsw.py``
+    — pass the corresponding ``*_path`` overrides. Nothing is fabricated: a cell
+    outside whatever raster is supplied still gets a null value and low confidence,
+    exactly as with the default window.
 
     Returns
     -------
@@ -1512,7 +1531,7 @@ def run(verbose: bool = False) -> dict:
         halts with a non-zero exit (Req 10.3).
     """
     print("  Building geographic/environmental features (S1-06)...")
-    print(f"    Grid: {GRID_PATH}")
+    print(f"    Grid: {grid_path}")
     print(f"    Storage CRS: {STORAGE_CRS}")
     print(f"    Computation CRS: {COMPUTATION_CRS}")
 
@@ -1525,7 +1544,7 @@ def run(verbose: bool = False) -> dict:
     crs_log: list[dict] = []
 
     # --- Read the grid (strict cell_id keying, Req 8) ------------------------
-    cells = read_grid_cells(GRID_PATH)
+    cells = read_grid_cells(grid_path)
     n_cells = len(cells)
     cell_ids = list(cells["cell_id"])
     print(f"    Grid cells: {n_cells:,}")
@@ -1536,10 +1555,10 @@ def run(verbose: bool = False) -> dict:
     # --- Raster sources: open once each, reproject cells to each raster CRS --
     # (raster label, path, statistic-or-None-for-categorical)
     raster_specs = [
-        ("elevation", ELEVATION_PATH, "mean"),
-        ("slope", SLOPE_PATH, "mean"),
-        ("tri", TRI_PATH, "mean"),
-        ("nlum", NLUM_PATH, None),  # categorical (mode)
+        ("elevation", elevation_path, "mean"),
+        ("slope", slope_path, "mean"),
+        ("tri", tri_path, "mean"),
+        ("nlum", nlum_path, None),  # categorical (mode)
     ]
 
     # Per-cell stats keyed by raster label, aligned to cell_ids order. Each is a
@@ -1608,14 +1627,14 @@ def run(verbose: bool = False) -> dict:
 
     # --- Protected-area overlap (vectorised, Req 4) --------------------------
     if verbose:
-        print(f"    Protected-area overlap (CAPAD): {Path(CAPAD_PATH).name}")
+        print(f"    Protected-area overlap (CAPAD): {Path(capad_path).name}")
 
-    capad = _load_capad(CAPAD_PATH)  # raises RuntimeError if missing/unreadable (4.7)
+    capad = _load_capad(capad_path)  # raises RuntimeError if missing/unreadable (4.7)
     cells_3577 = _reproject_to_computation_crs(
         cells, source_id="nsw_analysis_grid.gpkg", log=crs_log, verbose=verbose
     )
     capad_3577 = _reproject_to_computation_crs(
-        capad, source_id=Path(CAPAD_PATH).name, log=crs_log, verbose=verbose
+        capad, source_id=Path(capad_path).name, log=crs_log, verbose=verbose
     )
     protected = _protected_overlap(cells_3577, capad_3577)
 
