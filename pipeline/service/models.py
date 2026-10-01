@@ -232,6 +232,103 @@ class ExcludedRow:
 
 
 @dataclass(frozen=True)
+class CellFeature:
+    """
+    One analysis cell's map feature for a Run (CONTRACT.md §5, Requirement 1.7).
+
+    A `CellFeature` is a verbatim projection of one row of the materialised
+    S2-05 Scored_Table into a GeoJSON Point Feature — never a recomputed value.
+    `get_run_cells` (`results.py`) reads the fixed Scored_Table and builds one
+    `CellFeature` per cell (eligible AND excluded alike), carrying the grid
+    centroid through unchanged. The service performs no scoring, ranking or
+    reprojection to produce these: the centroid is the engine's own
+    `centroid_lat`/`centroid_lon` in EPSG:4326, and the score/rank are read
+    from the table (null for an excluded cell). `eligible` is the IDENTICAL
+    predicate `get_ranked_results` uses — a non-null `suitability_score` AND a
+    non-null `rank` — so the eligible set equals the ranked-table set
+    (CONTRACT.md §1, §7 P1, Requirement 2.4).
+
+    Fields
+    ------
+    cell_id :
+        Analysis-cell id, copied byte-for-byte from the Scored_Table so it
+        joins back to the analysis grid on `cell_id`.
+    centroid_lon :
+        The cell centroid's longitude in EPSG:4326, carried through verbatim
+        (the `centroid_lon` the engine wrote); no reprojection.
+    centroid_lat :
+        The cell centroid's latitude in EPSG:4326, carried through verbatim
+        (the `centroid_lat` the engine wrote); no reprojection.
+    eligible :
+        Whether the cell is eligible — ``suitability_score`` AND ``rank`` both
+        non-null, the identical rule `get_ranked_results` applies.
+    suitability_score :
+        The S2-05 `suitability_score`, read from the table; ``None`` for an
+        excluded cell (which carries no score).
+    rank :
+        The S2-05 integer `rank`, read from the table; ``None`` for an excluded
+        cell (which carries no rank).
+    """
+
+    cell_id: str
+    centroid_lon: float
+    centroid_lat: float
+    eligible: bool
+    suitability_score: float | None = None
+    rank: int | None = None
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 GeoJSON `CellFeature` shape."""
+        return {
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [self.centroid_lon, self.centroid_lat],
+            },
+            "properties": {
+                "cell_id": self.cell_id,
+                "eligible": self.eligible,
+                "suitability_score": self.suitability_score,
+                "rank": self.rank,
+            },
+        }
+
+
+@dataclass(frozen=True)
+class CellCollection:
+    """
+    A Run's cells as a GeoJSON FeatureCollection (CONTRACT.md §5, Requirement 1.7).
+
+    A `CellCollection` is a verbatim projection of the materialised S2-05
+    Scored_Table — one Point Feature per cell, carrying each cell's centroid in
+    EPSG:4326 unchanged. `get_run_cells` (`results.py`) builds it; the service
+    performs no scoring, ranking or reprojection (CONTRACT.md §1, Requirement
+    2.4). The map the Web_Application renders from this collection and the
+    ranking table are therefore the SAME engine output: the set of `eligible`
+    Features equals the set `get_ranked_results` returns for the Run (§7 P1).
+
+    Fields
+    ------
+    run_id :
+        Identifier of the materialised Run these cells belong to.
+    features :
+        One `CellFeature` per Scored_Table row, in the table's own row order,
+        carried through verbatim.
+    """
+
+    run_id: str
+    features: list[CellFeature] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 GeoJSON `CellCollection` shape."""
+        return {
+            "type": "FeatureCollection",
+            "run_id": self.run_id,
+            "features": [feature.to_dict() for feature in self.features],
+        }
+
+
+@dataclass(frozen=True)
 class ScenarioComparisonRow:
     """
     One cell's rank comparison across two scenarios (CONTRACT.md §5).

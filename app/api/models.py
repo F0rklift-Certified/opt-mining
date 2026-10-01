@@ -25,14 +25,16 @@ Mirrors:
     Response: RunHandle, RankedRow, SiteDetail (carrying the S2-06
               Explanation_Structure verbatim), ExcludedRow,
               ScenarioComparisonRow, ScenarioComparison, DataQualityCheck,
-              DataQualityStatus
+              DataQualityStatus, CellGeometry, CellProperties, CellFeature,
+              CellCollection (the GeoJSON FeatureCollection of per-cell
+              centroids)
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, conlist
 
 # ---------------------------------------------------------------------------
 # Request models
@@ -168,3 +170,48 @@ class DataQualityStatus(BaseModel):
 
     passed: bool = False
     checks: list[DataQualityCheck] = Field(default_factory=list)
+
+
+class CellGeometry(BaseModel):
+    """A cell centroid's GeoJSON Point geometry (CONTRACT.md §5, §4.7).
+
+    `coordinates` are ``[centroid_lon, centroid_lat]`` in EPSG:4326, carried
+    through verbatim from the Scored_Table — no reprojection (CONTRACT.md §1).
+    """
+
+    type: Literal["Point"]
+    coordinates: conlist(float, min_length=2, max_length=2)
+
+
+class CellProperties(BaseModel):
+    """A map cell's non-geometric properties (CONTRACT.md §5, §4.7).
+
+    `eligible` is the same predicate `get_ranked_results` uses (score AND rank
+    both non-null); `suitability_score` / `rank` are null for an excluded cell.
+    """
+
+    cell_id: str
+    eligible: bool
+    suitability_score: float | None = None
+    rank: int | None = None
+
+
+class CellFeature(BaseModel):
+    """One analysis cell as a GeoJSON Point Feature (CONTRACT.md §5, §4.7)."""
+
+    type: Literal["Feature"]
+    geometry: CellGeometry
+    properties: CellProperties
+
+
+class CellCollection(BaseModel):
+    """A Run's cells as a GeoJSON FeatureCollection (CONTRACT.md §5, §4.7).
+
+    One Point Feature per Scored_Table cell (eligible and excluded alike),
+    carrying each cell's EPSG:4326 centroid verbatim. The set of `eligible`
+    Features equals the set `get_ranked_results` returns for the Run (§7 P1).
+    """
+
+    type: Literal["FeatureCollection"]
+    run_id: str
+    features: list[CellFeature] = Field(default_factory=list)

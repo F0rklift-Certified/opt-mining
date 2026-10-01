@@ -65,7 +65,7 @@ def main():
         "scenario_a": "wind_led", "scenario_b": "grid_led",
     })
     assert comparison["rows"]
-    print(f"PASS: web, CORS and all six operations; run={run['run_id']}; "
+    print(f"PASS: web, CORS and all seven operations; run={run['run_id']}; "
           f"quality_checks={len(quality['checks'])}; returned_ranks={len(rows)}")
 
 

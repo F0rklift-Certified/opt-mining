@@ -31,8 +31,13 @@ Modules:
                    score, rank, eligibility, and the S2-06 Explanation_Structure
                    carried through verbatim); `get_exclusions(run) ->
                    [ExcludedRow]` serves the S2-03 Eligibility_Table's excluded
-                   cells with their machine- and human-readable reasons. None
-                   re-scores, re-ranks or re-evaluates an exclusion.
+                   cells with their machine- and human-readable reasons; and
+                   `get_run_cells(run) -> CellCollection` projects the fixed
+                   Scored_Table into a GeoJSON FeatureCollection of per-cell
+                   EPSG:4326 centroids (one Point Feature per cell, eligible and
+                   excluded alike), carrying the centroids verbatim with no
+                   reprojection. None re-scores, re-ranks or re-evaluates an
+                   exclusion.
     filters      — The Display_Filters (top-N, minimum-score) `get_ranked_results`
                    accepts. PURE selections over the fixed `list[RankedRow]` a
                    Run produced: they change WHICH cells are shown but never a
@@ -56,6 +61,8 @@ Modules:
 from .data_quality import get_data_quality
 from .filters import apply_display_filter, apply_min_score, apply_top_n
 from .models import (
+    CellCollection,
+    CellFeature,
     DataQualityStatus,
     ExcludedRow,
     RankedRow,
@@ -63,11 +70,18 @@ from .models import (
     ScenarioComparison,
     SiteDetail,
 )
-from .results import get_exclusions, get_ranked_results, get_site_detail
+from .results import (
+    get_exclusions,
+    get_ranked_results,
+    get_run_cells,
+    get_site_detail,
+)
 from .run_analysis import run_analysis
 from .scenarios import compare_scenarios
 
 __all__ = [
+    "CellCollection",
+    "CellFeature",
     "DataQualityStatus",
     "ExcludedRow",
     "RankedRow",
@@ -81,6 +95,7 @@ __all__ = [
     "get_data_quality",
     "get_exclusions",
     "get_ranked_results",
+    "get_run_cells",
     "get_site_detail",
     "run_analysis",
 ]
