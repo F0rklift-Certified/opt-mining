@@ -77,3 +77,17 @@ DATA/geographic/landuse/abares_nlum-alumv8_2020-21_nsw.tif
 # recreated on demand from the frozen integrated table. Ephemeral runtime
 # output, never custodial data. See pipeline/service/CONTRACT.md and runs.py.
 DATA/service/runs/
+
+# Pipeline-generated artifacts (regenerable; untracked per request).
+# These are produced by the pipeline stages and were previously committed;
+# removed from tracking to avoid regeneration-timestamp noise in diffs.
+DATA/scoring/DATA_PROVENANCE.md
+DATA/scoring/metadata/scoring_manifest.json
+DATA/scoring/metadata/scoring_method.md
+DATA/scoring/metadata/scoring_validation.md
+DATA/scoring/metadata/source_register.csv
+DATA/scoring/optmining_suitability-score_2026_nsw.gpkg
+DATA/wind-resource/DATA_PROVENANCE.md
+DATA/wind-resource/features/gwa_v4_wind-feature_2025_nsw.gpkg
+DATA/wind-resource/metadata/download_manifest.json
+DATA/wind-resource/metadata/wind_feature_method.md
