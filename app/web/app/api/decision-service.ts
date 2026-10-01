@@ -12,6 +12,8 @@ import type { components, paths } from "./generated";
 
 export type RunRequest = components["schemas"]["RunRequest"];
 export type RunHandle = components["schemas"]["RunHandle"];
+export type Criterion = components["schemas"]["Criterion"];
+export type Weights = components["schemas"]["Weights"];
 export type RankedRow = components["schemas"]["RankedRow"];
 export type SiteDetail = components["schemas"]["SiteDetail"];
 export type ExcludedRow = components["schemas"]["ExcludedRow"];
