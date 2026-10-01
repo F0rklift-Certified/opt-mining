@@ -15,6 +15,10 @@
 # /openapi.json (+ /docs, /redoc) that satisfies the S2-08 machine-readable
 # contract requirement (Requirement 2.2).
 fastapi==0.115.6
+# FastAPI's OpenAPI output is part of the frontend contract snapshot. Pin the
+# schema generator so local, container and CI exports remain byte-for-byte
+# reproducible instead of changing when pip selects a newer Pydantic release.
+pydantic==2.10.3
 # Uvicorn (with the [standard] extras: uvloop, httptools, websockets, watchfiles
 # for --reload) is the ASGI server used to run the app in dev and in the
 # container: `uvicorn app:app --host 0.0.0.0 --port 8000` (Requirement 5.1).

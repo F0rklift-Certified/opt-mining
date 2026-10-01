@@ -1,4 +1,4 @@
-# Opt-Mining Web Stack (S3-01a — Application Shell Scaffold)
+# Opt-Mining Web Stack (S3-01b — Decision-Service Integration)
 
 This directory holds the MVP web stack for the Opt-Mining decision tool:
 
@@ -6,15 +6,15 @@ This directory holds the MVP web stack for the Opt-Mining decision tool:
   `Decision_Service` operations over HTTP and publishes an auto-generated
   OpenAPI schema. It **delegates every operation to `pipeline.service`** and
   holds no decision logic of its own (combined-sprint AC4 / `CONTRACT.md` §1).
-- **`web/`** — the Next.js/React **Frontend_App**. A thin, decision-free shell
-  that lays out four labelled placeholder regions (analysis controls,
-  interactive map, ranked results, site detail/explanation) and reads the
-  backend URL from an environment variable. The region is fixed to **NSW**.
+- **`web/`** — the Next.js/React **Frontend_App**. A thin, decision-free client
+  generated from the FastAPI OpenAPI contract. It renders service-returned run,
+  ranking, exclusion and site-detail values in the four fixed shell regions and
+  shows the S2-02 data-quality status. The region is fixed to **NSW**.
 - **`docker-compose.yml`** — the **Compose_Stack** that builds and starts both
   apps with a single command.
 
-The typed service client and the data-quality banner are **S3-01b**, not this
-scaffold.
+All direct HTTP access is isolated in `web/app/api/decision-service.ts`; later
+Sprint 3 views should import that module rather than calling `fetch` directly.
 
 ---
 
@@ -35,7 +35,7 @@ scaffold.
 Run from **`app/api/`**:
 
 ```bash
-PYTHONPATH=../.. uvicorn app:app --reload --port 8000
+CORS_ALLOW_ORIGINS=http://localhost:3000 PYTHONPATH=../.. uvicorn app:app --reload --port 8000
 ```
 
 The `PYTHONPATH=../..` prefix puts the **repository root** on the import path so
@@ -63,18 +63,39 @@ Once running, the OpenAPI docs are reachable at:
 
 ### Frontend (dev)
 
+Keep the backend running in a separate terminal. Its `CORS_ALLOW_ORIGINS`
+must match the browser's frontend origin, including the port.
+
 Run from **`app/web/`**:
 
 ```bash
+cp .env.example .env.local   # set NEXT_PUBLIC_API_BASE_URL before starting
 npm install
 npm run dev        # -> next dev  (http://localhost:3000)
 ```
 
-Copy the env template first and point it at your backend:
+If `.env.local` already exists, retain your settings and verify that
+`NEXT_PUBLIC_API_BASE_URL` points to the running backend.
+
+The initial page load requests the S2-02 data-quality status and starts the
+packaged `wind_led` scenario. Returned ranks, scores, exclusions and site detail
+are displayed unchanged; the browser contains no scoring, normalisation,
+ranking or exclusion implementation.
+
+### Regenerate the typed client
+
+After an approved FastAPI contract change, install both Python requirement
+files and regenerate the committed snapshot and TypeScript types:
 
 ```bash
-cp .env.example .env.local   # then edit NEXT_PUBLIC_API_BASE_URL if needed
+cd app/web
+npm run generate:api-client
 ```
+
+The command imports the live FastAPI app, writes
+`openapi/decision-service.openapi.json`, then regenerates
+`app/api/generated.ts`. The backend test suite fails when the committed OpenAPI
+snapshot differs from the live application.
 
 ### Frontend (built / production)
 
@@ -98,7 +119,7 @@ docker compose up --build
 
 This builds and starts both services in one command:
 
-- Backend (`api`) published on the host at <http://localhost:8000> (`/docs`,
+- Backend (`api`) published on the host at <http://localhost:8000> (`/docs ,
   `/openapi.json` reachable there).
 - Frontend (`web`) published on the host at <http://localhost:3000>.
 
@@ -129,15 +150,17 @@ explicit:
 - **`NEXT_PUBLIC_API_BASE_URL`** is the **browser-reachable** URL (a published
   host port).
 - **`API_INTERNAL_URL`** (default `http://api:8000`, wired in
-  `docker-compose.yml`) is the **in-network** Compose service-name URL used by
-  any server-side call. This ticket's frontend makes no calls yet, so it is
-  wired and documented for S3-01b to inherit.
+  `docker-compose.yml`) is the **in-network** Compose service-name URL reserved
+  for server-side calls. The current integration runs in the browser and uses
+  `NEXT_PUBLIC_API_BASE_URL`.
 
 To override a default for the whole stack, set the variable in the environment
 (or an `app/.env` file) before `docker compose up --build`, e.g.:
 
 ```bash
-API_HOST_PORT=9000 WEB_HOST_PORT=4000 docker compose up --build
+API_HOST_PORT=9000 WEB_HOST_PORT=4000 \
+NEXT_PUBLIC_API_BASE_URL=http://localhost:9000 \
+CORS_ALLOW_ORIGINS=http://localhost:4000 docker compose up --build
 ```
 
 ---
@@ -146,6 +169,42 @@ API_HOST_PORT=9000 WEB_HOST_PORT=4000 docker compose up --build
 
 The backend/stack tests live under `tests/backend/` and run with `pytest` from
 the repository root.
+
+Frontend verification runs from `app/web/`:
+
+```bash
+npm test -- --runInBand
+npm run typecheck
+npm run build
+```
+
+The tests cover all six typed client operations, flagged and unavailable
+data-quality states, real service values rendered in the shell, the single
+integration-point rule, absence of decision arithmetic, and OpenAPI snapshot
+drift.
+
+### Verify the running application
+
+With both services running, execute from the repository root:
+
+```bash
+python app/smoke_test.py
+```
+
+This checks the web page, browser CORS preflight, and all six real service
+operations, including analysis creation, rankings and site explanation. CI
+also runs this check against the built Compose containers. For custom ports,
+set `NEXT_PUBLIC_API_BASE_URL` and `CORS_ALLOW_ORIGINS` as above.
+
+The API image includes the committed integration, exclusions and explanation
+datasets. Rebuild after refreshing those inputs. Data-quality flags reflect
+the validation report and do not mean the connection failed.
+
+If the page reports `Failed to fetch` / `ERR_CONNECTION_REFUSED`, inspect
+`docker compose ps -a` and `docker compose logs api` from `app/`. Confirm
+`http://localhost:8000/docs` loads. For separate dev terminals, keep the API
+running with the documented CORS setting and create `web/.env.local` before
+starting Next.js. Restart/rebuild the frontend after changing its API URL.
 
 ### Fast unit suite (default)
 
@@ -172,7 +231,8 @@ pytest -m "not integration"      # exclude them (the fast suite)
 
 When Docker is unavailable — the `docker` CLI is missing, the Compose v2 plugin
 is absent, or the Docker daemon is not running — the test **skips with a clear
-reason** rather than failing. It runs for real in CI, where Docker is present.
+reason** rather than failing. CI runs the equivalent startup and HTTP checks
+via `app/smoke_test.py` after building both images.
 To avoid clashing with anything already bound on the default `8000`/`3000`, it
 publishes the stack on host ports `18000`/`13000` (driven through the same
 documented `API_HOST_PORT` / `WEB_HOST_PORT` env vars the Compose file reads).

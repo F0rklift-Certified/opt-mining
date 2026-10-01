@@ -28,6 +28,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /srv
 
+# Rasterio's GDAL extension links to Expat, which python:slim does not include.
+# Installing Python wheels alone succeeds but leaves the API unable to import.
+RUN apt-get update && apt-get install -y --no-install-recommends libexpat1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # --- Dependencies -----------------------------------------------------------
 # Install the engine's runtime dependencies first (from the repo-root manifest),
 # then the API's own dependencies (fastapi, uvicorn[standard], ...). Copying the
@@ -45,6 +50,12 @@ RUN pip install -r api-requirements.txt
 # working directory (which is on PYTHONPATH via WORKDIR below) rather than
 # pip-installed because the repo pyproject.toml declares no build-system.
 COPY pipeline ./pipeline
+
+# Materialised inputs consumed by the six decision-service operations.
+# Keep raw source downloads out of the image; runs are written under DATA/service.
+COPY DATA/integration ./DATA/integration
+COPY DATA/exclusions ./DATA/exclusions
+COPY DATA/explanation ./DATA/explanation
 
 # The FastAPI application itself.
 COPY app/api ./app/api

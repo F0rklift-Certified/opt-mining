@@ -1,0 +1,13 @@
+{
+  "artefact": "s1-08 integrated feature table",
+  "path": "DATA/integration/optmining_integrated-features_2026_nsw.gpkg",
+  "layer": "integrated_features",
+  "version": "2026",
+  "sha256": "8b300ca520ff42028fbb7b09024916580c105967c92fa8ade575c4e006c196fd",
+  "bytes": 33161216,
+  "bytes_human": "33.2 MB",
+  "storage_crs": "EPSG:4326",
+  "computation_crs": "EPSG:3577",
+  "frozen_at_utc": "2026-09-15T03:23:25+00:00",
+  "frozen_by": "pipeline.validate.freeze_baseline"
+}

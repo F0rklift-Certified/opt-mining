@@ -1,19 +1,15 @@
 /**
- * PlaceholderRegion — a single labelled, empty region of the App_Shell (S3-01a).
+ * PlaceholderRegion — a labelled region of the App_Shell.
  *
- * This ticket stands up the four fixed MVP regions (analysis controls,
- * interactive map, ranked results, site detail/explanation) as EMPTY, labelled
- * boxes only. `PlaceholderRegion` renders one such box: a bordered container
- * with a heading naming the region and a plain "populated in a later ticket"
- * body.
+ * S3-01b keeps the four fixed MVP regions from S3-01a and allows
+ * service-backed content to be inserted without restructuring the shell.
  *
  * Scope boundary (Requirements 3.5, 8.1, 8.3):
- *   - NO data fetching (no fetch, no effects, no network calls).
- *   - NO typed service client (S3-01b).
+ *   - NO data fetching: network access stays in AppShell through the one shared
+ *     typed service client.
  *   - NO decision logic — no scoring, normalisation, ranking, or exclusion
  *     arithmetic. The frontend obtains decision data only from the Backend_App
- *     over HTTP, and not in this ticket at all.
- *   - NO data-quality banner (S3-01b).
+ *     over HTTP.
  *
  * The component is a pure, function-first render of its props — matching the
  * clarity-over-effects style of the rest of the shell (Requirement 1.3). It is
@@ -22,7 +18,7 @@
  */
 import type { ReactNode } from "react";
 
-/** Props for a single labelled placeholder region. */
+/** Props for a single labelled shell region. */
 export interface PlaceholderRegionProps {
   /** Human-readable heading naming the region (e.g. "Analysis controls"). */
   label: string;
@@ -47,7 +43,7 @@ export interface PlaceholderRegionProps {
 const DEFAULT_BODY = "This region is populated in a later ticket.";
 
 /**
- * Render one bordered, labelled empty region.
+ * Render one bordered, labelled shell region.
  *
  * Pure function of props: given the same props it always renders the same
  * markup. No side effects, no data access.
@@ -69,7 +65,7 @@ export default function PlaceholderRegion({
       <h2 className="om-region__heading" id={headingId}>
         {label}
       </h2>
-      <p className="om-region__body">{body}</p>
+      <div className="om-region__body">{body}</div>
     </section>
   );
 }
