@@ -229,6 +229,25 @@ body {
 }
 
 /*
+ * Interactive map (S3-03a). MapLibre renders into .om-map, which MUST carry an
+ * explicit height or the GL canvas collapses to 0px. The status line reuses the
+ * muted shell palette for the loading / no-run / error messages.
+ */
+.om-map {
+  height: 480px;
+  width: 100%;
+  border: 1px solid var(--om-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.om-map__status {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  color: var(--om-muted);
+}
+
+/*
  * Fixed 2×2 grid: analysis controls (top-left), interactive map (top-right),
  * ranked results (bottom-left), site detail/explanation (bottom-right). On
  * narrow viewports the regions stack in a single column.

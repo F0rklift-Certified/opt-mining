@@ -19,6 +19,7 @@ import {
   type RunRequest,
   type SiteDetail,
 } from "../api/decision-service";
+import CellMap from "./CellMap";
 import DataQualityBanner from "./DataQualityBanner";
 import PlaceholderRegion from "./PlaceholderRegion";
 
@@ -72,7 +73,7 @@ function buildRunRequest(optionId: string, baselineCriteria: Criterion[]): RunRe
 }
 
 /** Render the fixed shell and populate it exclusively with service output. */
-export default function AppShell({ service }: AppShellProps = {}): JSX.Element {
+export default function AppShell({ service: injectedService }: AppShellProps = {}): JSX.Element {
   const [optionId, setOptionId] = useState(DEFAULT_OPTION_ID);
   const [baselineCriteria, setBaselineCriteria] = useState<Criterion[]>(BASELINE_CRITERIA);
   const [engine, setEngine] = useState<EngineView | null>(null);
@@ -81,6 +82,9 @@ export default function AppShell({ service }: AppShellProps = {}): JSX.Element {
   const [qualityError, setQualityError] = useState<string | null>(null);
   const [engineLoading, setEngineLoading] = useState(true);
   const [qualityLoading, setQualityLoading] = useState(true);
+  // The shared client exposed to CellMap (same object held in apiRef); null
+  // until the client is built (or if building it fails for lack of config).
+  const [service, setService] = useState<DecisionService | null>(null);
 
   // Stable across renders; set once the client is ready (or fails to build).
   const apiRef = useRef<DecisionService | null>(null);
@@ -122,7 +126,7 @@ export default function AppShell({ service }: AppShellProps = {}): JSX.Element {
     let active = true;
     let api: DecisionService;
     try {
-      api = service ?? createDecisionServiceClient();
+      api = injectedService ?? createDecisionServiceClient();
     } catch (error) {
       if (active) {
         const message = errorMessage(error);
@@ -134,6 +138,7 @@ export default function AppShell({ service }: AppShellProps = {}): JSX.Element {
       return () => { active = false; };
     }
     apiRef.current = api;
+    setService(api);
 
     async function loadQuality(): Promise<void> {
       try {
@@ -149,7 +154,7 @@ export default function AppShell({ service }: AppShellProps = {}): JSX.Element {
     void loadQuality();
     void runWith(buildRunRequest(DEFAULT_OPTION_ID, BASELINE_CRITERIA));
     return () => { active = false; };
-  }, [service, runWith]);
+  }, [injectedService, runWith]);
 
   const handleRun = useCallback(() => {
     void runWith(buildRunRequest(optionId, baselineCriteria));
@@ -187,9 +192,11 @@ export default function AppShell({ service }: AppShellProps = {}): JSX.Element {
           id="region-interactive-map"
           label="Interactive map"
           ariaLabel="Interactive map"
-          body={engine ? (
-            <p>{engine.results.length} ranked cells loaded from the engine; map rendering follows in S3-03a.</p>
-          ) : loadingText ?? "No engine output is available."}
+          body={
+            service
+              ? <CellMap runId={engine?.run.run_id ?? null} service={service} />
+              : loadingText ?? "No engine output is available."
+          }
         />
         <PlaceholderRegion
           id="region-ranked-results"

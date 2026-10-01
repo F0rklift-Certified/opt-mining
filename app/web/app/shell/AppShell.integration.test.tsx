@@ -4,6 +4,32 @@ import type { DecisionService } from "../api/decision-service";
 import { BASELINE_CRITERIA } from "./AnalysisControls";
 import AppShell from "./AppShell";
 
+// jsdom has no WebGL, so CellMap's maplibregl.Map is mocked. The mock records
+// the load callback and exposes a setData spy so the map lifecycle runs without
+// a GL context; see CellMap.test.tsx for the detailed assertions.
+jest.mock("maplibre-gl", () => {
+  class MockMap {
+    private handlers: Record<string, () => void> = {};
+    on(event: string, cb: () => void) {
+      this.handlers[event] = cb;
+      if (event === "load") cb();
+    }
+    addControl() {}
+    addSource() {}
+    addLayer() {}
+    getSource() {
+      return { setData: jest.fn() };
+    }
+    remove() {}
+  }
+  return {
+    __esModule: true,
+    default: { Map: MockMap, NavigationControl: class {} },
+    Map: MockMap,
+    NavigationControl: class {},
+  };
+});
+
 function serviceWithFlaggedDataset(): DecisionService {
   return {
     runAnalysis: jest.fn().mockResolvedValue({
@@ -32,6 +58,11 @@ function serviceWithFlaggedDataset(): DecisionService {
         { name: "unique cell ids", expected: "unique", observed: "unique", passed: true },
       ],
     }),
+    getRunCells: jest.fn().mockResolvedValue({
+      type: "FeatureCollection",
+      run_id: "run-wind-1",
+      features: [],
+    }),
   };
 }
 
@@ -47,7 +78,12 @@ describe("AppShell service integration", () => {
     expect(await screen.findByText("run-wind-1")).toBeInTheDocument();
     expect(screen.getAllByText("S30.100_E151.200")).toHaveLength(2);
     expect(screen.getAllByText("0.912")).toHaveLength(2);
-    expect(screen.getByText("2 ranked cells loaded from the engine; map rendering follows in S3-03a.")).toBeInTheDocument();
+    // The interactive-map region now renders the CellMap container (not the old
+    // placeholder copy); CellMap requests the Run's cells via the shared client.
+    expect(screen.getByLabelText("Interactive cell map")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(service.getRunCells).toHaveBeenCalledWith("run-wind-1");
+    });
 
     await waitFor(() => {
       expect(service.runAnalysis).toHaveBeenCalledWith({

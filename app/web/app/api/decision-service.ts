@@ -5,6 +5,8 @@
  * produced from the live FastAPI OpenAPI document.  This wrapper only names
  * the six service operations and turns non-2xx responses into one consistent
  * error; it contains no decision or data-transformation logic.
+ *
+ * S3-03a adds the seventh operation, `getRunCells`, the map's single data path.
  */
 import createClient from "openapi-fetch";
 
@@ -21,6 +23,7 @@ export type ScenarioComparisonRequest =
   components["schemas"]["ScenarioComparisonRequest"];
 export type ScenarioComparison = components["schemas"]["ScenarioComparison"];
 export type DataQualityStatus = components["schemas"]["DataQualityStatus"];
+export type CellCollection = components["schemas"]["CellCollection"];
 
 export interface RankedResultsFilter {
   top_n?: number | null;
@@ -39,6 +42,7 @@ export interface DecisionService {
     request: ScenarioComparisonRequest,
   ): Promise<ScenarioComparison>;
   getDataQuality(): Promise<DataQualityStatus>;
+  getRunCells(runId: string): Promise<CellCollection>;
 }
 
 export class DecisionServiceError extends Error {
@@ -129,6 +133,15 @@ export function createDecisionServiceClient(
 
     async getDataQuality() {
       const { data, error, response } = await client.GET("/data-quality");
+      if (data === undefined) throw new DecisionServiceError(response.status, error);
+      return data;
+    },
+
+    async getRunCells(runId) {
+      const { data, error, response } = await client.GET(
+        "/runs/{run_id}/cells",
+        { params: { path: { run_id: runId } } },
+      );
       if (data === undefined) throw new DecisionServiceError(response.status, error);
       return data;
     },
