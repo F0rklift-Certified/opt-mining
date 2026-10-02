@@ -149,7 +149,7 @@ def test_property_1_every_declared_route_is_a_frozen_operation(data):
     )
 
 
-def test_declared_endpoint_set_equals_the_six_frozen_operations_exactly():
+def test_declared_endpoint_set_equals_the_seven_frozen_operations_exactly():
     """The declared set equals the frozen set exactly — none extra, none missing.
 
     A single bidirectional set-equality: catches an extra route (superset) and a

@@ -393,9 +393,13 @@ export interface components {
              */
             eligible: boolean;
             /** Explanation */
-            explanation?: Record<string, unknown>;
+            explanation?: {
+                [key: string]: unknown;
+            };
             /** Features */
-            features?: Record<string, unknown>;
+            features?: {
+                [key: string]: unknown;
+            };
             /** Rank */
             rank?: number | null;
             /** Suitability Score */

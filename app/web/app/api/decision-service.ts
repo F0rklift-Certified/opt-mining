@@ -3,7 +3,7 @@
  *
  * Request and response shapes come exclusively from `generated.ts`, which is
  * produced from the live FastAPI OpenAPI document.  This wrapper only names
- * the six service operations and turns non-2xx responses into one consistent
+ * the seven service operations and turns non-2xx responses into one consistent
  * error; it contains no decision or data-transformation logic.
  *
  * S3-03a adds the seventh operation, `getRunCells`, the map's single data path.
