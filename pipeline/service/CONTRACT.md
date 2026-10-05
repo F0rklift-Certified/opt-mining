@@ -46,7 +46,7 @@ eligibility decision. The map and the ranking table therefore always represent
 | --- | --- | --- | --- |
 | Scored_Table | S2-05 `pipeline/scoring/` | `DATA/scoring/optmining_suitability-score_2026_nsw.gpkg` (+ `.csv`) | layer `suitability_score` |
 | Eligibility_Table | S2-03 `pipeline/exclusions/` | `DATA/exclusions/optmining_exclusions_2024_nsw.gpkg` | layer default |
-| Explanation_Structure | S2-06 `pipeline/explanation/` | `DATA/explanation/optmining_site-explanations_2026_nsw.json` (+ `.csv`) | JSON records |
+| Explanation_Structure | S2-06 `pipeline/explanation/` | `DATA/service/runs/{run_id}/explanations.json`; packaged JSON only for legacy manifests | JSON records generated with that Run's weights |
 | Scenario presets | S2-07 `pipeline/scoring/scenarios.yaml` | packaged with the engine | named weight sets |
 | Data_Quality_Status | S2-02 `pipeline/validate.py` | `DATA/integration/metadata/integrated_input_validation.json` | check-record JSON |
 
@@ -270,6 +270,16 @@ field; `[T]` denotes an array of `T`.
 | `run_id` | `string` | Identifier for the materialised Run; used in the `GET /runs/{run_id}/...` paths. |
 | `weights_id` | `string` | Stable identifier of the weight set used (the scenario key, or a content-derived id for explicit weights). |
 | `scenario` | `string \| null` | The named Scenario, when the Run was launched from one; `null` for an explicit-weights Run. |
+| `criteria` | `[object] \| null`, optional | Actual resolved feature, relative weight and direction used by the engine. Added in 1.1; legacy handles can omit it. |
+| `input_sha256` | `string \| null`, optional | Frozen integrated input used by this Run. Added in 1.1. |
+
+New materialisations derive their identity from the resolved weights, scenario,
+integrated input hash and explanation-template hash. They publish the manifest
+only after score and scenario-specific explanation artefacts are complete.
+Reads reject input/eligibility drift rather than mixing versions. The default
+single-process API serialises first materialisations across its worker threads;
+multi-process/shared-store deployment requires an inter-process lock and is not
+claimed by the local MVP.
 
 ### `Weights` (request sub-model for `run_analysis`)
 
@@ -298,6 +308,7 @@ duplicate validator.
 | `suitability_score` | `number` | The S2-05 score in `[0, 1]` (never recomputed). |
 | `rank` | `integer` | The S2-05 rank (1 = highest-ranked); preserved under any filter. |
 | `key_components` | `{string: number}` | Per-criterion component values for the cell (the `contrib_{feature}` shares), keyed by criterion `feature`. |
+| `centroid_lat`, `centroid_lon` | `number \| null`, optional | Original EPSG:4326 grid centroids carried by the scored table. Added in 1.1; no reprojection. |
 
 ### `SiteDetail` (Requirement 6.2, 6.3)
 
@@ -336,6 +347,7 @@ An **excluded** cell carries `cell_id`, `eligible = false`, `exclusion_reasons`
 | `cell_id` | `string` | Analysis-cell id. |
 | `reason_codes` | `[string]` | Machine-readable exclusion rule codes (the `triggered_rules` / `exclusion_reasons[].code` vocabulary from S2-03/F16). |
 | `reason_text` | `string` | Human-readable reason(s), joined in rule-config order. |
+| `centroid_lat`, `centroid_lon` | `number \| null`, optional | Original EPSG:4326 grid centroids joined from the Run's frozen input, not recomputed. Added in 1.1. |
 
 ### `ScenarioComparison` (Requirement 1.5)
 
@@ -418,6 +430,7 @@ returned as empty sets with a `200`, **never** as an error (Requirement 7.4).
 | Version | Date | Change | Process |
 | --- | --- | --- | --- |
 | 1.0 | Sprint 2/3 boundary | Initial frozen contract: six operations, endpoint mapping, data models, weights interpretation, error handling. | Frozen per Requirement 6.5. |
+| 1.1 | 2026-10-05 | Add optional actual criterion weights/input hash and original centroids; serve full contextual features and S2-06 explanations materialised with each Run's weights. Enforce the existing positive Top N request constraint with HTTP 422. Six operations and decision arithmetic are unchanged. | S3-10 approved repair; FastAPI snapshot and generated web client updated together; pass-through/property, real-data and browser regression evidence in docs/release. Maintainer review remains required before merge. |
 
 Any post-freeze change to this contract or the published OpenAPI schema follows
 the Decision_Engine_Spec §8 change-control process, bumps the version above, and

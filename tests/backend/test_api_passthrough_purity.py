@@ -299,10 +299,23 @@ def test_post_runs_is_pure_passthrough(handle: RunHandle, scenario):
 
 
 @_PBT
+@given(top_n=st.integers(min_value=-100_000, max_value=0))
+def test_nonpositive_display_filter_is_rejected_before_service(top_n):
+    """Transport validation rejects invalid Top N; it never edits engine output."""
+    stub, restore = _patched("get_ranked_results", [])
+    try:
+        response = client.get("/runs/abc/results", params={"top_n": top_n})
+        assert response.status_code == 422
+        assert stub.calls == []
+    finally:
+        restore()
+
+
+@_PBT
 @given(
     rows=st.lists(_ranked_rows(), max_size=8),
     run_id=st.text(alphabet="abcdef0123456789", min_size=1, max_size=16),
-    top_n=st.one_of(st.none(), st.integers(min_value=0, max_value=1000)),
+    top_n=st.one_of(st.none(), st.integers(min_value=1, max_value=1000)),
     min_score=st.one_of(st.none(), _scores),
 )
 def test_get_results_is_pure_passthrough(rows, run_id, top_n, min_score):

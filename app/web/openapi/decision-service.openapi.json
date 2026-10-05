@@ -85,6 +85,28 @@
             "title": "Cell Id",
             "type": "string"
           },
+          "centroid_lat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Centroid Lat"
+          },
+          "centroid_lon": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Centroid Lon"
+          },
           "reason_codes": {
             "items": {
               "type": "string"
@@ -124,6 +146,28 @@
             "title": "Cell Id",
             "type": "string"
           },
+          "centroid_lat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Centroid Lat"
+          },
+          "centroid_lon": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Centroid Lon"
+          },
           "key_components": {
             "additionalProperties": {
               "type": "number"
@@ -151,6 +195,35 @@
       "RunHandle": {
         "description": "Identifies one materialised Run (CONTRACT.md \u00a75).",
         "properties": {
+          "criteria": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Criteria"
+          },
+          "input_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Sha256"
+          },
           "run_id": {
             "title": "Run Id",
             "type": "string"
@@ -313,10 +386,12 @@
             "type": "boolean"
           },
           "explanation": {
+            "additionalProperties": true,
             "title": "Explanation",
             "type": "object"
           },
           "features": {
+            "additionalProperties": true,
             "title": "Features",
             "type": "object"
           },
@@ -401,7 +476,7 @@
   "info": {
     "description": "The frozen S2-08 Decision_Service exposed over HTTP + OpenAPI. Six operations, one per endpoint; the API delegates to the pure `pipeline.service` operations and holds no decision logic (CONTRACT.md \u00a71, \u00a72).",
     "title": "Opt-Mining Decision_Service",
-    "version": "1.0"
+    "version": "1.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -528,6 +603,7 @@
             "schema": {
               "anyOf": [
                 {
+                  "minimum": 1,
                   "type": "integer"
                 },
                 {

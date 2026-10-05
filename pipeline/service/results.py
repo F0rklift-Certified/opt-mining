@@ -171,6 +171,8 @@ def get_ranked_results(
                 suitability_score=float(row[score_col]),
                 rank=int(row[rank_col]),
                 key_components=_key_components(row, contribution_columns),
+                centroid_lat=_opt_score(row.get("centroid_lat")),
+                centroid_lon=_opt_score(row.get("centroid_lon")),
             )
         )
 
@@ -315,13 +317,18 @@ def get_site_detail(run: RunHandle | str, cell_id: str) -> SiteDetail:
     feature_names = _run_feature_names(run_id)
     if not feature_names:
         feature_names = list(contributions.keys())
+    # Full raw/derived context, not just the six scoring columns. Coordinates,
+    # confidence and proxy provenance are copied from the input without inference.
+    from .runs import load_run_manifest
+    if load_run_manifest(run_id).get("explanations_json"):
+        feature_names = list(dict.fromkeys(feature_names + list(feature_row.index)))
     features = _features_for(feature_row, feature_names)
 
     eligible = bool(feature_row[_service_config.ELIGIBLE_COLUMN]) \
         if _service_config.ELIGIBLE_COLUMN in feature_row.index else False
 
     # The S2-06 Explanation_Structure, resolved by cell_id and carried verbatim.
-    explanation = load_explanations().get(cell_id, {})
+    explanation = load_explanations(run_id).get(cell_id, {})
 
     return SiteDetail(
         cell_id=cell_id,
@@ -467,7 +474,14 @@ def get_exclusions(run: RunHandle | str) -> list[ExcludedRow]:
     # shared engine output, so a missing Run fails honestly (Requirement 7.1).
     from .runs import load_run_manifest
 
-    load_run_manifest(run_id)
+    manifest = load_run_manifest(run_id)
+
+    coordinates = None
+    if manifest.get("eligibility_sha256"):
+        from ..common.geo import sha256_file
+        if sha256_file(_service_config.ELIGIBILITY_TABLE_PATH) != manifest["eligibility_sha256"]:
+            raise EngineOutputError("Run exclusion baseline has changed; rerun analysis")
+        coordinates = load_integrated_table(run_id).set_index("cell_id")
 
     table = load_eligibility_table()
 
@@ -496,6 +510,10 @@ def get_exclusions(run: RunHandle | str) -> list[ExcludedRow]:
                 cell_id=str(row[cell_col]),
                 reason_codes=codes,
                 reason_text=reason_text,
+                centroid_lat=_opt_score(coordinates.at[str(row[cell_col]), "centroid_lat"])
+                    if coordinates is not None else None,
+                centroid_lon=_opt_score(coordinates.at[str(row[cell_col]), "centroid_lon"])
+                    if coordinates is not None else None,
             )
         )
     return rows

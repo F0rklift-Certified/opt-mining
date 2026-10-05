@@ -42,6 +42,7 @@ import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
+from threading import Lock
 
 import geopandas as gpd
 import pandas as pd
@@ -55,8 +56,17 @@ from ..scoring.scenarios import load_scenarios
 from ..scoring.score import eligible_mask, score_and_rank
 from ..scoring.weights import ScoringConfigError, WeightsConfig, parse_weights
 from ..scoring.write import build_scored_table, write_scored_table
+from ..explanation import config as _explanation_config
+from ..explanation.load import assemble_explanation_inputs, _read_extra_columns
+from ..explanation.templates import load_templates
+from ..explanation.write import build_explanations, write_json
 from . import config
 from .models import RunHandle
+
+# Uvicorn's default single process dispatches sync handlers to worker threads.
+# Serialise first materialisations so identical POSTs cannot race the writers'
+# shared temporary paths. Cached reads remain outside this critical section.
+_MATERIALISATION_LOCK = Lock()
 
 
 def _canonical_weights_bytes(weights: WeightsConfig) -> bytes:
@@ -86,7 +96,7 @@ def _canonical_weights_bytes(weights: WeightsConfig) -> bytes:
     return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
-def _run_id_for(weights: WeightsConfig, scenario: str | None) -> str:
+def _run_id_for(weights: WeightsConfig, scenario: str | None, input_sha: str = "") -> str:
     """
     Stable `run_id` for a resolved Run.
 
@@ -97,6 +107,9 @@ def _run_id_for(weights: WeightsConfig, scenario: str | None) -> str:
     """
     digest = hashlib.sha256()
     digest.update(_canonical_weights_bytes(weights))
+    if input_sha:
+        digest.update(input_sha.encode("ascii"))
+        digest.update(sha256_file(_explanation_config.DEFAULT_TEMPLATES_PATH).encode("ascii"))
     if scenario is not None:
         digest.update(b"\x00scenario=")
         digest.update(scenario.encode("utf-8"))
@@ -191,6 +204,14 @@ def _materialise(
     csv_path = target / config.SCORED_CSV_FILENAME
     write_scored_table(table, gpkg_path, csv_path)
 
+    # Materialise S2-06 output with THIS Run's weights before publishing its
+    # manifest. Reads serve this output verbatim, never a default-scenario text.
+    inputs = assemble_explanation_inputs(table, features, weights,
+        _read_extra_columns(integrated_path), gpkg_path, integrated_path)
+    explanations = build_explanations(inputs.cells,
+        load_templates(_explanation_config.DEFAULT_TEMPLATES_PATH), inputs.excluded_cells)
+    write_json(explanations, target / "explanations.json")
+
     manifest = {
         "run_id": run_id,
         "weights_id": weights_id,
@@ -200,6 +221,8 @@ def _materialise(
             for c in weights.criteria
         ],
         "confidence_discount": weights.confidence_discount,
+        "explanations_json": "explanations.json",
+        "eligibility_sha256": sha256_file(config.ELIGIBILITY_TABLE_PATH),
         "scored_table_gpkg": config.SCORED_GPKG_FILENAME,
         "scored_table_csv": config.SCORED_CSV_FILENAME,
         "scored_table_layer": config.SCORED_LAYER,
@@ -219,7 +242,13 @@ def _materialise(
             f"{len(table):,} cells) -> {gpkg_path}"
         )
 
-    return RunHandle(run_id=run_id, weights_id=weights_id, scenario=scenario)
+    return _handle_from_manifest(manifest)
+
+
+def _handle_from_manifest(manifest: dict) -> RunHandle:
+    return RunHandle(run_id=manifest["run_id"], weights_id=manifest["weights_id"],
+        scenario=manifest.get("scenario"), criteria=manifest.get("criteria"),
+        input_sha256=manifest.get("integrated_sha256"))
 
 
 def _atomic_write_json(path: Path, obj: dict) -> None:
@@ -252,17 +281,21 @@ def materialise_run(
     weights/scenario, creating no Run (Requirement 4.4).
     """
     resolved, scenario_key, weights_id = resolve_weights(weights, scenario)
-    run_id = _run_id_for(resolved, scenario_key)
+    run_id = _run_id_for(resolved, scenario_key, sha256_file(config.INTEGRATED_PATH))
 
     target = run_dir(run_id)
     manifest_path = target / config.RUN_MANIFEST_FILENAME
     gpkg_path = target / config.SCORED_GPKG_FILENAME
-    if manifest_path.exists() and gpkg_path.exists():
+    if manifest_path.exists() and gpkg_path.exists() and (target / "explanations.json").exists():
         if verbose:
             print(f"  reusing materialised run {run_id}")
-        return RunHandle(run_id=run_id, weights_id=weights_id, scenario=scenario_key)
+        return _handle_from_manifest(load_run_manifest(run_id))
 
-    return _materialise(run_id, resolved, scenario_key, weights_id, verbose)
+    with _MATERIALISATION_LOCK:
+        # Another request may have completed while this one waited.
+        if manifest_path.exists() and gpkg_path.exists() and (target / "explanations.json").exists():
+            return _handle_from_manifest(load_run_manifest(run_id))
+        return _materialise(run_id, resolved, scenario_key, weights_id, verbose)
 
 
 # --------------------------------------------------------------------------- #
@@ -411,6 +444,10 @@ def load_integrated_table(run_id: str) -> gpd.GeoDataFrame:
             f"{integrated_path}. The engine input the Run scored is absent; "
             f"regenerate the integrated table or re-run the analysis."
         )
+    expected_sha = manifest.get("integrated_sha256")
+    if expected_sha and sha256_file(integrated_path) != expected_sha:
+        raise EngineOutputError(f"Run {run_id!r} input baseline has changed; rerun analysis. "
+                                f"Recorded input: {integrated_path}")
     try:
         table = gpd.read_file(integrated_path, layer=integrated_layer)
     except Exception as exc:  # noqa: BLE001 — any read failure is fatal and named
@@ -426,7 +463,7 @@ def load_integrated_table(run_id: str) -> gpd.GeoDataFrame:
     return table
 
 
-def load_explanations() -> dict[str, dict]:
+def load_explanations(run_id: str | None = None) -> dict[str, dict]:
     """
     Load the materialised S2-06 Explanation_Structure records, keyed by cell_id.
 
@@ -445,6 +482,11 @@ def load_explanations() -> dict[str, dict]:
         fabricating a result (Requirement 7.3).
     """
     path = Path(config.EXPLANATION_PATH)
+    if run_id is not None:
+        manifest = load_run_manifest(run_id)
+        filename = manifest.get("explanations_json")
+        if filename:
+            path = run_dir(run_id) / filename
     if not path.exists():
         raise EngineOutputError(
             f"Explanation output is missing: {path}. Run "

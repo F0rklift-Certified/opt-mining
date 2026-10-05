@@ -69,7 +69,7 @@ from pipeline.service.runs import (
     RunNotFoundError,
 )
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -98,7 +98,7 @@ app = FastAPI(
         "`pipeline.service` operations and holds no decision logic "
         "(CONTRACT.md §1, §2)."
     ),
-    version="1.0",
+    version="1.1",
 )
 
 # ---------------------------------------------------------------------------
@@ -189,7 +189,7 @@ for _fault_type, _status in _STATUS_FOR_FAULT.items():
 # ---------------------------------------------------------------------------
 
 
-@app.post("/runs", response_model=RunHandle)
+@app.post("/runs", response_model=RunHandle, response_model_exclude_unset=True)
 def create_run(request: RunRequest) -> dict:
     """`run_analysis` — materialise a Run under the given weights or scenario.
 
@@ -202,11 +202,11 @@ def create_run(request: RunRequest) -> dict:
     return handle.to_dict()
 
 
-@app.get("/runs/{run_id}/results", response_model=list[RankedRow])
+@app.get("/runs/{run_id}/results", response_model=list[RankedRow], response_model_exclude_unset=True)
 def read_ranked_results(
     run_id: str,
-    top_n: int | None = None,
-    min_score: float | None = None,
+    top_n: int | None = Query(default=None, ge=1),
+    min_score: float | None = Query(default=None, allow_inf_nan=False),
 ) -> list[dict]:
     """`get_ranked_results` — the Run's ranked rows, optionally display-filtered.
 
@@ -225,7 +225,7 @@ def read_site_detail(run_id: str, cell_id: str) -> dict:
     return detail.to_dict()
 
 
-@app.get("/runs/{run_id}/exclusions", response_model=list[ExcludedRow])
+@app.get("/runs/{run_id}/exclusions", response_model=list[ExcludedRow], response_model_exclude_unset=True)
 def read_exclusions(run_id: str) -> list[dict]:
     """`get_exclusions` — the Run's excluded cells with their reasons."""
     rows = get_exclusions(run_id)

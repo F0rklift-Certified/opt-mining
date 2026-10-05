@@ -101,6 +101,8 @@ class RunHandle(BaseModel):
     run_id: str
     weights_id: str
     scenario: str | None = None
+    criteria: list[dict[str, Any]] | None = Field(default=None, json_schema_extra={"items": {"type": "object", "additionalProperties": True}})
+    input_sha256: str | None = None
 
 
 class RankedRow(BaseModel):
@@ -110,6 +112,8 @@ class RankedRow(BaseModel):
     suitability_score: float
     rank: int
     key_components: dict[str, float] = Field(default_factory=dict)
+    centroid_lat: float | None = None
+    centroid_lon: float | None = None
 
 
 class SiteDetail(BaseModel):
@@ -122,12 +126,12 @@ class SiteDetail(BaseModel):
     """
 
     cell_id: str
-    features: dict[str, Any] = Field(default_factory=dict)
+    features: dict[str, Any] = Field(default_factory=dict, json_schema_extra={"additionalProperties": True})
     contributions: dict[str, float] = Field(default_factory=dict)
     suitability_score: float | None = None
     rank: int | None = None
     eligible: bool = False
-    explanation: dict[str, Any] = Field(default_factory=dict)
+    explanation: dict[str, Any] = Field(default_factory=dict, json_schema_extra={"additionalProperties": True})
 
 
 class ExcludedRow(BaseModel):
@@ -136,6 +140,8 @@ class ExcludedRow(BaseModel):
     cell_id: str
     reason_codes: list[str] = Field(default_factory=list)
     reason_text: str = ""
+    centroid_lat: float | None = None
+    centroid_lon: float | None = None
 
 
 class ScenarioComparisonRow(BaseModel):

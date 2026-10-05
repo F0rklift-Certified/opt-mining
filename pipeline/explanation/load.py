@@ -330,6 +330,18 @@ def load_explanation_inputs(
     # confidence_notes text. Read once here, indexed by cell_id.
     extra = _read_extra_columns(integrated_path)
 
+    return assemble_explanation_inputs(scored_table, features, weights, extra,
+                                       scored_table_path, integrated_path)
+
+
+def assemble_explanation_inputs(scored_table, features, weights, extra,
+                                scored_table_path, integrated_path) -> ExplanationInputs:
+    """Shared assembler for file-based builds and per-Run materialisation.
+
+    Reconciliation and qualitative bands still use the unchanged S2-06/S2-05
+    cores. A Run supplies its resolved weights, never the global default.
+    """
+
     # Bounds and the pure scoring core over the eligible population — the same
     # code the scoring stage runs, so the norms are the ones behind the scores.
     mask = eligible_mask(features)
