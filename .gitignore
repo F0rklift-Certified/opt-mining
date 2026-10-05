@@ -81,3 +81,6 @@ DATA/geographic/landuse/abares_nlum-alumv8_2020-21_nsw.tif
 # recreated on demand from the frozen integrated table. Ephemeral runtime
 # output, never custodial data. See pipeline/service/CONTRACT.md and runs.py.
 DATA/service/runs/
+# Browser test outputs are CI artefacts, not inputs or source files.
+app/web/test-results/
+app/web/playwright-report/

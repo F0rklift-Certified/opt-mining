@@ -1,5 +1,9 @@
 # Opt-Mining Web Stack (S3-01b — Decision-Service Integration)
 
+For the live demonstration and release gate, see
+[`docs/release/README.md`](../docs/release/README.md). S3-10 records the
+rehearsed technical demo and the remaining merge/client-acceptance dependencies.
+
 This directory holds the MVP web stack for the Opt-Mining decision tool:
 
 - **`api/`** — the FastAPI **Backend_App**. It exposes the six frozen S2-08
@@ -23,7 +27,7 @@ Sprint 3 views should import that module rather than calling `fetch` directly.
 | Stack        | Requirement                                                              |
 | ------------ | ------------------------------------------------------------------------ |
 | Backend      | Python **3.13** (`>=3.13,<3.14` — the engine does not support 3.14)      |
-| Frontend     | Node **>= 20**                                                           |
+| Frontend     | Node **24 LTS** (`>=24 <25`), Next.js 16 / React 19                       |
 | Full stack   | Docker + Docker Compose v2 (`docker compose`)                            |
 
 ---
@@ -70,7 +74,7 @@ Run from **`app/web/`**:
 
 ```bash
 cp .env.example .env.local   # set NEXT_PUBLIC_API_BASE_URL before starting
-npm install
+npm ci
 npm run dev        # -> next dev  (http://localhost:3000)
 ```
 
@@ -119,7 +123,7 @@ docker compose up --build
 
 This builds and starts both services in one command:
 
-- Backend (`api`) published on the host at <http://localhost:8000> (`/docs ,
+- Backend (`api`) published on the host at <http://localhost:8000> (`/docs`,
   `/openapi.json` reachable there).
 - Frontend (`web`) published on the host at <http://localhost:3000>.
 
@@ -176,12 +180,34 @@ Frontend verification runs from `app/web/`:
 npm test -- --runInBand
 npm run typecheck
 npm run build
+npm audit
 ```
 
 The tests cover all six typed client operations, flagged and unavailable
 data-quality states, real service values rendered in the shell, the single
 integration-point rule, absence of decision arithmetic, and OpenAPI snapshot
 drift.
+
+The browser includes an offline NSW grid map, shared map/table selection,
+service-owned display filters, excluded-site inspection, full engine explanations
+and an engine-owned scenario comparison. No web scoring logic is introduced.
+
+For the real production-stack browser test, start Compose first, then run from
+`app/web/` (Node 24):
+
+```bash
+npm ci
+npx playwright install chromium
+npm run test:e2e
+```
+
+For custom ports use `E2E_WEB_URL` and `E2E_API_URL`. The test has no HTTP mocks:
+it compares rendered IDs/explanations with actual API values, clicks the map,
+inspects an excluded cell and verifies scenario changes. Linux CI installs
+browser system dependencies with `npx playwright install --with-deps chromium`.
+
+Next.js 16 removed `next lint`; the obsolete script is removed. Type checking,
+scope-boundary tests, Jest and the real browser gate remain explicit commands.
 
 ### Verify the running application
 

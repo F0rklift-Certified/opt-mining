@@ -86,6 +86,35 @@ jobs:
       - name: Verify browser-facing service operations
         run: python3 app/smoke_test.py
 
+      - name: Record S3-10 live service rehearsal
+        # API success is technical evidence; missing web/client acceptance is
+        # retained as BLOCKED in the report rather than silently marked done.
+        run: python3 app/rehearse_demo.py --output outputs/s3-10-rehearsal.json
+
+      - name: Set up browser-test Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+
+      - name: Test real browser against Compose
+        working-directory: app/web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+
+      - name: Save S3-10 rehearsal evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s3-10-live-rehearsal
+          path: |
+            outputs/s3-10-rehearsal.json
+            app/web/test-results/
+          if-no-files-found: warn
+
       - name: Show container logs on failure
         if: failure()
         working-directory: app
@@ -97,7 +126,7 @@ jobs:
         run: docker compose down
 
   frontend:
-    name: Frontend (Node 20)
+    name: Frontend (Node 24)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -107,10 +136,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
-      - name: Set up Node 20
+      - name: Set up Node 24
         uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: app/web/package-lock.json
 
