@@ -49,37 +49,43 @@ from pipeline.scoring.weights import Criterion, WeightsConfig, load_weights
 from pipeline.scoring.write import build_scored_table, write_scored_table
 
 
+# Reviewed snapshot update — statewide-coverage fix (FEAT-003). The S2-02
+# baseline was deliberately re-frozen after the exclusions stage was migrated to
+# statewide NSW coverage (join of the wind + geographic + demand feature tables)
+# and the missing_demand_data rule was added, so every pinned value below moves
+# from the old New-England-window baseline (8b300ca5…c196fd, 1,233 eligible) to
+# the statewide baseline. See .agents/tasks/nsw-wind-coverage/statewide-fix.
 FROZEN_INTEGRATED_SHA256 = (
-    "8b300ca520ff42028fbb7b09024916580c105967c92fa8ade575c4e006c196fd"
+    "1e5f5a1c73ed14de356866105db128fffbcb780cae8c835fff804750fbed87cc"
 )
 FROZEN_ROWS = 47_311
-FROZEN_ELIGIBLE_ROWS = 1_233
-FROZEN_EXCLUDED_ROWS = 46_078
+FROZEN_ELIGIBLE_ROWS = 32_525
+FROZEN_EXCLUDED_ROWS = 14_786
 
 EXPECTED_BASELINE_TOP_FIVE = (
-    ("S30.186_E151.636", 0.9324172958364101),
-    ("S30.636_E151.586", 0.9304033540651924),
-    ("S30.086_E151.686", 0.9241267054330178),
-    ("S30.236_E151.586", 0.9237187266324157),
-    ("S30.286_E151.636", 0.9236170726352617),
+    ("S31.186_E151.686", 0.9205203606505237),
+    ("S32.436_E149.086", 0.9197696937823575),
+    ("S30.186_E151.636", 0.9181371600411556),
+    ("S32.436_E149.036", 0.9179498613593562),
+    ("S32.486_E149.086", 0.9170993549990476),
 )
 EXPECTED_WIND_LED_TOP_FIVE = (
-    "S30.086_E151.686",
-    "S30.086_E151.736",
-    "S30.186_E151.636",
-    "S30.236_E151.586",
-    "S30.286_E151.636",
+    "S31.186_E151.686",
+    "S31.186_E151.736",
+    "S31.136_E151.686",
+    "S31.236_E151.686",
+    "S32.436_E149.086",
 )
 EXPECTED_GRID_LED_TOP_FIVE = (
-    "S30.636_E151.586",
-    "S30.286_E151.636",
-    "S30.136_E151.686",
-    "S30.236_E151.586",
-    "S30.286_E151.686",
+    "S32.436_E149.086",
+    "S32.486_E149.086",
+    "S30.186_E151.636",
+    "S30.086_E151.736",
+    "S30.086_E151.686",
 )
-EXPECTED_SCENARIO_RANK_CHANGES = 1_228
+EXPECTED_SCENARIO_RANK_CHANGES = 32_519
 EXPECTED_EXPLANATION_SHA256 = (
-    "dabe4f4c74d927dbabc3ede1cd2a5b930c72fcf3a40322f962045228330a05a9"
+    "429b704b1d25376b2c731755e0b93719a119600dec2f9dd298d5549e70a5a691"
 )
 TOLERANCE = 1e-12
 

@@ -172,6 +172,7 @@ class TestPackagedDefaultRulesFile:
             "urban_area",
             "offshore_or_marine",
             "missing_slope_data",
+            "missing_demand_data",
         }
 
     def test_slope_threshold_matches_project_default(self):
@@ -240,6 +241,7 @@ def _clean_fields(**overrides):
         "urban_area": False,
         "wind_speed_100m_ms": 8.0,
         "on_land": True,
+        "demand_proxy": 100.0,
     }
     fields.update(overrides)
     return fields
@@ -315,6 +317,21 @@ class TestEachRuleIndependently:
         assert eligible is False
         assert triggered == ["missing_slope_data"]
 
+    def test_missing_demand_data_rule_alone(self, default_rules):
+        """A null demand_proxy excludes via missing_demand_data (demand_proxy is a
+        scored criterion, so a null must exclude rather than silently pass)."""
+        fields = _clean_fields(demand_proxy=None)
+        eligible, reason, triggered = rules_mod.evaluate_cell(fields, default_rules)
+        assert eligible is False
+        assert reason == "Missing demand data"
+        assert triggered == ["missing_demand_data"]
+
+    def test_missing_demand_data_matches_nan_too(self, default_rules):
+        fields = _clean_fields(demand_proxy=float("nan"))
+        eligible, _reason, triggered = rules_mod.evaluate_cell(fields, default_rules)
+        assert eligible is False
+        assert triggered == ["missing_demand_data"]
+
     def test_multiple_reasons_are_joined_and_all_rules_fire_independently(self, default_rules):
         """Rules are evaluated independently — a cell can fail more than one."""
         fields = _clean_fields(
@@ -331,8 +348,8 @@ class TestEachRuleIndependently:
         eligible, _reason, triggered = rules_mod.evaluate_cell({}, default_rules)
         assert eligible is False
         # Absent fields read as None -> only the is_null rules fire (never a
-        # numeric/equality rule): wind and slope are both absent here.
-        assert triggered == ["missing_wind_data", "missing_slope_data"]
+        # numeric/equality rule): wind, slope and demand are all absent here.
+        assert triggered == ["missing_wind_data", "missing_slope_data", "missing_demand_data"]
 
 
 class TestEvaluateCellDetailed:
@@ -529,26 +546,28 @@ def _make_cell(lon, lat, cell_id, half=0.025):
 @pytest.fixture
 def synthetic_pipeline(tmp_path, monkeypatch):
     """
-    Six synthetic cells, one clean and one per default rule, wired up as the
+    Seven synthetic cells, one clean and one per default rule, wired up as the
     JOINED per-cell feature tables the migrated stage now reads — a synthetic
-    geographic feature table and a synthetic wind feature table, both keyed on
-    cell_id — via monkeypatched pipeline.exclusions.config paths so
-    apply.run() exercises the real read_feature_tables + join path end to end
-    without touching the real DATA/ tree.
+    geographic feature table, a synthetic wind feature table and a synthetic
+    demand-proxy feature table, all keyed on cell_id — via monkeypatched
+    pipeline.exclusions.config paths so apply.run() exercises the real
+    read_feature_tables + join path end to end without touching the real
+    DATA/ tree.
 
     Post-migration there is no raw-source sampling and no urban coverage
-    window: every field is read straight from the two feature tables, so each
-    cell's field values are set directly here.
+    window: every field is read straight from the three feature tables, so
+    each cell's field values are set directly here.
     """
     # --- cells (one clean, one per rule) ---
     specs = [
-        # cell_id,         lon,     lat,  slope, land_use, protected, name, urban, on_land, wind
-        ("CELL_CLEAN",     150.95, -30.0, 5.0,  "Grazing", False, "",             False, True,  8.0),
-        ("CELL_PROTECTED", 151.00, -30.0, 5.0,  "Grazing", True,  "Test Reserve", False, True,  8.0),
-        ("CELL_STEEP",     151.05, -30.0, 20.0, "Grazing", False, "",             False, True,  8.0),
-        ("CELL_URBAN",     151.10, -30.0, 5.0,  "Urban",   False, "",             True,  True,  8.0),
-        ("CELL_OFFSHORE",  153.40, -30.0, 5.0,  "Grazing", False, "",             False, False, 8.0),
-        ("CELL_NO_WIND",   151.90, -30.0, 5.0,  "Grazing", False, "",             False, True,  None),
+        # cell_id,         lon,     lat,  slope, land_use, protected, name, urban, on_land, wind, demand
+        ("CELL_CLEAN",     150.95, -30.0, 5.0,  "Grazing", False, "",             False, True,  8.0,  100.0),
+        ("CELL_PROTECTED", 151.00, -30.0, 5.0,  "Grazing", True,  "Test Reserve", False, True,  8.0,  100.0),
+        ("CELL_STEEP",     151.05, -30.0, 20.0, "Grazing", False, "",             False, True,  8.0,  100.0),
+        ("CELL_URBAN",     151.10, -30.0, 5.0,  "Urban",   False, "",             True,  True,  8.0,  100.0),
+        ("CELL_OFFSHORE",  153.40, -30.0, 5.0,  "Grazing", False, "",             False, False, 8.0,  100.0),
+        ("CELL_NO_WIND",   151.90, -30.0, 5.0,  "Grazing", False, "",             False, True,  None, 100.0),
+        ("CELL_NO_DEMAND", 149.00, -35.4, 5.0,  "Grazing", False, "",             False, True,  8.0,  None),
     ]
 
     grid = gpd.GeoDataFrame(
@@ -569,7 +588,7 @@ def synthetic_pipeline(tmp_path, monkeypatch):
             "urban_area": urban,
             "on_land": on_land,
         }
-        for cid, lon, lat, slope, land_use, protected, name, urban, on_land, wind in specs
+        for cid, lon, lat, slope, land_use, protected, name, urban, on_land, wind, demand in specs
     ]
     geo_gdf = gpd.GeoDataFrame(
         geo_rows,
@@ -582,7 +601,7 @@ def synthetic_pipeline(tmp_path, monkeypatch):
     # --- synthetic wind feature table (wind_features layer) ---
     wind_rows = [
         {"cell_id": cid, "wind_speed_100m": wind}
-        for cid, lon, lat, slope, land_use, protected, name, urban, on_land, wind in specs
+        for cid, lon, lat, slope, land_use, protected, name, urban, on_land, wind, demand in specs
     ]
     wind_gdf = gpd.GeoDataFrame(
         wind_rows,
@@ -592,6 +611,19 @@ def synthetic_pipeline(tmp_path, monkeypatch):
     wind_path = tmp_path / "wind_features.gpkg"
     wind_gdf.to_file(wind_path, driver="GPKG", layer="wind_features")
 
+    # --- synthetic demand-proxy feature table (demand_proxy layer) ---
+    demand_rows = [
+        {"cell_id": cid, "demand_proxy": demand}
+        for cid, lon, lat, slope, land_use, protected, name, urban, on_land, wind, demand in specs
+    ]
+    demand_gdf = gpd.GeoDataFrame(
+        demand_rows,
+        geometry=[grid.geometry.iloc[i] for i in range(len(demand_rows))],
+        crs="EPSG:4326",
+    )
+    demand_path = tmp_path / "demand_proxy.gpkg"
+    demand_gdf.to_file(demand_path, driver="GPKG", layer="demand_proxy")
+
     # --- wire up config ---
     monkeypatch.setattr(excl_config, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(excl_config, "GRID_PATH", grid_path)
@@ -599,6 +631,8 @@ def synthetic_pipeline(tmp_path, monkeypatch):
     monkeypatch.setattr(excl_config, "GEOGRAPHIC_FEATURE_LAYER", "geographic_features")
     monkeypatch.setattr(excl_config, "WIND_FEATURE_PATH", wind_path)
     monkeypatch.setattr(excl_config, "WIND_FEATURE_LAYER", "wind_features")
+    monkeypatch.setattr(excl_config, "DEMAND_FEATURE_PATH", demand_path)
+    monkeypatch.setattr(excl_config, "DEMAND_FEATURE_LAYER", "demand_proxy")
     monkeypatch.setattr(excl_config, "EXCLUSIONS_DIR", tmp_path / "out")
     monkeypatch.setattr(excl_config, "EXCLUSIONS_META_DIR", tmp_path / "out" / "metadata")
 
@@ -611,7 +645,7 @@ class TestApplyEndToEnd:
 
         result = run(verbose=False)
 
-        assert result["n_cells"] == 6
+        assert result["n_cells"] == 7
         assert result["validation"]["passed"] == result["validation"]["total"]
 
         table = gpd.read_file(result["eligibility_table"]).set_index("cell_id")
@@ -645,6 +679,12 @@ class TestApplyEndToEnd:
         assert table.loc["CELL_NO_WIND", "eligible"] == False  # noqa: E712
         assert "Missing wind data" in table.loc["CELL_NO_WIND", "exclusion_reason"]
 
+        # Null demand_proxy -> missing_demand_data (demand_proxy is a scored
+        # criterion, so a null must exclude the cell, not let it be scored).
+        assert table.loc["CELL_NO_DEMAND", "eligible"] == False  # noqa: E712
+        assert "Missing demand data" in table.loc["CELL_NO_DEMAND", "exclusion_reason"]
+        assert "missing_demand_data" in table.loc["CELL_NO_DEMAND", "triggered_rules"]
+
         # data_flags no longer carries the New-England urban coverage-window
         # note (removed in the feature-table migration): urban_area is now
         # statewide-definite from the joined geographic feature table. The
@@ -658,7 +698,7 @@ class TestApplyEndToEnd:
         result = run(verbose=False)
         report_text = Path(result["report"]).read_text()
         assert "Exclusion layer summary" in report_text
-        assert "Total cells: **6**" in report_text
+        assert "Total cells: **7**" in report_text
         assert "protected_area" in report_text
         # The report documents the machine+human paired reason schema.
         assert "Exclusion reason schema" in report_text
@@ -772,10 +812,11 @@ class TestValidateStructuredReasons:
 
     def test_new_rule_codes_validate_clean(self, tmp_path):
         """
-        The two new codes (missing_slope_data, offshore_or_marine) flow through
-        the same evaluate_cell_detailed path, so a cell excluded by either must
-        pass validate()'s exclusion_reasons↔triggered_rules consistency check
-        unchanged (confirms validate() needs no edit for the new vocabulary).
+        The new codes (missing_slope_data, offshore_or_marine,
+        missing_demand_data) flow through the same evaluate_cell_detailed
+        path, so a cell excluded by any must pass validate()'s
+        exclusion_reasons↔triggered_rules consistency check unchanged
+        (confirms validate() needs no edit for the extended vocabulary).
         """
         from pipeline.exclusions.apply import validate
 
@@ -794,6 +835,14 @@ class TestValidateStructuredReasons:
                 "triggered_rules": "offshore_or_marine",
                 "exclusion_reasons": json.dumps(
                     [{"code": "offshore_or_marine", "text": "Offshore or marine (not on land)"}]
+                ),
+            },
+            {
+                "cell_id": "C", "eligible": False,
+                "exclusion_reason": "Missing demand data",
+                "triggered_rules": "missing_demand_data",
+                "exclusion_reasons": json.dumps(
+                    [{"code": "missing_demand_data", "text": "Missing demand data"}]
                 ),
             },
         ]

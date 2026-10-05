@@ -2,17 +2,18 @@
 Exclusion layer stage — S1-07.
 
 Reads the common analysis grid and joins the per-cell feature tables the
-upstream stages produce (S1-06 geographic.features, S1-03 wind.features) on
-cell_id, evaluates the configured exclusion rules against the joined fields,
-and writes:
+upstream stages produce (S1-06 geographic.features, S1-03 wind.features,
+S1-04 demand) on cell_id, evaluates the configured exclusion rules against
+the joined fields, and writes:
 
     DATA/exclusions/optmining_exclusions_2024_nsw.gpkg    — Eligibility_Table
     DATA/exclusions/metadata/exclusion_summary.md          — method report
 
 The stage no longer re-samples raw rasters/vectors: every per-cell field
 (protected_area, protected_area_name, slope_deg, urban_area, on_land,
-wind_speed_100m_ms) comes from the statewide-NSW feature tables, joined on
-cell_id. See pipeline/exclusions/__init__.py for the migration note.
+wind_speed_100m_ms, demand_proxy) comes from the statewide-NSW feature
+tables, joined on cell_id. See pipeline/exclusions/__init__.py for the
+migration note.
 
 Importable entry point:
     from pipeline.exclusions.apply import run
@@ -139,13 +140,16 @@ def _read_feature_table(
     return gdf[["cell_id", *required_columns]]
 
 
-def read_feature_tables(n_grid_cells: int) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
+def read_feature_tables(
+    n_grid_cells: int,
+) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, gpd.GeoDataFrame]:
     """
-    Read the geographic and wind per-cell feature tables, each with its
-    explicit `layer=`, selecting only the columns the exclusion rules need.
+    Read the geographic, wind and demand per-cell feature tables, each with
+    its explicit `layer=`, selecting only the columns the exclusion rules
+    need.
 
-    Returns (geographic_df, wind_df), both keyed on cell_id with exactly
-    `n_grid_cells` rows (halt-on-mismatch, see `_read_feature_table`).
+    Returns (geographic_df, wind_df, demand_df), all keyed on cell_id with
+    exactly `n_grid_cells` rows (halt-on-mismatch, see `_read_feature_table`).
     """
     geographic = _read_feature_table(
         config.GEOGRAPHIC_FEATURE_PATH,
@@ -168,7 +172,14 @@ def read_feature_tables(n_grid_cells: int) -> tuple[gpd.GeoDataFrame, gpd.GeoDat
         ["wind_speed_100m"],
         n_grid_cells,
     )
-    return geographic, wind
+    demand = _read_feature_table(
+        config.DEMAND_FEATURE_PATH,
+        config.DEMAND_FEATURE_LAYER,
+        "Demand",
+        ["demand_proxy"],
+        n_grid_cells,
+    )
+    return geographic, wind, demand
 
 
 # ---------------------------------------------------------------------------
@@ -186,14 +197,14 @@ def build_cell_table(
     assemble the Eligibility_Table.
 
     Every eligibility field is read from the statewide-NSW feature tables
-    (geographic.features + wind.features) via an inner 1:1 join on cell_id —
-    nothing is re-sampled here and nothing depends on the grid's centroid
-    columns.
+    (geographic.features + wind.features + demand) via an inner 1:1 join on
+    cell_id — nothing is re-sampled here and nothing depends on the grid's
+    centroid columns.
     """
     n_cells = len(cells)
     if verbose:
-        print("    Reading geographic + wind feature tables (joined on cell_id)...")
-    geographic, wind = read_feature_tables(n_cells)
+        print("    Reading geographic + wind + demand feature tables (joined on cell_id)...")
+    geographic, wind, demand = read_feature_tables(n_cells)
 
     # Inner-join on cell_id. The grid frame carries the output geometry; the
     # feature tables carry the scalar fields. The join must be 1:1 and cover
@@ -203,6 +214,7 @@ def build_cell_table(
         cells[["cell_id", "geometry"]]
         .merge(geographic, on="cell_id", how="inner", validate="one_to_one")
         .merge(wind, on="cell_id", how="inner", validate="one_to_one")
+        .merge(demand, on="cell_id", how="inner", validate="one_to_one")
     )
     if len(joined) != n_cells:
         matched = set(joined["cell_id"])
@@ -226,6 +238,10 @@ def build_cell_table(
             # integration merge does for wind_speed_100m -> wind_speed).
             "wind_speed_100m_ms": rec.wind_speed_100m,
             "on_land": rec.on_land,
+            # demand_proxy is a scored criterion (S2-01); a null here must
+            # exclude the cell via the `missing_demand_data` rule rather than
+            # let it be scored on missing critical data.
+            "demand_proxy": rec.demand_proxy,
         }
         eligible, reason_pairs = rules_mod.evaluate_cell_detailed(fields, rules)
         # Derive the backward-compatible human string + machine name list from
@@ -350,12 +366,13 @@ def _write_report(
     out.write(
         "Every per-cell field is read from the statewide-NSW feature tables joined on "
         "`cell_id`: `protected_area` / `protected_area_name` / `slope_deg` / `urban_area` / "
-        "`on_land` from `geographic.features`, and `wind_speed_100m_ms` from `wind.features`. "
-        "Both tables carry a value for every one of the grid's cells, so the exclusion layer "
-        "now covers the full NSW grid rather than a windowed subset. A cell is still excluded "
-        "where a critical field is genuinely null (`missing_wind_data`, `missing_slope_data`) "
-        "or where its centre is offshore/marine (`offshore_or_marine`), per the Constitution's "
-        "\"where critical data is missing, exclude the cell\" rule.\n\n"
+        "`on_land` from `geographic.features`, `wind_speed_100m_ms` from `wind.features`, and "
+        "`demand_proxy` from `demand`. Each table carries a row for every one of the grid's "
+        "cells, so the exclusion layer now covers the full NSW grid rather than a windowed "
+        "subset. A cell is still excluded where a critical scored field is genuinely null "
+        "(`missing_wind_data`, `missing_slope_data`, `missing_demand_data`) or where its "
+        "centre is offshore/marine (`offshore_or_marine`), per the Constitution's \"where "
+        "critical data is missing, exclude the cell\" rule.\n\n"
     )
 
     out.write("## Rule configuration (verbatim)\n\n")

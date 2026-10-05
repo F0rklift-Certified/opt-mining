@@ -1,0 +1,436 @@
+{
+  "product_type": "derived",
+  "stage": "sanity",
+  "description": "Machine-readable results of the S1-12 preliminary-screening plausibility sanity check. Derived product; not custodial source data.",
+  "analysis_resolution": "~5 km (0.05 degree) analysis grid cell",
+  "preliminary_disclaimer": "This report is a preliminary-screening plausibility sanity check. It asks whether the pipeline's outputs make sense against known reality; it is NOT a formal accuracy assessment and NOT a site approval. Surprising results are documented honestly for investigation, and the model is never adjusted to make a check pass.",
+  "run_metadata": {
+    "run_timestamp": "2026-10-05T15:17:06+00:00",
+    "pipeline_version": "51508a48f87e609332a5148a92641695bb040fb2-dirty",
+    "n_cells": 47311,
+    "n_eligible": 32525,
+    "resolved_shortlist_path": "DATA/shortlist/sprint1_shortlist_20261005.geojson"
+  },
+  "checks": {
+    "known_wind_farm_comparison": {
+      "expectation": "Most operational wind farms are expected to fall in the Upper_Quartile (Percentile >= 75) of the Eligible_Cell score population.",
+      "n_known_farms": 16,
+      "n_upper_quartile": 13,
+      "proportion_upper_quartile": 0.8125,
+      "outcome": {
+        "label": "Upper_Quartile count",
+        "expected": "Most operational wind farms are expected to fall in the Upper_Quartile (Percentile >= 75) of the Eligible_Cell score population.",
+        "observed": "13 of 16 known wind farms in the Upper_Quartile (proportion 0.812)",
+        "passed": true
+      },
+      "table": [
+        {
+          "wind_farm": "Cullerin Range Wind Farm",
+          "cell_id": "S34.786_E149.386",
+          "score": 0.816095437034674,
+          "rank": 962.0,
+          "percentile": 97.04534973097617,
+          "in_upper_quartile": true,
+          "notes": "In Upper_Quartile (Percentile 97.0 >= 75), as expected."
+        },
+        {
+          "wind_farm": "Blayney Wind Farm",
+          "cell_id": "S33.636_E149.186",
+          "score": 0.76989826197092,
+          "rank": 4778.0,
+          "percentile": 85.31283627978478,
+          "in_upper_quartile": true,
+          "notes": "In Upper_Quartile (Percentile 85.3 >= 75), as expected."
+        },
+        {
+          "wind_farm": "Woodlawn Wind Farm",
+          "cell_id": "S35.086_E149.586",
+          "score": 0.8310405337744178,
+          "rank": 758.0,
+          "percentile": 97.67255956956187,
+          "in_upper_quartile": true,
+          "notes": "In Upper_Quartile (Percentile 97.7 >= 75), as expected."
+        },
+        {
+          "wind_farm": "Gunning",
+          "cell_id": "S34.686_E149.386",
+          "score": 0.8308971092932709,
+          "rank": 761.0,
+          "percentile": 97.66333589546502,
+          "in_upper_quartile": true,
+          "notes": "In Upper_Quartile (Percentile 97.7 >= 75), as expected."
+        },
+        {
+          "wind_farm": "Capital Hill Wind Farm",
+          "cell_id": "S35.136_E149.536",
+          "score": 0.8221859687842067,
+          "rank": 880.0,
+          "percentile": 97.29746348962337,
+          "in_upper_quartile": true,
+          "notes": "In Upper_Quartile (Percentile 97.3 >= 75), as expected."
+        },
+        {
+          "wind_farm": "Boco Rock",
+          "cell_id": "S36.586_E149.136",
+          "score": 0.740113105056953,
+          "rank": 11225.0,
+          "percentile": 65.49116064565719,
+          "in_upper_quartile": false,
+          "notes": "Percentile 65.5 (mid-range)."
+        },
+        {
+          "wind_farm": "Bango Wind Farm",
+          "cell_id": "S34.586_E148.836",
+          "score": 0.7719939629209982,
+          "rank": 4478.0,
+          "percentile": 86.23520368946964,
+          "in_upper_quartile": true,
+          "notes": "In Upper_Quartile (Percentile 86.2 >= 75), as expected."
+        },
+        {
+          "wind_farm": "Bodangora Wind Farm",
+          "cell_id": "S32.436_E149.086",
+          "score": 0.9197696937823575,
+          "rank": 2.0,
+          "percentile": 99.99692544196772,
+          "in_upper_quartile": true,
+          "notes": "In Upper_Quartile (Percentile 100.0 >= 75), as expected."
+        },
+        {
+          "wind_farm": "Gullen Range Wind Farm",
+          "cell_id": "S34.686_E149.486",
+          "score": 0.7864043864244066,
+          "rank": 2543.0,
+          "percentile": 92.18447348193698,
+          "in_upper_quartile": true,
+          "notes": "In Upper_Quartile (Percentile 92.2 >= 75), as expected."
+        },
+        {
+          "wind_farm": "Gullen Range Wind Farm",
+          "cell_id": "S34.636_E149.436",
+          "score": 0.8395731560164875,
+          "rank": 657.0,
+          "percentile": 97.98308993082244,
+          "in_upper_quartile": true,
+          "notes": "In Upper_Quartile (Percentile 98.0 >= 75), as expected."
+        },
+        {
+          "wind_farm": "Taralga Wind Farm",
+          "cell_id": "S34.436_E149.886",
+          "score": null,
+          "rank": null,
+          "percentile": null,
+          "in_upper_quartile": false,
+          "notes": "Containing cell 'S34.436_E149.886' is an Excluded_Cell (null suitability_score/rank); the farm sits in land the pipeline excluded. Recorded honestly; model NOT adjusted."
+        },
+        {
+          "wind_farm": "White Rock Solar Farm",
+          "cell_id": "S29.786_E151.536",
+          "score": 0.8396678627473029,
+          "rank": 655.0,
+          "percentile": 97.98923904688701,
+          "in_upper_quartile": true,
+          "notes": "In Upper_Quartile (Percentile 98.0 >= 75), as expected."
+        },
+        {
+          "wind_farm": "White Rock Wind Farm",
+          "cell_id": "S29.786_E151.536",
+          "score": 0.8396678627473029,
+          "rank": 655.0,
+          "percentile": 97.98923904688701,
+          "in_upper_quartile": true,
+          "notes": "In Upper_Quartile (Percentile 98.0 >= 75), as expected."
+        },
+        {
+          "wind_farm": "Sapphire Wind Farm",
+          "cell_id": "S29.686_E151.436",
+          "score": 0.8838163423913538,
+          "rank": 154.0,
+          "percentile": 99.52959262106073,
+          "in_upper_quartile": true,
+          "notes": "In Upper_Quartile (Percentile 99.5 >= 75), as expected."
+        },
+        {
+          "wind_farm": "Silverton Wind Farm",
+          "cell_id": "S31.786_E141.286",
+          "score": 0.7901870481985628,
+          "rank": 2119.0,
+          "percentile": 93.48808608762491,
+          "in_upper_quartile": true,
+          "notes": "In Upper_Quartile (Percentile 93.5 >= 75), as expected."
+        },
+        {
+          "wind_farm": "Rye Park Wind Farm",
+          "cell_id": "S34.786_E148.986",
+          "score": null,
+          "rank": null,
+          "percentile": null,
+          "in_upper_quartile": false,
+          "notes": "Containing cell 'S34.786_E148.986' is an Excluded_Cell (null suitability_score/rank); the farm sits in land the pipeline excluded. Recorded honestly; model NOT adjusted."
+        }
+      ]
+    },
+    "exclusion_validation": {
+      "n_passed": 6,
+      "n_failed": 0,
+      "all_passed": true,
+      "assertions": [
+        {
+          "landmark": "Sydney CBD",
+          "kind": "urban",
+          "lat": -33.8688,
+          "lon": 151.2093,
+          "cell_id": "S33.886_E151.186",
+          "expected": "ineligible / excluded / absent from grid",
+          "observed": "cell 'S33.886_E151.186': null suitability_score/rank in Scored_Table; eligible == False in Integrated_Feature_Table",
+          "passed": true
+        },
+        {
+          "landmark": "Newcastle",
+          "kind": "urban",
+          "lat": -32.9283,
+          "lon": 151.7817,
+          "cell_id": "S32.936_E151.786",
+          "expected": "ineligible / excluded / absent from grid",
+          "observed": "cell 'S32.936_E151.786': null suitability_score/rank in Scored_Table; eligible == False in Integrated_Feature_Table",
+          "passed": true
+        },
+        {
+          "landmark": "Wollongong",
+          "kind": "urban",
+          "lat": -34.4278,
+          "lon": 150.8931,
+          "cell_id": "S34.436_E150.886",
+          "expected": "ineligible / excluded / absent from grid",
+          "observed": "cell 'S34.436_E150.886': null suitability_score/rank in Scored_Table; eligible == False in Integrated_Feature_Table",
+          "passed": true
+        },
+        {
+          "landmark": "Blue Mountains NP",
+          "kind": "park",
+          "lat": -33.7,
+          "lon": 150.3,
+          "cell_id": "S33.686_E150.286",
+          "expected": "ineligible / excluded / absent from grid",
+          "observed": "cell 'S33.686_E150.286': null suitability_score/rank in Scored_Table; eligible == False in Integrated_Feature_Table",
+          "passed": true
+        },
+        {
+          "landmark": "Kosciuszko NP",
+          "kind": "park",
+          "lat": -36.456,
+          "lon": 148.263,
+          "cell_id": "S36.436_E148.286",
+          "expected": "ineligible / excluded / absent from grid",
+          "observed": "cell 'S36.436_E148.286': null suitability_score/rank in Scored_Table; eligible == False in Integrated_Feature_Table",
+          "passed": true
+        },
+        {
+          "landmark": "no offshore/ocean cell in the Analysis_Grid",
+          "kind": "offshore",
+          "lat": null,
+          "lon": null,
+          "cell_id": null,
+          "expected": "every grid cell resolves to a land/eligible-population membership",
+          "observed": "all 47311 grid cells resolve to a land/eligible-population membership in the Integrated_Feature_Table",
+          "passed": true
+        }
+      ]
+    },
+    "feature_value_spot_checks": {
+      "n_spot_cells": 8,
+      "verify_sources": {
+        "wind_speed": "open Global Wind Atlas (GWA) at the cell centroid",
+        "slope_deg": "a topographic reference (SRTM-derived slope)",
+        "dist_transmission_km": "a GIS distance measurement to the nearest transmission line",
+        "protected_area": "CAPAD protected-area lookup"
+      },
+      "rows": [
+        {
+          "cell_id": "S36.736_E147.136",
+          "centroid_lat": -36.736250000000005,
+          "centroid_lon": 147.13625000000002,
+          "score": 0.4207428142720584,
+          "score_band": "bottom",
+          "wind_speed": 2.2667002323269845,
+          "slope_deg": 14.81060277777778,
+          "dist_transmission_km": 70.3948684758775,
+          "protected": false,
+          "discrepancy": "",
+          "notes": ""
+        },
+        {
+          "cell_id": "S29.586_E143.886",
+          "centroid_lat": -29.58625,
+          "centroid_lon": 143.88625000000002,
+          "score": 0.624208850022851,
+          "score_band": "middle",
+          "wind_speed": 6.490643961429596,
+          "slope_deg": 0.7253666666666666,
+          "dist_transmission_km": 205.81632276132805,
+          "protected": false,
+          "discrepancy": "",
+          "notes": ""
+        },
+        {
+          "cell_id": "S32.386_E144.686",
+          "centroid_lat": -32.386250000000004,
+          "centroid_lon": 144.68625000000003,
+          "score": 0.6722342097443855,
+          "score_band": "middle",
+          "wind_speed": 6.599638428688049,
+          "slope_deg": 0.8627277777777778,
+          "dist_transmission_km": 145.37429207911214,
+          "protected": false,
+          "discrepancy": "",
+          "notes": ""
+        },
+        {
+          "cell_id": "S32.836_E145.836",
+          "centroid_lat": -32.83625,
+          "centroid_lon": 145.83625000000004,
+          "score": 0.7038351124494471,
+          "score_band": "middle",
+          "wind_speed": 6.307679566144944,
+          "slope_deg": 1.7127722222222224,
+          "dist_transmission_km": 73.83041959811044,
+          "protected": false,
+          "discrepancy": "",
+          "notes": ""
+        },
+        {
+          "cell_id": "S33.436_E145.886",
+          "centroid_lat": -33.43625,
+          "centroid_lon": 145.88625000000002,
+          "score": 0.7280503658523741,
+          "score_band": "middle",
+          "wind_speed": 6.381707170009613,
+          "slope_deg": 2.9227777777777777,
+          "dist_transmission_km": 34.07542317752822,
+          "protected": false,
+          "discrepancy": "",
+          "notes": ""
+        },
+        {
+          "cell_id": "S29.736_E147.186",
+          "centroid_lat": -29.736250000000005,
+          "centroid_lon": 147.18625000000003,
+          "score": 0.7487413165155059,
+          "score_band": "middle",
+          "wind_speed": 6.484906693696976,
+          "slope_deg": 0.792761111111111,
+          "dist_transmission_km": 28.81897922982988,
+          "protected": false,
+          "discrepancy": "",
+          "notes": ""
+        },
+        {
+          "cell_id": "S36.086_E148.936",
+          "centroid_lat": -36.08625,
+          "centroid_lon": 148.93625000000003,
+          "score": 0.7707080565564312,
+          "score_band": "middle",
+          "wind_speed": 7.138228422403335,
+          "slope_deg": 4.234041666666666,
+          "dist_transmission_km": 9.819247854184303,
+          "protected": false,
+          "discrepancy": "",
+          "notes": ""
+        },
+        {
+          "cell_id": "S31.186_E151.686",
+          "centroid_lat": -31.18625,
+          "centroid_lon": 151.68625000000003,
+          "score": 0.9205203606505237,
+          "score_band": "top",
+          "wind_speed": 8.161779322624206,
+          "slope_deg": 3.3216944444444443,
+          "dist_transmission_km": 23.2453707094105,
+          "protected": false,
+          "discrepancy": "",
+          "notes": ""
+        }
+      ]
+    },
+    "score_distribution": {
+      "stats": {
+        "min": 0.4207428142720584,
+        "max": 0.9205203606505237,
+        "mean": 0.7039369351754483,
+        "std": 0.07224251961744584,
+        "q1": 0.6622000354930965,
+        "median": 0.7160335137314593,
+        "q3": 0.7538451733107302
+      },
+      "cluster_fraction": 0.0,
+      "cluster_degenerate": false,
+      "cluster_passed": true,
+      "cluster_outcome": {
+        "label": "Degenerate-clustering",
+        "expected": "at most 0.5 of eligible scores clustered within 0.02 of 0 or 1 (a non-degenerate distribution)",
+        "observed": "0.0000 of eligible scores within 0.02 of 0 or 1 (threshold 0.5); degenerate=False",
+        "passed": true
+      },
+      "top_lat_range": [
+        -36.83625,
+        -29.386250000000004
+      ],
+      "top_lon_range": [
+        141.03625000000002,
+        153.03625000000002
+      ],
+      "rez_represented": [],
+      "wind_score_corr": 0.3878214008591571,
+      "corr_method": "spearman",
+      "corr_sign_expected_positive": true,
+      "corr_passed": true,
+      "correlation_outcome": {
+        "label": "Wind-versus-score correlation",
+        "expected": "Higher wind resource is expected to correspond to a higher suitability_score (wind_speed is a positively-weighted input criterion), so the wind-versus-score correlation is expected to be POSITIVE.",
+        "observed": "spearman correlation +0.3878 over 32525 eligible cells",
+        "passed": true
+      },
+      "expectation": "Higher wind resource is expected to correspond to a higher suitability_score (wind_speed is a positively-weighted input criterion), so the wind-versus-score correlation is expected to be POSITIVE.",
+      "n_eligible": 32525,
+      "notes": [
+        "REZs represented among the top cells not available: no REZ column is present on the eligible/grid frame."
+      ]
+    }
+  },
+  "issues_for_sprint_2": [
+    {
+      "check": "Known Wind Farm Comparison",
+      "description": "Known wind farm 'Taralga Wind Farm' locates to Excluded_Cell 'S34.436_E149.886' with a null suitability_score.",
+      "kind": "data_issue",
+      "investigation_note": "Distinguish a DATA issue from a MODEL result: an operational farm on excluded land usually means an exclusion layer (protected area, land use) or the generator coordinate is wrong. If the exclusion is genuinely correct at this resolution, it is a legitimate model result. Investigate the input before any change; the model is never adjusted to raise this cell's score."
+    },
+    {
+      "check": "Known Wind Farm Comparison",
+      "description": "Known wind farm 'Rye Park Wind Farm' locates to Excluded_Cell 'S34.786_E148.986' with a null suitability_score.",
+      "kind": "data_issue",
+      "investigation_note": "Distinguish a DATA issue from a MODEL result: an operational farm on excluded land usually means an exclusion layer (protected area, land use) or the generator coordinate is wrong. If the exclusion is genuinely correct at this resolution, it is a legitimate model result. Investigate the input before any change; the model is never adjusted to raise this cell's score."
+    }
+  ],
+  "transform_log": [
+    {
+      "source": "EPSG:7844",
+      "target": "EPSG:3577",
+      "purpose": "wind-farm containment (points)"
+    },
+    {
+      "source": "EPSG:4326",
+      "target": "EPSG:3577",
+      "purpose": "wind-farm containment (grid)"
+    },
+    {
+      "source": "EPSG:4326",
+      "target": "EPSG:3577",
+      "purpose": "landmark containment (points)"
+    },
+    {
+      "source": "EPSG:4326",
+      "target": "EPSG:3577",
+      "purpose": "landmark containment (grid)"
+    }
+  ]
+}

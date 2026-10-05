@@ -13,6 +13,7 @@ GWA_ORIGIN/CELL_DEG").
 from pathlib import Path
 
 from .. import config as _shared
+from ..demand import config as _demand_config
 from ..geographic import config as _geo_config
 from ..grid import config as _grid_config
 from ..wind import config as _wind_config
@@ -52,6 +53,17 @@ GEOGRAPHIC_FEATURE_PATH = (
     _geo_config.GEO_DIR / "features" / "optmining_geographic-features_2024_nsw.gpkg"
 )
 GEOGRAPHIC_FEATURE_LAYER = "geographic_features"  # geographic/features.py OUTPUT_LAYER
+
+# Demand-proxy feature table (S1-04). The exclusion stage joins demand_proxy
+# so the `missing_demand_data` rule can exclude any cell lacking a demand
+# value — demand_proxy is a scored criterion (S2-01), so a null here would
+# otherwise let a cell be scored on missing critical data (the enclave the
+# statewide expansion surfaced: AEMO demand is allocated by NEM region, and
+# cells mapping to no region — e.g. the ACT enclave — carry a null proxy).
+# Composed from the demand domain's own config, mirroring
+# integration/config.py's DEMAND_PATH / DEMAND_LAYER so a rename flows through.
+DEMAND_FEATURE_PATH = _demand_config.OUTPUT_DIR / _demand_config.FEATURE_TABLE_NAME
+DEMAND_FEATURE_LAYER = _demand_config.FEATURE_TABLE_LAYER  # "demand_proxy"
 
 # --- Rules config ---
 DEFAULT_RULES_PATH = Path(__file__).resolve().parent / "exclusion_rules.yaml"

@@ -140,7 +140,7 @@ def _wind_generators_frame() -> gpd.GeoDataFrame:
     c0 = _cell_centroid(2)
     c1 = _cell_centroid(9)
     return gpd.GeoDataFrame(
-        {"name": ["Farm North", "Farm South"]},
+        {config.REQUIRED_WIND_GENERATOR_ATTR: ["Farm North", "Farm South"]},
         geometry=[Point(c0[1], c0[0]), Point(c1[1], c1[0])],
         crs="EPSG:4326",
     )
@@ -525,7 +525,7 @@ class TestOverridesTakeEffect:
         """A supplied ``wind_generators_path`` override is read instead of the
         default: a single-farm override yields exactly one known farm (12.4)."""
         one_farm = gpd.GeoDataFrame(
-            {"name": ["Solo Farm"]},
+            {config.REQUIRED_WIND_GENERATOR_ATTR: ["Solo Farm"]},
             geometry=[Point(*reversed(_cell_centroid(5)))],
             crs="EPSG:4326",
         )

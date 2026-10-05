@@ -1,0 +1,34 @@
+{
+  "derived_features": [
+    {
+      "csv_file": "DATA/shortlist/sprint1_shortlist_20261005.csv",
+      "geojson_file": "DATA/shortlist/sprint1_shortlist_20261005.geojson",
+      "stage": "shortlist",
+      "product_type": "derived",
+      "run_timestamp": "2026-10-05T15:11:03+00:00",
+      "pipeline_version": "51508a48f87e609332a5148a92641695bb040fb2-dirty",
+      "sha256_csv": "1e4ef2a8e0c2482837b2c626ebacc31845d5ccad0f54f164aa84d2b193d5c1bd",
+      "sha256_geojson": "0572e0aafa5a003563f6c9d0482eef2ca5836c82d3f402f8ee1a98c9955dd26f",
+      "bytes_csv": 1637,
+      "bytes_geojson": 5895,
+      "effective_top_n": 20,
+      "n_shortlisted": 20,
+      "inputs": [
+        {
+          "name": "scored_table",
+          "path": "DATA/scoring/optmining_suitability-score_2026_nsw.gpkg",
+          "layer": "suitability_score",
+          "sha256": "9ce76ee93694cfa4f8c5591542581206cdaec84da477c747dd298da8952829ba",
+          "bytes": 15712256
+        },
+        {
+          "name": "analysis_grid",
+          "path": "DATA/grid/nsw_analysis_grid.gpkg",
+          "layer": "nsw_grid",
+          "sha256": "7c7e6433d061f0029331b4e19460abb664535bf21c7ca50fb8fa4511fa90052b",
+          "bytes": 13803520
+        }
+      ]
+    }
+  ]
+}

@@ -50,30 +50,35 @@ Modules:
 
 Scope note — the feature-table migration has landed
 ----------------------------------------------------
-S1-07 depends on S1-06 ("Build Geographic & Environmental Features") and S1-03
-("Build the Wind Feature Layer"). Both are implemented and registered in
-`pipeline/config.py` STAGES as `geographic.features`
-(`pipeline/geographic/features.py`) and `wind.features`
-(`pipeline/wind/features.py`), each producing a per-cell Feature_Table on the
-common analysis grid.
+S1-07 depends on S1-06 ("Build Geographic & Environmental Features"), S1-03
+("Build the Wind Feature Layer") and S1-04 ("Build the Electricity-Demand
+Proxy"). All are implemented and registered in `pipeline/config.py` STAGES as
+`geographic.features` (`pipeline/geographic/features.py`), `wind.features`
+(`pipeline/wind/features.py`) and `demand` (`pipeline/demand`), each producing
+a per-cell Feature_Table on the common analysis grid.
 
 `apply.py` consumes those tables directly: `read_feature_tables()` opens the
-geographic and wind feature GeoPackages (each with its explicit `layer=`) and
-`build_cell_table()` inner-joins them on `cell_id` to assemble the per-cell
-field dict — `protected_area` / `protected_area_name` / `slope_deg` /
-`urban_area` / `on_land` from `geographic.features`, and `wind_speed_100m_ms`
-(the wind column `wind_speed_100m`) from `wind.features`. The stage no longer
-re-samples raw rasters or vectors; the duplicated sampling logic the earlier
-scope note flagged has been deleted. The join is asserted 1:1 and must cover
-every grid cell — a missing table, a missing `cell_id`, or a row-count
-mismatch halts the run rather than silently mass-excluding cells.
+geographic, wind and demand feature GeoPackages (each with its explicit
+`layer=`) and `build_cell_table()` inner-joins them on `cell_id` to assemble
+the per-cell field dict — `protected_area` / `protected_area_name` /
+`slope_deg` / `urban_area` / `on_land` from `geographic.features`,
+`wind_speed_100m_ms` (the wind column `wind_speed_100m`) from `wind.features`,
+and `demand_proxy` from `demand`. The stage no longer re-samples raw rasters
+or vectors; the duplicated sampling logic the earlier scope note flagged has
+been deleted. The join is asserted 1:1 and must cover every grid cell — a
+missing table, a missing `cell_id`, or a row-count mismatch halts the run
+rather than silently mass-excluding cells.
 
-Both feature tables are statewide-NSW: they carry a value for every one of the
-47,311 grid cells, so the exclusion layer now covers the full NSW grid. A cell
-is excluded only where a rule genuinely fires — a null critical field
-(`missing_wind_data`, `missing_slope_data`), an offshore/marine centre
-(`offshore_or_marine`), a CAPAD protected-area overlap, an urban-centre
-overlap, or excessive slope. The rule engine (`rules.py`) and the output /
-validation / report code are unchanged by the migration: they operate on a
-generic per-cell field dict, independent of how those fields were computed.
+All three feature tables are statewide-NSW: they carry a row for every one of
+the 47,311 grid cells, so the exclusion layer now covers the full NSW grid. A
+cell is excluded only where a rule genuinely fires — a null critical scored
+field (`missing_wind_data`, `missing_slope_data`, `missing_demand_data`), an
+offshore/marine centre (`offshore_or_marine`), a CAPAD protected-area overlap,
+an urban-centre overlap, or excessive slope. `missing_demand_data` was added
+after the statewide expansion surfaced cells that map to no AEMO/NEM demand
+region (e.g. the ACT enclave): demand_proxy is a scored criterion (S2-01), so
+a null there must exclude the cell rather than let it be scored on missing
+critical data. The rule engine (`rules.py`) and the output / validation /
+report code are unchanged by the migration: they operate on a generic
+per-cell field dict, independent of how those fields were computed.
 """

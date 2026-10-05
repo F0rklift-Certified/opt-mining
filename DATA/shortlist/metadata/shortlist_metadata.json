@@ -1,0 +1,15 @@
+{
+  "stage": "shortlist",
+  "product_type": "derived",
+  "pipeline_version": "51508a48f87e609332a5148a92641695bb040fb2-dirty",
+  "run_timestamp": "2026-10-05T15:11:03+00:00",
+  "effective_top_n": 20,
+  "n_shortlisted": 20,
+  "scored_table_id": {
+    "path": "DATA/scoring/optmining_suitability-score_2026_nsw.gpkg",
+    "sha256": "9ce76ee93694cfa4f8c5591542581206cdaec84da477c747dd298da8952829ba"
+  },
+  "geometry": "centroid",
+  "preliminary_disclaimer": "This shortlist is a preliminary screening output. It indicates where to look next; it is not a site approval, an engineering assessment, or a final recommendation.",
+  "analysis_resolution": "~5 km (0.05 degree) analysis grid cell"
+}

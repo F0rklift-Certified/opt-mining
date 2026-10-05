@@ -7,10 +7,11 @@
 # more than one.
 #
 # Fields available per cell. The exclusion stage joins the per-cell
-# geographic feature table (pipeline/geographic/features.py) and the wind
-# feature table (pipeline/wind/features.py) on cell_id — see those modules'
-# and the package __init__.py docstrings for the current data-source scope.
-# All fields below are statewide-NSW (every one of the 47,311 grid cells):
+# geographic feature table (pipeline/geographic/features.py), the wind
+# feature table (pipeline/wind/features.py) and the demand-proxy feature
+# table (pipeline/demand) on cell_id — see those modules' and the package
+# __init__.py docstrings for the current data-source scope. All fields below
+# are statewide-NSW (every one of the 47,311 grid cells):
 #
 #   protected_area        bool           any CAPAD protected-area overlap (full NSW coverage)
 #   protected_area_name   str            "; "-joined names of overlapping protected areas ("" if none)
@@ -22,6 +23,8 @@
 #                                          1:50m land mask); False is offshore/marine
 #   wind_speed_100m_ms     float | null   mean GWA v4 wind speed (m/s) at 100 m hub height
 #                                          (statewide NSW)
+#   demand_proxy           float | null   AEMO regional demand proxy for the cell; null
+#                                          where the cell maps to no NEM region (statewide NSW)
 #
 # condition syntax:
 #   "== value" | "!= value" | "> n" | ">= n" | "< n" | "<= n" | "is_null" | "is_not_null"
@@ -75,3 +78,9 @@ exclusions:
     field: slope_deg
     condition: "is_null"
     reason_template: "Missing slope data"
+
+  - name: missing_demand_data
+    description: "No valid demand-proxy data available for the cell"
+    field: demand_proxy
+    condition: "is_null"
+    reason_template: "Missing demand data"
