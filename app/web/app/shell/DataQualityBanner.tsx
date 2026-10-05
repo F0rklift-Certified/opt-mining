@@ -11,7 +11,7 @@ export default function DataQualityBanner({
   status,
   error,
   loading,
-}: DataQualityBannerProps): JSX.Element {
+}: DataQualityBannerProps): React.JSX.Element {
   if (loading) {
     return (
       <section className="om-quality om-quality--loading" role="status">

@@ -59,39 +59,13 @@ describe("AppShell — four fixed regions (R3.1–3.4)", () => {
 });
 
 describe("RootLayout — fixed NSW region, no selector (R1.2)", () => {
-  /**
-   * RootLayout renders <html>/<body>. React warns about nesting <html> inside
-   * Testing Library's default <div> container. That warning is expected and
-   * harmless here — we intentionally render the real layout to exercise the
-   * title-bar markup — so we silence just this one message to keep the test
-   * output clean while still asserting on the live document.
-   */
-  let consoleErrorSpy: jest.SpyInstance;
-
-  beforeEach(() => {
-    consoleErrorSpy = jest
-      .spyOn(console, "error")
-      .mockImplementation((...args: unknown[]) => {
-        const first = args[0];
-        if (typeof first === "string" && first.includes("validateDOMNesting")) {
-          return;
-        }
-        // Surface any other error so real problems are not hidden.
-        // eslint-disable-next-line no-console
-        console.warn(...(args as [unknown, ...unknown[]]));
-      });
-  });
-
-  afterEach(() => {
-    consoleErrorSpy.mockRestore();
-  });
-
   it("shows the fixed NSW region as a static label", () => {
     // Render the real layout so the header markup is exercised as in the app.
     render(
       <RootLayout>
         <AppShell />
       </RootLayout>,
+      { container: document },
     );
 
     const banner = screen.getByRole("banner");
@@ -103,6 +77,7 @@ describe("RootLayout — fixed NSW region, no selector (R1.2)", () => {
       <RootLayout>
         <AppShell />
       </RootLayout>,
+      { container: document },
     );
 
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();

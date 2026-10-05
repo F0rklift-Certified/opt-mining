@@ -7,6 +7,6 @@
  */
 import AppShell from "./shell/AppShell";
 
-export default function Page(): JSX.Element {
+export default function Page(): React.JSX.Element {
   return <AppShell />;
 }
