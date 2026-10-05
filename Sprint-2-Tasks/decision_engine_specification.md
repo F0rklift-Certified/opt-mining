@@ -728,7 +728,7 @@ Scoring_Formula runs (§3.3) and records, for every excluded cell, **why** it wa
   > change), the engine can read it directly.
 
 **The vocabulary.** The machine-readable **codes are exactly the `name` values of the rules in
-`pipeline/exclusions/exclusion_rules.yaml`**. The shipped MVP vocabulary is the four codes below;
+`pipeline/exclusions/exclusion_rules.yaml`**. The shipped MVP vocabulary is the six codes below;
 because rules are data, not code, the vocabulary is extended or retuned by editing that YAML —
 but as a Contract-frozen decision, any change to a code follows the change-control process of
 §6.2 and must land in every recording location listed below so a downstream consumer's code
@@ -740,6 +740,28 @@ table never goes stale.
 | `missing_wind_data` | `Missing wind data` | no valid wind resource value for the cell |
 | `excessive_slope` | `Slope exceeds {threshold}°` (default 15°) | mean slope above the construction threshold |
 | `urban_area` | `Urban area` | overlaps an ABS Urban Centre/Locality |
+| `missing_demand_data` | `Missing demand proxy data` | no valid demand proxy allocation for a scored criterion |
+| `outside_nsw_land` | `Outside NSW land boundary (cell centroid)` | centroid not covered by the committed ABS NSW state geometry |
+
+**Approved F16 revision — 5 October 2026 (S3-10).** XINHAO WANG explicitly
+approved adding `missing_demand_data` after the NSW exclusion coverage repair
+exposed cells with no demand allocation. S2-02 Check 9 requires complete scored
+criteria for eligible cells. The added rule implements that existing input
+policy; it does not fill missing data, alter scoring, change the four original
+rules or retune scenario weights. The new baseline, population changes and
+rank comparison are recorded in `docs/release/baseline-change.json`. Other
+context-only missing features remain flagged, not invented or silently scored.
+
+**Separate approved F16 revision — 5 October 2026 (S3-10).** XINHAO WANG
+explicitly approved `outside_nsw_land`. The rectangular analysis grid is
+retained in full. Stored longitude/latitude centroids and the committed ABS
+`state_code_2021 = '1'` boundary are projected to EPSG:3577. A point covered by
+the NSW geometry, including its edge, passes this rule; other cells receive
+the new reason code before scoring. A missing, ambiguous or unreadable
+boundary halts the build. A coarse cell may cross a coast or state border;
+centroid membership is a screening convention, not parcel-level availability.
+The scoring formula and weights remain unchanged. The boundary hash and
+before/after population changes are recorded in the same baseline audit.
 
 **Pairing contract (what a consumer may rely on).** For any cell:
 

@@ -5,8 +5,8 @@
       "csv_file": "DATA/scoring/optmining_suitability-score_2026_nsw.csv",
       "stage": "scoring",
       "product_type": "derived",
-      "generated_utc": "2026-10-05T02:11:50+00:00",
-      "git_commit": "e6fa3bbf54708cc91971ac40110a9fe9ffe60252-dirty",
+      "generated_utc": "2026-10-05T03:38:02+00:00",
+      "git_commit": "a2ad4a7a5f9be683b70f4d6aeef6468ba29d61d5-dirty",
       "rows": 47311,
       "columns": [
         "cell_id",
@@ -22,10 +22,10 @@
         "contrib_slope_deg",
         "contrib_inside_rez"
       ],
-      "sha256_gpkg": "9f30ac1becba205b8350813f337bc6706a177730bd3cb59f62e13c0f86a20c33",
-      "sha256_csv": "50f22795942293db9a84790b203bebbf5923c959e08a7e3cc67f2d4ab2fb9621",
-      "bytes_gpkg": 13873152,
-      "bytes_csv": 3068576,
+      "sha256_gpkg": "b01969d47c91d0c30492defe84d527ce12a5d272d177e04815741839a38e0754",
+      "sha256_csv": "8600538e7cdc8313ee5f82b60cee1590e174a0293f20a9646265f57c1ef9031e",
+      "bytes_gpkg": 15159296,
+      "bytes_csv": 5374503,
       "inputs": [
         {
           "name": "integrated_feature_table",
@@ -33,8 +33,8 @@
           "layer": "integrated_features",
           "rows": 47311,
           "crs": "EPSG:4326",
-          "sha256": "8b300ca520ff42028fbb7b09024916580c105967c92fa8ade575c4e006c196fd",
-          "bytes": 33161216
+          "sha256": "499403e0310dc8b7983b9a57156ce4204a1ea8e7b6d6fa18fa43e1b6e33bbe77",
+          "bytes": 24276992
         }
       ],
       "weights_config": {
@@ -77,8 +77,8 @@
       },
       "counts": {
         "n_cells": 47311,
-        "n_scored": 1233,
-        "n_excluded": 46078
+        "n_scored": 23266,
+        "n_excluded": 24045
       }
     }
   ]

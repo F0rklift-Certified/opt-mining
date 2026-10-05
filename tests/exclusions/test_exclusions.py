@@ -165,7 +165,7 @@ class TestPackagedDefaultRulesFile:
     def test_loads(self):
         rules = rules_mod.load_rules(excl_config.DEFAULT_RULES_PATH)
         names = {r["name"] for r in rules}
-        assert names == {"protected_area", "missing_wind_data", "excessive_slope", "urban_area"}
+        assert names == {"protected_area", "missing_wind_data", "excessive_slope", "urban_area", "missing_demand_data", "outside_nsw_land"}
 
     def test_slope_threshold_matches_project_default(self):
         rules = rules_mod.load_rules(excl_config.DEFAULT_RULES_PATH)
@@ -232,6 +232,8 @@ def _clean_fields(**overrides):
         "slope_deg": 5.0,
         "urban_area": False,
         "wind_speed_100m_ms": 8.0,
+        "demand_proxy": 1.0,
+        "inside_nsw_land": True,
     }
     fields.update(overrides)
     return fields
@@ -243,6 +245,16 @@ class TestEachRuleIndependently:
         assert eligible is True
         assert reason is None
         assert triggered == []
+
+    def test_missing_demand_is_excluded_without_fabricating_a_proxy(self, default_rules):
+        eligible, pairs = rules_mod.evaluate_cell_detailed(_clean_fields(demand_proxy=None), default_rules)
+        assert not eligible
+        assert pairs == [{"code": "missing_demand_data", "text": "Missing demand proxy data"}]
+
+    def test_outside_nsw_is_excluded_independently(self, default_rules):
+        eligible, pairs = rules_mod.evaluate_cell_detailed(_clean_fields(inside_nsw_land=False), default_rules)
+        assert not eligible
+        assert pairs == [{"code": "outside_nsw_land", "text": "Outside NSW land boundary (cell centroid)"}]
 
     def test_protected_area_rule_alone(self, default_rules):
         fields = _clean_fields(protected_area=True, protected_area_name="Oxley Wild Rivers NP")
@@ -300,7 +312,7 @@ class TestEachRuleIndependently:
         """A cell missing a field the rules reference degrades to 'not triggered', not a crash."""
         eligible, _reason, triggered = rules_mod.evaluate_cell({}, default_rules)
         assert eligible is False  # missing_wind_data triggers: field absent -> None -> is_null
-        assert triggered == ["missing_wind_data"]
+        assert triggered == ["missing_wind_data", "missing_demand_data"]
 
 
 class TestEvaluateCellDetailed:
@@ -582,8 +594,31 @@ def synthetic_pipeline(tmp_path, monkeypatch):
     monkeypatch.setattr(excl_config, "GRID_PATH", grid_path)
     monkeypatch.setattr(excl_config, "CAPAD_PATH", capad_path)
     monkeypatch.setattr(excl_config, "URBAN_PATH", urban_path)
+    boundary_path = tmp_path / "states.geojson"
+    gpd.GeoDataFrame({"state_code_2021": ["1"]},
+                     geometry=[box(150, -31, 152, -29)], crs="EPSG:4326").to_file(
+                         boundary_path, driver="GeoJSON")
+    monkeypatch.setattr(excl_config, "NSW_BOUNDARY_PATH", boundary_path)
     monkeypatch.setattr(excl_config, "SLOPE_RASTER_PATH", slope_path)
     monkeypatch.setattr(excl_config, "WIND_SPEED_RASTER_PATH", wind_path)
+    # Production now uses the canonical feature tables, not windowed rasters.
+    # Generate those inputs with the same zonal-stat reader for this fixture.
+    from pipeline.exclusions.apply import _raster_field
+    for column, source, attr in [
+        ("slope_deg", slope_path, "GEOGRAPHIC_FEATURES_PATH"),
+        ("wind_speed_100m", wind_path, "WIND_FEATURES_PATH"),
+    ]:
+        values = _raster_field(grid, source, column)
+        feature = grid.copy()
+        feature[column] = feature.cell_id.map(values)
+        feature_path = tmp_path / f"{column}.gpkg"
+        feature.to_file(feature_path, driver="GPKG")
+        monkeypatch.setattr(excl_config, attr, feature_path)
+    demand_feature = grid.copy()
+    demand_feature["demand_proxy"] = 1.0
+    demand_path = tmp_path / "demand.gpkg"
+    demand_feature.to_file(demand_path, driver="GPKG")
+    monkeypatch.setattr(excl_config, "DEMAND_FEATURES_PATH", demand_path)
     monkeypatch.setattr(excl_config, "EXCLUSIONS_DIR", tmp_path / "out")
     monkeypatch.setattr(excl_config, "EXCLUSIONS_META_DIR", tmp_path / "out" / "metadata")
 

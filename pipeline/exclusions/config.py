@@ -34,9 +34,13 @@ REPORT_FILENAME = "exclusion_summary.md"
 # The grid file's name is not exported as a constant by pipeline/grid/generate.py
 # (it is written inline in that module's run()), so it is repeated here verbatim.
 GRID_PATH = _grid_config.PROJECT_ROOT / "DATA" / "grid" / "nsw_analysis_grid.gpkg"
+NSW_BOUNDARY_PATH = _grid_config.ABS_STE_PATH
 
 CAPAD_PATH = _geo_config.GEO_DIR / "protected" / "dcceew_capad-terrestrial_2024_nsw.geojson"
-URBAN_PATH = _geo_config.GEO_DIR / "urban" / f"abs_ucl_2021_{_geo_config.DEFAULT_AREA}.geojson"
+URBAN_PATH = _geo_config.GEO_DIR / "urban" / "abs_ucl_2021_nsw.geojson"
+GEOGRAPHIC_FEATURES_PATH = _geo_config.GEO_DIR / "features" / "optmining_geographic-features_2024_nsw.gpkg"
+WIND_FEATURES_PATH = _wind_config.WIND_DIR / "features" / "gwa_v4_wind-feature_2025_nsw.gpkg"
+DEMAND_FEATURES_PATH = PROJECT_ROOT / "DATA" / "electricity-demand" / "aemo_demand-proxy_2026_nsw.gpkg"
 # ABS UCL/SOS ("Section of State") classification: sos_code_2021 == "13" is
 # "Rural Balance" — the catch-all polygon covering everything OUTSIDE every
 # actual urban centre/locality in the state (its own geometry spans well
@@ -77,5 +81,7 @@ OUTPUT_COLUMNS = [
     "slope_deg",
     "urban_area",
     "wind_speed_100m_ms",
+    "demand_proxy",
+    "inside_nsw_land",
     "data_flags",
 ]

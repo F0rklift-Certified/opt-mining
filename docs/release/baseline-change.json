@@ -1,0 +1,68 @@
+{
+  "generated_utc": "2026-10-05T03:34:17+00:00",
+  "authorised_by": "XINHAO WANG, explicit chat approval",
+  "reason": "Legacy exclusion source window disagreed with full NSW integrated input",
+  "original_commit": "a2ad4a7a5f9be683b70f4d6aeef6468ba29d61d5",
+  "approved_rule_additions": [
+    "missing_demand_data: exclude null scored demand proxy",
+    "outside_nsw_land: centroid outside ABS NSW boundary"
+  ],
+  "nsw_boundary": {
+    "path": "DATA/geographic/boundaries/abs_ste_2021_national.geojson",
+    "sha256": "841937b261dcbf3034b0e1dac45ef8b3e987df47a3a093bdcc3857033030aa17",
+    "predicate": "centroid covered_by NSW geometry, EPSG:3577; edge included",
+    "invalid_geometry_policy": "repair in source CRS with buffer(0) before projection, same as other exclusion vectors",
+    "outside_centroid_count": 16822,
+    "eligible_outside_count": 0
+  },
+  "unchanged": [
+    "analysis grid",
+    "four original exclusion rules and thresholds",
+    "scoring formula",
+    "default and scenario weights"
+  ],
+  "before": {
+    "sha256": "8b300ca520ff42028fbb7b09024916580c105967c92fa8ade575c4e006c196fd",
+    "eligible": 1233,
+    "reasons": {
+      "missing_wind_data": 45711,
+      "protected_area": 6740,
+      "urban_area": 62,
+      "excessive_slope": 55
+    }
+  },
+  "after": {
+    "sha256": "499403e0310dc8b7983b9a57156ce4204a1ea8e7b6d6fa18fa43e1b6e33bbe77",
+    "eligible": 23266,
+    "reasons": {
+      "outside_nsw_land": 16822,
+      "excessive_slope": 1480,
+      "protected_area": 6740,
+      "urban_area": 1347,
+      "missing_demand_data": 6637
+    }
+  },
+  "newly_eligible": 22033,
+  "newly_excluded": 0,
+  "previously_ranked_common": 1233,
+  "rank_changed_in_common_population": 1231,
+  "top_five_before": [
+    "S30.186_E151.636",
+    "S30.636_E151.586",
+    "S30.086_E151.686",
+    "S30.236_E151.586",
+    "S30.286_E151.636"
+  ],
+  "top_five_after": [
+    "S32.436_E149.086",
+    "S31.186_E151.686",
+    "S30.186_E151.636",
+    "S32.436_E149.036",
+    "S32.486_E149.086"
+  ],
+  "limitations": [
+    "Centroid membership is not parcel-level land availability; border cells can straddle NSW",
+    "Missing context-only land-use/elevation remains flagged, not imputed",
+    "Connection-point geometry remains unavailable; no capacity claim is made"
+  ]
+}
