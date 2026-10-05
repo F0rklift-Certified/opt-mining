@@ -16,11 +16,15 @@ import {
 import DataQualityBanner from "./DataQualityBanner";
 import PlaceholderRegion from "./PlaceholderRegion";
 import RankedShortlist from "./RankedShortlist";
+import ScreeningMap from "./ScreeningMap";
+import SiteExplanation from "./SiteExplanation";
+import ScenarioPanel from "./ScenarioPanel";
 import type { SelectSite, SiteSelection } from "./siteSelection";
 
 interface EngineView {
   run: RunHandle;
   results: RankedRow[];
+  allResults: RankedRow[];
   exclusions: ExcludedRow[];
 }
 
@@ -39,7 +43,7 @@ function errorMessage(error: unknown): string {
 }
 
 /** Render the fixed shell and populate it exclusively with service output. */
-export default function AppShell({ service }: AppShellProps = {}): JSX.Element {
+export default function AppShell({ service }: AppShellProps = {}): React.JSX.Element {
   const [scenario, setScenario] = useState(DEFAULT_SCENARIO);
   const [engine, setEngine] = useState<EngineView | null>(null);
   const [engineError, setEngineError] = useState<string | null>(null);
@@ -50,6 +54,11 @@ export default function AppShell({ service }: AppShellProps = {}): JSX.Element {
   // One selected site shared by the shortlist, the map and the detail view.
   const [selection, setSelection] = useState<SiteSelection | null>(null);
   const [detail, setDetail] = useState<SiteDetailView | null>(null);
+  const [topN, setTopN] = useState("10");
+  const [minimumScore, setMinimumScore] = useState("");
+  const [filterApplied, setFilterApplied] = useState(false);
+  const [filterLoading, setFilterLoading] = useState(false);
+  const filterIdRef = useRef(0);
 
   // Stable across renders; set once the client is ready (or fails to build).
   const apiRef = useRef<DecisionService | null>(null);
@@ -61,16 +70,20 @@ export default function AppShell({ service }: AppShellProps = {}): JSX.Element {
     const api = apiRef.current;
     if (!api) return;
     const requestId = ++requestIdRef.current;
+    ++filterIdRef.current;
+    setFilterLoading(false);
     setEngineLoading(true);
     setEngineError(null);
     try {
       const run = await api.runAnalysis({ scenario: scenarioId });
-      const [results, exclusions] = await Promise.all([
+      const [results, exclusions, allResults] = await Promise.all([
         api.getRankedResults(run.run_id, { top_n: 10 }),
         api.getExclusions(run.run_id),
+        api.getRankedResults(run.run_id),
       ]);
       if (requestIdRef.current === requestId) {
-        setEngine({ run, results, exclusions });
+        setEngine({ run, results, exclusions, allResults });
+        setTopN("10"); setMinimumScore(""); setFilterApplied(false);
         // Each run opens on its engine rank 1 site.
         const first = results[0];
         setSelection(first ? { runId: run.run_id, cellId: first.cell_id } : null);
@@ -150,6 +163,27 @@ export default function AppShell({ service }: AppShellProps = {}): JSX.Element {
   // Only show detail loaded for the current selection, never a previous one.
   const selectedDetail = detail?.selection === selection ? detail : null;
 
+  async function applyFilters(): Promise<void> {
+    const api = apiRef.current;
+    if (!api || !engine) return;
+    const runId = engine.run.run_id;
+    const requestId = ++filterIdRef.current;
+    const runRequestId = requestIdRef.current;
+    setFilterLoading(true); setEngineError(null);
+    try {
+      const results = await api.getRankedResults(runId, {
+        top_n: topN === "" ? null : Number(topN),
+        min_score: minimumScore === "" ? null : Number(minimumScore),
+      });
+      if (requestId === filterIdRef.current && runRequestId === requestIdRef.current) {
+        setEngine((current) => current?.run.run_id === runId ? { ...current, results } : current);
+        setFilterApplied(true);
+      }
+    } catch (error) {
+      if (requestId === filterIdRef.current) setEngineError(errorMessage(error));
+    } finally { if (requestId === filterIdRef.current) setFilterLoading(false); }
+  }
+
   const loadingText = engineLoading ? "Loading decision-service output…" : null;
   const failureText = engineError ? `Decision service unavailable: ${engineError}` : null;
 
@@ -181,10 +215,9 @@ export default function AppShell({ service }: AppShellProps = {}): JSX.Element {
           label="Interactive map"
           ariaLabel="Interactive map"
           body={engine ? (
-            <>
-              <p>{engine.results.length} ranked cells loaded from the engine; map rendering follows in S3-03a.</p>
-              {selection && <p>Selected site: <code>{selection.cellId}</code></p>}
-            </>
+            <ScreeningMap rows={filterApplied ? engine.results : engine.allResults}
+              exclusions={engine.exclusions} selectedCellId={selection?.cellId ?? null}
+              onSelect={handleSelectSite} />
           ) : loadingText ?? "No engine output is available."}
         />
         <PlaceholderRegion
@@ -192,11 +225,25 @@ export default function AppShell({ service }: AppShellProps = {}): JSX.Element {
           label="Ranked results"
           ariaLabel="Ranked results"
           body={engine ? (
+            <>
+            <p>{engine.allResults.length.toLocaleString()} eligible cells. The initial map shows all eligible cells; the shortlist opens at top 10. Applying display filters narrows both without rerunning analysis.</p>
+            <form className="om-toolbar" onSubmit={(e) => { e.preventDefault(); void applyFilters(); }}>
+              <label>Top N <input type="number" min="1" step="1" value={topN} onChange={(e) => setTopN(e.target.value)} /></label>
+              <label>Minimum score <input type="number" min="0" max="1" step="0.01" value={minimumScore} onChange={(e) => setMinimumScore(e.target.value)} /></label>
+              <button disabled={engineLoading || filterLoading} type="submit">{filterLoading ? "Filtering…" : "Apply display filters"}</button>
+            </form>
             <RankedShortlist
               rows={engine.results}
               selectedCellId={selection?.cellId ?? null}
               onSelect={handleSelectSite}
             />
+            <details><summary>Inspect exclusions ({engine.exclusions.length.toLocaleString()} cells)</summary>
+              <p>All exclusions are shown on the map and searchable by cell ID. First 20 records:</p>
+              <ul>{engine.exclusions.slice(0, 20).map((row) => <li key={row.cell_id}>
+                <button onClick={() => handleSelectSite(row.cell_id)}>Inspect excluded {row.cell_id}</button> — {row.reason_text}
+              </li>)}</ul>
+            </details>
+            </>
           ) : loadingText ?? "No ranked results are available."}
         />
         <PlaceholderRegion
@@ -206,17 +253,17 @@ export default function AppShell({ service }: AppShellProps = {}): JSX.Element {
           body={selectedDetail?.error ? (
             <p className="om-service-error" role="alert">Site detail unavailable: {selectedDetail.error}</p>
           ) : engine && selectedDetail?.site ? (
-            <dl className="om-facts">
-              <div><dt>Site ID</dt><dd><code>{selectedDetail.site.cell_id}</code></dd></div>
-              <div><dt>Rank</dt><dd>{selectedDetail.site.rank}</dd></div>
-              <div><dt>Suitability</dt><dd>{selectedDetail.site.suitability_score?.toFixed(3) ?? "Not scored"}</dd></div>
-              <div><dt>Eligible</dt><dd>{selectedDetail.site.eligible ? "Yes" : "No"}</dd></div>
-              <div><dt>Excluded cells in run</dt><dd>{engine.exclusions.length.toLocaleString()}</dd></div>
-            </dl>
+            <SiteExplanation site={selectedDetail.site} excludedCount={engine.exclusions.length} />
           ) : selection ? (
             "Loading site detail…"
           ) : loadingText ?? "No site detail is available."}
         />
+      </div>
+      <div className="om-region"><ScenarioPanel service={apiRef.current} selectedCellId={selection?.cellId ?? null} /></div>
+      <div className="om-region">
+        <h2>Validation and screening limits</h2>
+        <p>The banner reports the actual S2-02 input checks. Missing context such as connection-point geometry stays flagged. Default weights are screening preferences, not forecasts or project approvals.</p>
+        <p>External GA operational wind-farm checks are recorded in docs/release/rehearsal.json and the release demo script. An unfavourable reference result is evidence to investigate, not a reason to retune weights until it passes.</p>
       </div>
     </div>
   );

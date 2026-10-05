@@ -41,7 +41,7 @@ export default function AnalysisControls({
   onRun,
   running,
   activeRun,
-}: AnalysisControlsProps): JSX.Element {
+}: AnalysisControlsProps): React.JSX.Element {
   return (
     <div className="om-controls">
       <fieldset className="om-controls__presets" disabled={running}>
@@ -84,6 +84,14 @@ export default function AnalysisControls({
       ) : (
         <p>No run is available.</p>
       )}
+      {activeRun?.criteria && <table><caption>Actual service-resolved criterion weights (relative weights)</caption>
+        <thead><tr><th>Criterion</th><th>Weight</th><th>Direction</th></tr></thead><tbody>
+          {activeRun.criteria.map((criterion, index) => <tr key={index}>
+            <td>{String(criterion.feature)}</td><td>{String(criterion.weight)}</td><td>{String(criterion.direction)}</td>
+          </tr>)}
+        </tbody></table>}
+      {activeRun?.input_sha256 && <p>Frozen NSW input SHA-256: <code className="om-hash">{activeRun.input_sha256}</code></p>}
+      <p>Weights change screening preferences. They do not change the input data or override hard exclusions.</p>
     </div>
   );
 }
