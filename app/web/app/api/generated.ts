@@ -189,6 +189,10 @@ export interface components {
         ExcludedRow: {
             /** Cell Id */
             cell_id: string;
+            /** Centroid Lat */
+            centroid_lat?: number | null;
+            /** Centroid Lon */
+            centroid_lon?: number | null;
             /** Reason Codes */
             reason_codes?: string[];
             /**
@@ -209,6 +213,10 @@ export interface components {
         RankedRow: {
             /** Cell Id */
             cell_id: string;
+            /** Centroid Lat */
+            centroid_lat?: number | null;
+            /** Centroid Lon */
+            centroid_lon?: number | null;
             /** Key Components */
             key_components?: {
                 [key: string]: number;
@@ -223,6 +231,10 @@ export interface components {
          * @description Identifies one materialised Run (CONTRACT.md §5).
          */
         RunHandle: {
+            /** Criteria */
+            criteria?: Record<string, never>[] | null;
+            /** Input Sha256 */
+            input_sha256?: string | null;
             /** Run Id */
             run_id: string;
             /** Scenario */
@@ -302,9 +314,13 @@ export interface components {
              */
             eligible: boolean;
             /** Explanation */
-            explanation?: Record<string, unknown>;
+            explanation?: {
+                [key: string]: unknown;
+            };
             /** Features */
-            features?: Record<string, unknown>;
+            features?: {
+                [key: string]: unknown;
+            };
             /** Rank */
             rank?: number | null;
             /** Suitability Score */

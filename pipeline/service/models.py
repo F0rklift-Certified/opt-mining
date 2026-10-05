@@ -52,14 +52,21 @@ class RunHandle:
     run_id: str
     weights_id: str
     scenario: str | None = None
+    criteria: list[dict] | None = None
+    input_sha256: str | None = None
 
     def to_dict(self) -> dict:
         """Serialise to the CONTRACT.md §5 `RunHandle` shape."""
-        return {
+        payload = {
             "run_id": self.run_id,
             "weights_id": self.weights_id,
             "scenario": self.scenario,
         }
+        if self.criteria is not None:
+            payload["criteria"] = self.criteria
+        if self.input_sha256 is not None:
+            payload["input_sha256"] = self.input_sha256
+        return payload
 
 
 @dataclass(frozen=True)
@@ -99,15 +106,20 @@ class RankedRow:
     suitability_score: float
     rank: int
     key_components: dict[str, float] = field(default_factory=dict)
+    centroid_lat: float | None = None
+    centroid_lon: float | None = None
 
     def to_dict(self) -> dict:
         """Serialise to the CONTRACT.md §5 `RankedRow` shape."""
-        return {
+        payload = {
             "cell_id": self.cell_id,
             "suitability_score": self.suitability_score,
             "rank": self.rank,
             "key_components": dict(self.key_components),
         }
+        if self.centroid_lat is not None and self.centroid_lon is not None:
+            payload.update(centroid_lat=self.centroid_lat, centroid_lon=self.centroid_lon)
+        return payload
 
 
 @dataclass(frozen=True)
@@ -221,14 +233,19 @@ class ExcludedRow:
     cell_id: str
     reason_codes: list[str] = field(default_factory=list)
     reason_text: str = ""
+    centroid_lat: float | None = None
+    centroid_lon: float | None = None
 
     def to_dict(self) -> dict:
         """Serialise to the CONTRACT.md §5 `ExcludedRow` shape."""
-        return {
+        payload = {
             "cell_id": self.cell_id,
             "reason_codes": list(self.reason_codes),
             "reason_text": self.reason_text,
         }
+        if self.centroid_lat is not None and self.centroid_lon is not None:
+            payload.update(centroid_lat=self.centroid_lat, centroid_lon=self.centroid_lon)
+        return payload
 
 
 @dataclass(frozen=True)
