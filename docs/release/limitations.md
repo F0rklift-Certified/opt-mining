@@ -40,6 +40,9 @@ recommendation, connection offer or planning approval.
   `protected_area: Bango` for Rye Park. The frozen any-cell-intersection rule
   is stricter than checking the generator point, so inspect parcel geometry
   before proposing a change; do not override an exclusion because a farm exists.
+  A direct EPSG:3577 check found neither GA generator point intersects CAPAD,
+  while its containing grid cell does. This explains the screening-resolution
+  disagreement; changing the frozen binary cell rule needs separate review.
   Counts are GA records, not unique farms: Gullen Range appears twice, and
   the source labels White Rock Solar Farm as wind/turbine technology. This
   classification ambiguity is retained for review, not silently filtered out.
