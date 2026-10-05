@@ -65,7 +65,7 @@ describe("AppShell service integration", () => {
       expect(screen.getAllByText("S30.100_E151.200")).toHaveLength(3);
       expect(screen.getAllByText("0.912")).toHaveLength(2);
     });
-    expect(screen.getByText("2 ranked cells loaded from the engine; map rendering follows in S3-03a.")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "NSW eligible and excluded screening cells" })).toBeInTheDocument();
 
     await waitFor(() => {
       expect(service.runAnalysis).toHaveBeenCalledWith({ scenario: "wind_led" });
@@ -108,7 +108,8 @@ describe("AppShell service integration", () => {
     expect(service.runAnalysis).toHaveBeenLastCalledWith({ scenario: "grid_led" });
     // The engine, not the UI, produced this run — the client sends the
     // preset id and nothing else (AC: no scoring/normalisation in the UI).
-    expect(service.getRankedResults).toHaveBeenLastCalledWith("run-grid-1", { top_n: 10 });
+    expect(service.getRankedResults).toHaveBeenCalledWith("run-grid-1", { top_n: 10 });
+    expect(service.getRankedResults).toHaveBeenCalledWith("run-grid-1");
   });
 
   it("opens the selected row's site detail and mirrors it on the map (S3-04)", async () => {
