@@ -77,7 +77,9 @@ def write_json(records: Sequence[dict], path: Path) -> None:
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(list(records), indent=2, ensure_ascii=False, sort_keys=False) + "\n"
+    # One-space indentation retains readable, deterministic JSON while keeping
+    # the full NSW snapshot below GitHub's browser-upload file size limit.
+    text = json.dumps(list(records), indent=1, ensure_ascii=False, sort_keys=False) + "\n"
     atomic_write_text(path, text)
 
 

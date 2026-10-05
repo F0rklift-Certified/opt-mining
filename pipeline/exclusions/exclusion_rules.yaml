@@ -13,11 +13,13 @@
 #   protected_area        bool           any CAPAD protected-area overlap (full NSW coverage)
 #   protected_area_name   str            "; "-joined names of overlapping protected areas ("" if none)
 #   slope_deg              float | null   mean Horn slope (degrees) over the cell
-#                                          (SRTM GL3 derived raster — New England REZ window only)
+#                                          (canonical full-NSW geographic feature table)
 #   urban_area             bool           overlaps an ABS Urban Centre/Locality polygon
-#                                          (New England REZ window only)
+#                                          (full-NSW ABS UCL extract, excluding Rural Balance)
 #   wind_speed_100m_ms     float | null   mean GWA v4 wind speed (m/s) at 100 m hub height
-#                                          (New England REZ window only)
+#                                          (canonical full-NSW wind feature table)
+#   demand_proxy          float | null   canonical NSW demand-proxy allocation
+#   inside_nsw_land       bool           centroid covered by ABS NSW boundary, EPSG:3577
 #
 # condition syntax:
 #   "== value" | "!= value" | "> n" | ">= n" | "< n" | "<= n" | "is_null" | "is_not_null"
@@ -59,3 +61,18 @@ exclusions:
     field: urban_area
     condition: "== True"
     reason_template: "Urban area"
+
+  # F16 change approved by XINHAO WANG on 5 October 2026 (S3-10).
+  # A scored criterion cannot be missing in an eligible cell (S2-02 Check 9).
+  - name: missing_demand_data
+    description: "No demand proxy allocation is available for this cell"
+    field: demand_proxy
+    condition: "is_null"
+    reason_template: "Missing demand proxy data"
+
+  # Separate F16 change approved by XINHAO WANG on 5 October 2026 (S3-10).
+  - name: outside_nsw_land
+    description: "Cell centroid is outside the ABS NSW state boundary"
+    field: inside_nsw_land
+    condition: "== False"
+    reason_template: "Outside NSW land boundary (cell centroid)"

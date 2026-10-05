@@ -1,15 +1,15 @@
 """
 Exclusion layer stage — S1-07.
 
-Reads the common analysis grid plus the raw geographic and wind source
-datasets, computes the per-cell fields the configured exclusion rules need,
-evaluates those rules, and writes:
+Reads the common analysis grid and the authoritative NSW geographic, wind and
+demand feature tables. Computes protected/urban overlaps from full-NSW vector
+sources, evaluates the configured exclusion rules, and writes:
 
     DATA/exclusions/optmining_exclusions_2024_nsw.gpkg    — Eligibility_Table
     DATA/exclusions/metadata/exclusion_summary.md          — method report
 
-See pipeline/exclusions/__init__.py for why this reads raw sources directly
-instead of a S1-06/S1-03 Feature_Table (neither exists in code yet).
+Scored slope, wind and demand values are joined by cell_id from the same
+feature tables as integration. No legacy REZ raster fallback is permitted.
 
 Importable entry point:
     from pipeline.exclusions.apply import run
@@ -150,11 +150,33 @@ def protected_area_overlap(cells: gpd.GeoDataFrame) -> dict[str, tuple[bool, str
     return _overlap_join(cells, capad, name_field="NAME")
 
 
+def nsw_land_field(cells: gpd.GeoDataFrame) -> dict[str, bool]:
+    """Centroid membership in the committed ABS NSW boundary, including its edge.
+
+    Both points and boundary are projected to EPSG:3577. This is a screening
+    mask, not a claim that every part of a coarse border cell is NSW land.
+    Missing/ambiguous state geometry halts the build; it must never pass open.
+    """
+    states = _load_vector(config.NSW_BOUNDARY_PATH, "ABS state boundary")
+    if "state_code_2021" not in states:
+        raise ValueError("ABS state boundary lacks state_code_2021")
+    nsw = states.loc[states.state_code_2021.astype(str) == "1"].to_crs(config.COMPUTATION_CRS)
+    if len(nsw) != 1 or nsw.geometry.is_empty.any() or nsw.geometry.isna().any():
+        raise ValueError("ABS state boundary must contain exactly one non-empty NSW geometry")
+    coords = cells[["centroid_lon", "centroid_lat"]].to_numpy(dtype=float)
+    if not np.isfinite(coords).all():
+        raise ValueError("Grid centroids must be finite for the NSW land mask")
+    points = gpd.GeoSeries(gpd.points_from_xy(coords[:, 0], coords[:, 1]),
+                          crs=config.STORAGE_CRS).to_crs(config.COMPUTATION_CRS)
+    inside = points.covered_by(nsw.geometry.iloc[0])
+    return dict(zip(cells.cell_id, inside.astype(bool)))
+
+
 def urban_overlap(
     cells: gpd.GeoDataFrame,
 ) -> tuple[dict[str, bool], tuple[float, float, float, float]]:
     """
-    ABS Urban Centre/Locality overlap — New England REZ window only. Also
+    ABS Urban Centre/Locality overlap — complete NSW state extract. Also
     returns the source's coverage bounds (EPSG:4326) so the caller can flag
     cells outside that window rather than silently trusting a False result.
 
@@ -165,12 +187,14 @@ def urban_overlap(
     including it would flag almost the entire grid as "urban".
     """
     urban = _load_vector(config.URBAN_PATH, "ABS Urban Centres/Localities")
+    # Coverage is the complete state extract, including Rural Balance. Do not
+    # mistake the extent of just the urban polygons for the source coverage.
+    coverage_bounds = tuple(urban.to_crs(config.STORAGE_CRS).total_bounds)
     if "sos_code_2021" in urban.columns:
         n_before = len(urban)
         urban = urban[~urban["sos_code_2021"].isin(config.URBAN_EXCLUDE_SOS_CODES)]
         print(f"      (dropped {n_before - len(urban)} non-urban 'Rural Balance' feature(s))")
     result = _overlap_join(cells, urban, name_field=None)
-    coverage_bounds = tuple(urban.to_crs(config.STORAGE_CRS).total_bounds)
     return {cid: overlap for cid, (overlap, _name) in result.items()}, coverage_bounds
 
 
@@ -223,12 +247,27 @@ def _raster_field(
 
 def slope_field(cells: gpd.GeoDataFrame) -> dict[str, float | None]:
     """Mean Horn slope (degrees) — statistic frozen by decision Q3 (mean for scoring)."""
-    return _raster_field(cells, config.SLOPE_RASTER_PATH, "Slope (SRTM GL3 Horn slope)")
+    return _feature_field(cells, config.GEOGRAPHIC_FEATURES_PATH, "slope_deg")
 
 
 def wind_speed_field(cells: gpd.GeoDataFrame) -> dict[str, float | None]:
     """Mean GWA v4 wind speed (m/s) at 100 m hub height — frozen decision Q2 (primary height)."""
-    return _raster_field(cells, config.WIND_SPEED_RASTER_PATH, "GWA wind speed (100 m)")
+    return _feature_field(cells, config.WIND_FEATURES_PATH, "wind_speed_100m")
+
+
+def _feature_field(cells: gpd.GeoDataFrame, path: Path, column: str) -> dict[str, float | None]:
+    """Use the exact NSW cell statistic integration consumes, not an old raster clip.
+
+    Missing values remain missing; an absent/duplicate cell is a coverage fault,
+    not an excuse to fall back to the legacy New England window.
+    """
+    frame = _load_vector(path, f"NSW {column} features")
+    if column not in frame or "cell_id" not in frame:
+        raise ValueError(f"{path} lacks cell_id or {column}")
+    if frame.cell_id.duplicated().any() or set(frame.cell_id) != set(cells.cell_id):
+        raise ValueError(f"{path} cell IDs must uniquely cover the complete analysis grid")
+    return {str(cid): None if value is None or np.isnan(value) else float(value)
+            for cid, value in zip(frame.cell_id, frame[column])}
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +296,8 @@ def build_cell_table(
     if verbose:
         print("    Sampling wind speed (GWA v4, 100 m, cell-centre mean)...")
     wind = wind_speed_field(cells)
+    demand = _feature_field(cells, config.DEMAND_FEATURES_PATH, "demand_proxy")
+    inside_nsw = nsw_land_field(cells)
 
     u_west, u_south, u_east, u_north = urban_coverage_bounds
 
@@ -269,6 +310,8 @@ def build_cell_table(
             "slope_deg": slope[cell_id],
             "urban_area": urban[cell_id],
             "wind_speed_100m_ms": wind[cell_id],
+            "demand_proxy": demand[cell_id],
+            "inside_nsw_land": inside_nsw[cell_id],
         }
         eligible, reason_pairs = rules_mod.evaluate_cell_detailed(fields, rules)
         # Derive the backward-compatible human string + machine name list from
@@ -289,7 +332,7 @@ def build_cell_table(
         in_urban_coverage = (u_west <= lon <= u_east) and (u_south <= lat <= u_north)
         if not in_urban_coverage:
             data_flags.append(
-                "Urban-centre data unavailable outside New England REZ coverage "
+                "Urban-centre data unavailable outside NSW extract coverage "
                 "(urban_area defaults to False, not confirmed)"
             )
 
@@ -309,6 +352,8 @@ def build_cell_table(
                 "slope_deg": fields["slope_deg"],
                 "urban_area": fields["urban_area"],
                 "wind_speed_100m_ms": fields["wind_speed_100m_ms"],
+                "demand_proxy": fields["demand_proxy"],
+                "inside_nsw_land": fields["inside_nsw_land"],
                 "data_flags": "; ".join(data_flags) if data_flags else None,
             }
         )
@@ -367,9 +412,9 @@ def _write_report(
     out.write("# Exclusion layer summary (S1-07)\n\n")
     out.write(banner("exclusions.apply"))
     out.write(
-        "\nSee `pipeline/exclusions/__init__.py` for the scope note: this stage reads raw "
-        "geographic/wind sources directly rather than a S1-06/S1-03 Feature_Table, because "
-        "those stages are design-documented but not yet implemented in code.\n\n"
+        "\nWind and slope use the exact full-NSW cell feature tables consumed by integration. "
+        "CAPAD and ABS UCL use statewide vector extracts. No old New England raster "
+        "is used as a statewide missing-data test.\n\n"
     )
     out.write(f"Rules config: `{rules_path}`\n\n")
 
@@ -395,14 +440,17 @@ def _write_report(
 
     out.write("## Data-source coverage caveat\n\n")
     out.write(
-        "The slope, wind-speed and urban-centre sources currently cover only the New England "
-        "REZ study window, not the full NSW grid; CAPAD (protected areas) is full-NSW. Cells "
-        "outside that window have `slope_deg` / `wind_speed_100m_ms` = null and are excluded "
-        "by the `missing_wind_data` rule (per the Constitution: \"where critical data is "
-        "missing, exclude the cell\") rather than being scored on invented data. This is a "
-        "real, documented gap in Sprint 1 source coverage, not a defect in this stage — see "
-        "`pipeline/exclusions/__init__.py`.\n\n"
+        "The full NSW feature tables and statewide ABS UCL extract replace the old New "
+        "England-only coverage. True missing wind values still trigger missing_wind_data. "
+        "Other missing features remain null and are surfaced in confidence notes; they are "
+        "not imputed. The four original rules and thresholds are unchanged. The approved "
+        "F16 addition missing_demand_data excludes cells lacking a scored demand proxy. "
+        "The separately approved outside_nsw_land rule excludes centroids outside the "
+        "committed ABS NSW state geometry (point covered_by, EPSG:3577, boundary included). "
+        "All original grid cells remain present with their reasons; coarse cells may straddle "
+        "a border or coast. This is not a parcel-level land-availability assessment.\n\n"
     )
+    out.write(f"NSW boundary source: `{config.NSW_BOUNDARY_PATH}`\n\n")
 
     out.write("## Rule configuration (verbatim)\n\n")
     out.write("```yaml\n")

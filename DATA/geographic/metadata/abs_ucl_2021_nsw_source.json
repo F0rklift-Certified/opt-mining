@@ -1,0 +1,13 @@
+{
+  "dataset": "ABS ASGS 2021 Urban Centres and Localities, complete NSW",
+  "source": "https://geo.abs.gov.au/arcgis/rest/services/ASGS2021/UCL/FeatureServer/0",
+  "where": "state_code_2021 = '1'",
+  "out_crs": "EPSG:4326",
+  "licence": "Creative Commons Attribution 4.0 International (ABS)",
+  "retrieved_utc": "2026-10-05T02:44:56+00:00",
+  "feature_count": 538,
+  "max_allowable_offset_deg": 0.0005,
+  "sha256": "56649d80d1f10a333bf130885321e9ef8e52466d1bce9e73b5efe39466a17885",
+  "output": "DATA/geographic/urban/abs_ucl_2021_nsw.geojson",
+  "purpose": "S3-10 approved source-coverage correction; unchanged exclusion rules"
+}
