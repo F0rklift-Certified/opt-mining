@@ -72,10 +72,14 @@ CI builds/boots the stack and preserves its browser/report evidence.
 1. Maintain the existing upstream checkpoint/backend → web review sequence.
 2. Review the separate S3-10 baseline and service consistency repairs first.
 3. Review the map/detail/comparison UI, then the independent security upgrade.
+   Scoped PRs: [baseline #25](https://github.com/F0rklift-Certified/opt-mining/pull/25),
+   [service #26](https://github.com/F0rklift-Certified/opt-mining/pull/26),
+   [web #27](https://github.com/F0rklift-Certified/opt-mining/pull/27),
+   [security #28](https://github.com/F0rklift-Certified/opt-mining/pull/28).
 4. Review the small final validation/docs package; rerun the recorded gates on
    the intended merged release commit. Do not merge the entire stack through
    one giant final PR.
-5. The unused annotated `v0.1.0-rc.1` tag identifies the tested **pre-review
+5. The annotated `v0.1.0-rc.1` tag identifies the tested **pre-review
    candidate**, not an approved production release. Never move a published tag.
 6. Present the live walkthrough to Iman Rahimi for Checkpoint D and record
    actual feedback/acceptance. Then close the named review gates.

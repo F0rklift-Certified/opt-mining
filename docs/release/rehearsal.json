@@ -1,8 +1,8 @@
 {
-  "recorded_at_utc": "2026-10-05T03:42:12.646257+00:00",
-  "source_commit": "a2ad4a7a5f9be683b70f4d6aeef6468ba29d61d5",
-  "working_tree_dirty": true,
-  "rehearsal_script_sha256": "f04b4d827154b3bc480eed6e52722cde80a1ffddde8d0f85f9a05fece449ba86",
+  "recorded_at_utc": "2026-10-05T03:51:45.112377+00:00",
+  "source_commit": "8dab7736c36d68c75958669212a8e8a8a7ef2fb5",
+  "working_tree_dirty": false,
+  "rehearsal_script_sha256": "cd498f4d686eb529234d541ef40af9bd6c1c2f03d3064d9db3c1097e32b445fb",
   "api_url": "http://localhost:18010",
   "web_url": "http://localhost:13010",
   "service_checks_passed": true,
@@ -663,6 +663,7 @@
     "reference_sha256": "ee63e1b966d9aabbc944152f3a5dff373926ed515302b9c1ff46aa67b3c9fdb0",
     "source_name_field": "feature_name",
     "status_filter": "Operational",
+    "reference_scope_note": "Counts refer to GA records, not unique wind farms. Gullen Range occurs twice. White Rock Solar Farm is labelled primary_fuel_type=Wind and technology_type=Turbine - Wind in the source; retain this source ambiguity for investigation rather than silently removing it to improve the result.",
     "containment_crs": "EPSG:3577",
     "outcome": {
       "expected": "Most operational wind farms are expected to fall in the Upper_Quartile (Percentile >= 75) of the Eligible_Cell score population.",
