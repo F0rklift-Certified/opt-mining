@@ -451,10 +451,11 @@ A successful full pipeline run produces the following file tree under `DATA/`:
 | `landuse/abares_alumv8_class_table.csv` | download | ALUMV8 class code lookup table |
 | `protected/dcceew_capad-terrestrial_2024_new-england-rez.geojson` | download | CAPAD protected areas clipped to study area |
 | `protected/dcceew_capad-terrestrial_2024_nsw.geojson` | download | CAPAD protected areas (full NSW) |
-| `urban/abs_ucl_2021_new-england-rez.geojson` | download | Urban centre/locality boundaries |
+| `urban/abs_ucl_2021_new-england-rez.geojson` | download | Urban centre/locality boundaries (legacy study-window slice) |
+| `urban/abs_ucl_2021_nsw.geojson` | acquisition (`scripts/_acquire_ucl_nsw.py`) | ABS UCL 2021 urban centres/localities, **NSW statewide** (536 features, EPSG:4326); the operative urban source for the full-NSW `geographic.features` build |
 | `derived/nem_regions_asgs2021_national.geojson` | derive | NEM region geometries (dissolved from state boundaries) |
-| `features/optmining_geographic-features_2024_nsw.gpkg` | geographic.features | Per-cell geographic feature table on the common analysis grid (GeoPackage, EPSG:4326): `cell_id`, `elevation_m`, `slope_deg`, `land_use`, `protected_area`, `protected_area_name`, `tri`, `confidence_flag` (S1-06) |
-| `metadata/geographic_features_method.md` | geographic.features | Method report: zonal-statistics method, coverage (New England REZ / Glen-Innes-only TRI vs full NSW grid), confidence counts, CRS transformations, runtime |
+| `features/optmining_geographic-features_2024_nsw.gpkg` | geographic.features | Per-cell geographic feature table on the common analysis grid (GeoPackage, EPSG:4326): `cell_id`, `elevation_m`, `slope_deg`, `land_use`, `protected_area`, `protected_area_name`, `tri`, `urban_area`, `on_land`, `confidence_flag` (10-col schema; S1-06) |
+| `metadata/geographic_features_method.md` | geographic.features | Method report: zonal-statistics method, coverage (statewide NSW; Glen-Innes-only TRI), the `urban_area` UCL overlap + `on_land` land-mask method, confidence counts, CRS transformations, runtime |
 | `DATA_PROVENANCE.md` | download | Human-readable provenance table |
 | `metadata/source_register.csv` | probe | Catalogue of all probed data sources |
 | `metadata/download_manifest.json` | download | SHA-256 hashes, byte counts, timestamps |

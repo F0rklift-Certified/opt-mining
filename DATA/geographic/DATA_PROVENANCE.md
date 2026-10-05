@@ -21,7 +21,7 @@ to stay under the 10 MB commit guardrail — window extracts are full resolution
 | **Name** | Australian Statistical Geography Standard (ASGS) Edition 3, 2021 |
 | **Publisher** | Australian Bureau of Statistics |
 | **Access endpoint** | `https://geo.abs.gov.au/arcgis/rest/services/ASGS2021/<layer>/FeatureServer/0`, `f=geojson` |
-| **Layers sampled** | STE (states, national), AUS (outline, national), LGA (window), UCL (window); SA2 probed only |
+| **Layers sampled** | STE (states, national), AUS (outline, national), LGA (window), UCL (window + NSW statewide — see §1a); SA2 probed only |
 | **Temporal coverage** | Static boundary edition, current from 2021 |
 | **Native CRS / datum** | ASGS Ed. 3 boundaries are GDA2020-based; the ArcGIS service source SR is EPSG:3857 (Web Mercator) and returns that unless `outSR` is explicit |
 | **Units** | `area_albers_sqkm` in km² (ABS-computed Albers area) |
@@ -29,6 +29,22 @@ to stay under the 10 MB commit guardrail — window extracts are full resolution
 | **Method** | Paged FeatureServer queries via `scripts/geo_fetch_vectors.py`; "Outside Australia" null-geometry row filtered from STE |
 | **Assumptions** | The served `area_albers_sqkm` is authoritative; verified by recomputation in EPSG:3577 to −0.38 % (the gap is the recorded ~50 m generalisation trimming coastline) |
 | **Limitations** | National files are generalised (~50 m) — do not reuse for sub-100 m work; external territories included in STE extent |
+
+## 1a. ABS ASGS 2021 UCL — NSW statewide urban extract
+
+| Field | Value |
+|-------|-------|
+| **Name** | Urban Centres and Localities (UCL), ASGS Ed. 3 (2021), NSW statewide — `urban/abs_ucl_2021_nsw.geojson` |
+| **Publisher** | Australian Bureau of Statistics |
+| **Access endpoint** | `https://geo.abs.gov.au/arcgis/rest/services/ASGS2021/UCL/FeatureServer/0/query`, `f=geojson`, `outSR=4326` |
+| **Query** | `where=state_code_2021 = '1'` (NSW), paged until exhausted; clipped to the NSW analysis bbox `(141.01125, -37.51125, 153.66125, -28.16125)` |
+| **Features** | 536 UCL polygons (after bbox clip); `sos_code_2021` distribution 10:6 (Major Urban), 11:243 (Other Urban), 12:286 (Bounded Locality), 13:1 (Rural Balance) |
+| **Temporal coverage** | Static boundary edition, 2021 |
+| **Native CRS / datum** | ArcGIS source SR EPSG:3857; requested and stored in EPSG:4326 (storage CRS); overlap computed in EPSG:3577 |
+| **Licence** | CC BY 4.0 — attribution: Australian Bureau of Statistics |
+| **Method** | `scripts/_acquire_ucl_nsw.py` → `pipeline.common.geo.query_layer_geojson`; the full-resolution extract exceeded the 10 MB commit guardrail, so it was re-fetched with server-side generalisation `maxAllowableOffset=0.0005°` (~50 m) — the same guardrail `pipeline/geographic/download.py` applies to oversized ABS layers. SHA-256 and byte size recorded in `metadata/download_manifest.json` (`urban_nsw`). |
+| **Pipeline use** | `pipeline/geographic/features.py` computes the per-cell `urban_area` boolean by cell-centre intersection in EPSG:3577, after dropping the single `sos_code_2021 == "13"` "Rural Balance" catch-all polygon (`URBAN_EXCLUDE_SOS_CODES`); Major/Other Urban + Bounded Locality (codes 10/11/12) are kept as urban. |
+| **Limitations** | ~50 m generalisation (acceptable at the 0.05° / ~5 km analysis resolution); the "Rural Balance" polygon spans the whole state and is excluded as non-urban. Code 10 "Major Urban" (Sydney, Newcastle, Wollongong, Central Coast, Queanbeyan, Tweed-Heads part) was absent from the earlier New-England-REZ slice and is retained here. |
 
 ## 2. Derived: NEM region geometries
 

@@ -728,7 +728,7 @@ Scoring_Formula runs (§3.3) and records, for every excluded cell, **why** it wa
   > change), the engine can read it directly.
 
 **The vocabulary.** The machine-readable **codes are exactly the `name` values of the rules in
-`pipeline/exclusions/exclusion_rules.yaml`**. The shipped MVP vocabulary is the four codes below;
+`pipeline/exclusions/exclusion_rules.yaml`**. The shipped vocabulary is the six codes below;
 because rules are data, not code, the vocabulary is extended or retuned by editing that YAML —
 but as a Contract-frozen decision, any change to a code follows the change-control process of
 §6.2 and must land in every recording location listed below so a downstream consumer's code
@@ -740,6 +740,8 @@ table never goes stale.
 | `missing_wind_data` | `Missing wind data` | no valid wind resource value for the cell |
 | `excessive_slope` | `Slope exceeds {threshold}°` (default 15°) | mean slope above the construction threshold |
 | `urban_area` | `Urban area` | overlaps an ABS Urban Centre/Locality |
+| `offshore_or_marine` | `Offshore or marine (not on land)` | cell centre not on land (Natural Earth land mask) |
+| `missing_slope_data` | `Missing slope data` | no valid slope value for the cell |
 
 **Pairing contract (what a consumer may rely on).** For any cell:
 

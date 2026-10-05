@@ -196,5 +196,39 @@
       }
     ],
     "failures": []
+  },
+  "urban_nsw": {
+    "dataset": "ABS ASGS 2021 Urban Centres and Localities (UCL), NSW statewide",
+    "source": "https://geo.abs.gov.au/arcgis/rest/services/ASGS2021/UCL/FeatureServer/0",
+    "query_url": "https://geo.abs.gov.au/arcgis/rest/services/ASGS2021/UCL/FeatureServer/0/query",
+    "where": "state_code_2021 = '1'",
+    "out_sr": 4326,
+    "max_allowable_offset_deg": 0.0005,
+    "clip_bbox_epsg4326": [
+      141.01125,
+      -37.51125,
+      153.66125,
+      -28.16125
+    ],
+    "output_file": "DATA/geographic/urban/abs_ucl_2021_nsw.geojson",
+    "features": 536,
+    "features_before_clip": 538,
+    "local_bytes": 1384628,
+    "sha256": "2a8a4b87af8474227c0e580836e1ea36ee1b1632e61e0e7924f6cd5422f23d3d",
+    "retrieved_utc": "2026-10-05T14:01:33+00:00",
+    "crs": "EPSG:4326 (GeoJSON, outSR explicit)",
+    "sos_code_2021_distribution": {
+      "12": 286,
+      "11": 243,
+      "10": 6,
+      "13": 1
+    },
+    "bbox_epsg4326": [
+      141.01125,
+      -37.5051,
+      153.6386,
+      -28.16125
+    ],
+    "generated_by": "scripts/_acquire_ucl_nsw.py"
   }
 }

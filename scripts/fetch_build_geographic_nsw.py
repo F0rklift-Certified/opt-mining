@@ -83,6 +83,12 @@ NSW_ELEVATION_PATH = ELEV_DIR / f"srtm-gl3_elevation_90m_{NSW_AREA}.tif"
 NSW_SLOPE_PATH = ELEV_DIR / f"srtm-gl3_slope-horn_90m_{NSW_AREA}.tif"
 NSW_NLUM_PATH = LANDUSE_DIR / f"abares_nlum-alumv8_2020-21_{NSW_AREA}.tif"
 
+# Statewide ABS UCL 2021 urban extract (acquired by scripts/_acquire_ucl_nsw.py)
+# and the already-committed Natural Earth 1:50m land mask — the two statewide
+# inputs for the geographic builder's urban_area / on_land columns.
+NSW_URBAN_PATH = geo_config.GEO_DIR / "urban" / f"abs_ucl_2021_{NSW_AREA}.geojson"
+NSW_LAND_PATH = geo_config.GEO_DIR / "coastline" / "ne_land-50m_australia.geojson"
+
 # TRI keeps its existing sub-window source: it is excluded from the confidence
 # decision by design and is not one of the failing scored columns.
 DEFAULT_TRI_PATH = geo_features.TRI_PATH
@@ -169,6 +175,16 @@ def build_nsw_features(verbose: bool = False) -> dict:
             raise SystemExit(
                 f"{label} missing: {path}. Run the download and derive steps first."
             )
+    # The statewide urban extract is an external dataset the builder requires; a
+    # missing file halts loudly (geo_features.run -> _load_urban) rather than
+    # defaulting urban_area to False. Fail early here with the acquisition hint.
+    if not NSW_URBAN_PATH.exists():
+        raise SystemExit(
+            f"NSW urban extract missing: {NSW_URBAN_PATH}. Acquire it first:\n"
+            f"  python -m scripts._acquire_ucl_nsw"
+        )
+    if not NSW_LAND_PATH.exists():
+        raise SystemExit(f"NSW land mask missing: {NSW_LAND_PATH}.")
     summary = geo_features.run(
         verbose=verbose,
         elevation_path=NSW_ELEVATION_PATH,
@@ -176,6 +192,8 @@ def build_nsw_features(verbose: bool = False) -> dict:
         tri_path=DEFAULT_TRI_PATH,
         nlum_path=NSW_NLUM_PATH,
         capad_path=DEFAULT_CAPAD_PATH,
+        urban_path=NSW_URBAN_PATH,
+        land_path=NSW_LAND_PATH,
     )
     print(f"      Feature table re-written: {summary['feature_table']}")
     return summary

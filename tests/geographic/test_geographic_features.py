@@ -1033,7 +1033,7 @@ class TestValidate:
     and returns ``{"checks": [...], "passed": int, "total": int}`` where each check
     is ``{"name", "expected", "observed", "passed"}``. These tests build a synthetic
     grid (reusing ``_make_grid_gdf`` / ``_write_grid``) and a matching synthetic
-    Feature_Table carrying exactly the eight :data:`SCHEMA_COLUMNS` + geometry, then
+    Feature_Table carrying exactly the ten :data:`SCHEMA_COLUMNS` + geometry, then
     write faulty variants and assert the specific named check fails with non-empty
     ``expected`` / ``observed`` strings.
 
@@ -1046,7 +1046,7 @@ class TestValidate:
 
     def _make_feature_table_gdf(self, cell_ids, *, overrides=None):
         """
-        Build a synthetic Feature_Table GeoDataFrame with exactly the eight
+        Build a synthetic Feature_Table GeoDataFrame with exactly the ten
         :data:`SCHEMA_COLUMNS` + geometry, one row per ``cell_id``.
 
         Geometry mirrors ``_make_grid_gdf`` (distinct 0.05-degree squares) so the
@@ -1070,6 +1070,8 @@ class TestValidate:
             "protected_area": [False] * n,
             "protected_area_name": [""] * n,
             "tri": [10.0 + i for i in range(n)],
+            "urban_area": [False] * n,
+            "on_land": [True] * n,
             "confidence_flag": [CONFIDENCE_HIGH] * n,
         }
         if overrides:
@@ -1161,7 +1163,7 @@ class TestValidate:
 
     def test_wrong_schema_fails_schema_check(self, tmp_path):
         """
-        A table whose columns are not exactly the eight :data:`SCHEMA_COLUMNS`
+        A table whose columns are not exactly the ten :data:`SCHEMA_COLUMNS`
         fails the schema check, reporting the expected and observed column lists
         (Req 11.3).
 
@@ -2059,13 +2061,13 @@ class TestSchemaProperties:
 
     @settings(max_examples=100, deadline=None)
     @given(
-        n=st.integers(min_value=1, max_value=8),
+        n=st.integers(min_value=1, max_value=10),
         col_order=st.permutations(SCHEMA_COLUMNS),
     )
     def test_property_13_feature_table_has_exact_schema(self, n, col_order):
         # Feature: geographic-environmental-features, Property 13: Feature_Table has
         # exactly the required schema — after schema enforcement the non-geometry
-        # columns are exactly SCHEMA_COLUMNS (the eight required columns), in order,
+        # columns are exactly SCHEMA_COLUMNS (the ten required columns), in order,
         # plus a geometry column, regardless of the source column order.
         # Validates: Requirements 7.1
         cell_ids = [f"S{i:03d}" for i in range(n)]
@@ -2080,6 +2082,8 @@ class TestSchemaProperties:
             "protected_area": [False] * n,
             "protected_area_name": [""] * n,
             "tri": [3.0] * n,
+            "urban_area": [False] * n,
+            "on_land": [True] * n,
             "confidence_flag": [CONFIDENCE_HIGH] * n,
             "spurious_extra": [1] * n,
             "another_extra": ["z"] * n,
@@ -2087,7 +2091,7 @@ class TestSchemaProperties:
         gdf = gpd.GeoDataFrame(raw, geometry=geoms, crs=STORAGE_CRS)
 
         # Schema enforcement (as run() does before writing): select exactly the
-        # eight schema columns in canonical order, keep geometry.
+        # ten schema columns in canonical order, keep geometry.
         enforced = gdf[list(col_order)]  # arbitrary order does not matter to the set
         enforced = gpd.GeoDataFrame(
             {col: gdf[col] for col in SCHEMA_COLUMNS},

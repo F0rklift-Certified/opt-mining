@@ -6,18 +6,22 @@
 # change is required. Rules are evaluated independently; a cell can fail
 # more than one.
 #
-# Fields available per cell (computed in pipeline/exclusions/apply.py —
-# see that module's and the package __init__.py docstrings for the current
-# data-source scope and coverage caveats):
+# Fields available per cell. The exclusion stage joins the per-cell
+# geographic feature table (pipeline/geographic/features.py) and the wind
+# feature table (pipeline/wind/features.py) on cell_id — see those modules'
+# and the package __init__.py docstrings for the current data-source scope.
+# All fields below are statewide-NSW (every one of the 47,311 grid cells):
 #
 #   protected_area        bool           any CAPAD protected-area overlap (full NSW coverage)
 #   protected_area_name   str            "; "-joined names of overlapping protected areas ("" if none)
 #   slope_deg              float | null   mean Horn slope (degrees) over the cell
-#                                          (SRTM GL3 derived raster — New England REZ window only)
+#                                          (SRTM GL3 derived raster, statewide NSW)
 #   urban_area             bool           overlaps an ABS Urban Centre/Locality polygon
-#                                          (New England REZ window only)
+#                                          (ABS UCL 2021, statewide NSW)
+#   on_land                bool           cell centroid lies on land (Natural Earth
+#                                          1:50m land mask); False is offshore/marine
 #   wind_speed_100m_ms     float | null   mean GWA v4 wind speed (m/s) at 100 m hub height
-#                                          (New England REZ window only)
+#                                          (statewide NSW)
 #
 # condition syntax:
 #   "== value" | "!= value" | "> n" | ">= n" | "< n" | "<= n" | "is_null" | "is_not_null"
@@ -59,3 +63,15 @@ exclusions:
     field: urban_area
     condition: "== True"
     reason_template: "Urban area"
+
+  - name: offshore_or_marine
+    description: "Cell centre is not on land (offshore/marine)"
+    field: on_land
+    condition: "== False"
+    reason_template: "Offshore or marine (not on land)"
+
+  - name: missing_slope_data
+    description: "No valid slope data available for the cell"
+    field: slope_deg
+    condition: "is_null"
+    reason_template: "Missing slope data"
