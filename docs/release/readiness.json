@@ -1,0 +1,115 @@
+{
+  "baseline": "499403e0310dc8b7983b9a57156ce4204a1ea8e7b6d6fa18fa43e1b6e33bbe77",
+  "status": "technical_candidate_pending_review",
+  "criteria": [
+    {
+      "id": "AC1",
+      "required_for_rc": true,
+      "status": "passed",
+      "evidence": "47,311 frozen grid rows; actual app hash matches the committed manifest; source scripts and authorised audit."
+    },
+    {
+      "id": "AC2",
+      "required_for_rc": true,
+      "status": "passed",
+      "evidence": "Six independent exclusions before scoring; canonical source agreement, demand and NSW mask guards; excluded detail has null score/rank and paired reasons."
+    },
+    {
+      "id": "AC3",
+      "required_for_rc": true,
+      "status": "passed",
+      "evidence": "Decision specification and scoring/scenario YAML record six feature definitions, units, sources and directions."
+    },
+    {
+      "id": "AC4",
+      "required_for_rc": true,
+      "status": "passed",
+      "evidence": "Backend arithmetic/property tests and thin-client scope guards; no scoring or ranking in the UI."
+    },
+    {
+      "id": "AC5",
+      "required_for_rc": true,
+      "status": "passed",
+      "evidence": "Two configurable YAML presets; actual resolved numeric weights and input hash visible in the app."
+    },
+    {
+      "id": "AC6",
+      "required_for_rc": true,
+      "status": "passed",
+      "evidence": "Pinned frozen-data snapshot and hand-computed case; live checks reconcile contribution sums, ranks and filter invariance."
+    },
+    {
+      "id": "AC7",
+      "required_for_rc": true,
+      "status": "passed",
+      "evidence": "Per-run S2-06 explanation, raw features, contributions and proxy/quality caveats, plus excluded-site inspection."
+    },
+    {
+      "id": "AC8",
+      "required_for_rc": true,
+      "status": "passed",
+      "evidence": "Offline interactive NSW canvas, engine shortlist, zoom/pan, excluded overlay, lookup and shared map/table selection; real Compose E2E."
+    },
+    {
+      "id": "AC9",
+      "required_for_rc": true,
+      "status": "passed",
+      "evidence": "Both presets and service-owned rank comparison; selected-cell delta and preference interpretation."
+    },
+    {
+      "id": "AC10",
+      "required_for_rc": false,
+      "status": "passed",
+      "evidence": "Operational GA wind-farm check in rehearsal.json; anomalies disclosed, not used to retune weights."
+    },
+    {
+      "id": "AC11",
+      "required_for_rc": true,
+      "status": "passed",
+      "evidence": "Documented Compose path, independent Python 3.13/Node 24 images, locked clean npm install and backend/frontend/HTTP/browser CI gates."
+    },
+    {
+      "id": "AC12",
+      "required_for_rc": true,
+      "status": "passed",
+      "evidence": "Screening-only app and documentation; demand is a spatial proxy and proximity is not connection capacity."
+    }
+  ],
+  "gaps": [
+    {
+      "id": "release-order",
+      "blocking": true,
+      "reason": "Upstream PRs #19-24 remain open. Maintainers must review/merge prerequisite backend/web and then scoped S3-10 repairs. The demonstrated branch is not main."
+    },
+    {
+      "id": "Checkpoint-D",
+      "blocking": true,
+      "reason": "Technical rehearsal is complete; actual client review/acceptance by Iman Rahimi has not occurred. Tests do not constitute client sign-off."
+    },
+    {
+      "id": "S3-07",
+      "blocking": false,
+      "reason": "Browser shortlist CSV export is an outstanding Should item."
+    },
+    {
+      "id": "S3-08",
+      "blocking": false,
+      "reason": "A separate web sanity visualisation remains outstanding; reference analysis and interpretation are in the release report."
+    },
+    {
+      "id": "reference-anomalies",
+      "blocking": false,
+      "reason": "Investigate Taralga and Rye Park excluded reference cells. Aggregate plausibility is not site-level validation or accuracy."
+    },
+    {
+      "id": "deployment-scale",
+      "blocking": false,
+      "reason": "First-run locking covers the documented single API process, not multiple workers/hosts."
+    },
+    {
+      "id": "polish",
+      "blocking": false,
+      "reason": "Commercial styling, additional states/technologies and production hosting remain out of scope."
+    }
+  ]
+}
