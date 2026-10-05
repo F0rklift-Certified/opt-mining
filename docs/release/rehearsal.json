@@ -1,0 +1,836 @@
+{
+  "recorded_at_utc": "2026-10-05T03:42:12.646257+00:00",
+  "source_commit": "a2ad4a7a5f9be683b70f4d6aeef6468ba29d61d5",
+  "working_tree_dirty": true,
+  "rehearsal_script_sha256": "f04b4d827154b3bc480eed6e52722cde80a1ffddde8d0f85f9a05fece449ba86",
+  "api_url": "http://localhost:18010",
+  "web_url": "http://localhost:13010",
+  "service_checks_passed": true,
+  "browser_acceptance": "Recorded separately; HTTP evidence does not prove UI interaction.",
+  "release_blockers": [
+    "release-order: Upstream PRs #19-24 remain open. Maintainers must review/merge prerequisite backend/web and then scoped S3-10 repairs. The demonstrated branch is not main.",
+    "Checkpoint-D: Technical rehearsal is complete; actual client review/acceptance by Iman Rahimi has not occurred. Tests do not constitute client sign-off."
+  ],
+  "input_sha256": "499403e0310dc8b7983b9a57156ce4204a1ea8e7b6d6fa18fa43e1b6e33bbe77",
+  "scenario_source_sha256": "2e300e18ecd1ba83cfbbc8861b2d3ef551c500db290e41b4bf6bcbb948f2489b",
+  "data_quality": {
+    "passed": true,
+    "checks": [
+      {
+        "name": "Baseline hash matches the frozen reference",
+        "expected": "sha256 == frozen reference",
+        "observed": "match",
+        "passed": true
+      },
+      {
+        "name": "Required columns present",
+        "expected": "all 30 OUTPUT_COLUMNS present",
+        "observed": "0 missing",
+        "passed": true
+      },
+      {
+        "name": "Scored feature columns present",
+        "expected": "all 10 SCORED_FEATURE_COLUMNS present",
+        "observed": "0 missing",
+        "passed": true
+      },
+      {
+        "name": "cell_id non-null",
+        "expected": "0 null cell_id values",
+        "observed": "0 null cell_id values",
+        "passed": true
+      },
+      {
+        "name": "cell_id unique",
+        "expected": "0 duplicate cell_id values",
+        "observed": "0 duplicate cell_id values",
+        "passed": true
+      },
+      {
+        "name": "Coordinates valid and within the NSW analysis bounding box",
+        "expected": "centroid_lat \u2208 [-90, 90], centroid_lon \u2208 [-180, 180], centroid within NSW_BBOX (141.0, -37.55, 153.7, -28.15)",
+        "observed": "0 out-of-range centroids",
+        "passed": true
+      },
+      {
+        "name": "Geometry valid and stored in the storage CRS",
+        "expected": "all geometries valid and crs == EPSG:4326",
+        "observed": "0 invalid geometries; crs=EPSG:4326",
+        "passed": true
+      },
+      {
+        "name": "Units/ranges within sanity bound: wind_speed",
+        "expected": "all values within Sanity_Range [0, 25]",
+        "observed": "0 out-of-range values",
+        "passed": true
+      },
+      {
+        "name": "Units/ranges within sanity bound: demand_proxy",
+        "expected": "all values within Sanity_Range [0, 1]",
+        "observed": "0 out-of-range values",
+        "passed": true
+      },
+      {
+        "name": "Units/ranges within sanity bound: dist_transmission_km",
+        "expected": "all values within Sanity_Range [0, 2000]",
+        "observed": "0 out-of-range values",
+        "passed": true
+      },
+      {
+        "name": "Units/ranges within sanity bound: dist_substation_km",
+        "expected": "all values within Sanity_Range [0, 2000]",
+        "observed": "0 out-of-range values",
+        "passed": true
+      },
+      {
+        "name": "Units/ranges within sanity bound: inside_rez",
+        "expected": "all values within Sanity_Range {false, true}",
+        "observed": "0 out-of-range values",
+        "passed": true
+      },
+      {
+        "name": "Units/ranges within sanity bound: elevation_m",
+        "expected": "all values within Sanity_Range [-20, 3000]",
+        "observed": "0 out-of-range values",
+        "passed": true
+      },
+      {
+        "name": "Units/ranges within sanity bound: slope_deg",
+        "expected": "all values within Sanity_Range [0, 90]",
+        "observed": "0 out-of-range values",
+        "passed": true
+      },
+      {
+        "name": "Units/ranges within sanity bound: protected_area",
+        "expected": "all values within Sanity_Range {false, true}",
+        "observed": "0 out-of-range values",
+        "passed": true
+      },
+      {
+        "name": "Missing-value count: wind_speed",
+        "expected": "0 missing values among eligible cells (scored criterion)",
+        "observed": "0 missing values over 23,266 eligible cells (scored criterion)",
+        "passed": true
+      },
+      {
+        "name": "Missing-value count: demand_proxy",
+        "expected": "0 missing values among eligible cells (scored criterion)",
+        "observed": "0 missing values over 23,266 eligible cells (scored criterion)",
+        "passed": true
+      },
+      {
+        "name": "Missing-value count: dist_transmission_km",
+        "expected": "0 missing values among eligible cells (scored criterion)",
+        "observed": "0 missing values over 23,266 eligible cells (scored criterion)",
+        "passed": true
+      },
+      {
+        "name": "Missing-value count: dist_substation_km",
+        "expected": "0 missing values among eligible cells (scored criterion)",
+        "observed": "0 missing values over 23,266 eligible cells (scored criterion)",
+        "passed": true
+      },
+      {
+        "name": "Missing-value count: dist_connection_km",
+        "expected": "0 missing values among eligible cells (context, informational)",
+        "observed": "23,266 missing values over 23,266 eligible cells (context, informational)",
+        "passed": true
+      },
+      {
+        "name": "Missing-value count: inside_rez",
+        "expected": "0 missing values among eligible cells (scored criterion)",
+        "observed": "0 missing values over 23,266 eligible cells (scored criterion)",
+        "passed": true
+      },
+      {
+        "name": "Missing-value count: elevation_m",
+        "expected": "0 missing values among eligible cells (context, informational)",
+        "observed": "0 missing values over 23,266 eligible cells (context, informational)",
+        "passed": true
+      },
+      {
+        "name": "Missing-value count: slope_deg",
+        "expected": "0 missing values among eligible cells (scored criterion)",
+        "observed": "0 missing values over 23,266 eligible cells (scored criterion)",
+        "passed": true
+      },
+      {
+        "name": "Missing-value count: land_use",
+        "expected": "0 missing values among eligible cells (context, informational)",
+        "observed": "0 missing values over 23,266 eligible cells (context, informational)",
+        "passed": true
+      },
+      {
+        "name": "Missing-value count: protected_area",
+        "expected": "0 missing values among eligible cells (context, informational)",
+        "observed": "0 missing values over 23,266 eligible cells (context, informational)",
+        "passed": true
+      },
+      {
+        "name": "eligible present, boolean, no nulls",
+        "expected": "boolean dtype, 0 nulls",
+        "observed": "dtype bool, 0 nulls",
+        "passed": true
+      },
+      {
+        "name": "eligible/exclusion_reason consistent",
+        "expected": "0 inconsistent rows",
+        "observed": "0 inconsistent rows",
+        "passed": true
+      },
+      {
+        "name": "At least one Eligible_Cell",
+        "expected": "\u2265 1 eligible cell",
+        "observed": "23,266 eligible cells",
+        "passed": true
+      }
+    ]
+  },
+  "scenarios": {
+    "wind_led": {
+      "run": {
+        "run_id": "604d051bb2deb7d8",
+        "weights_id": "wind_led",
+        "scenario": "wind_led",
+        "criteria": [
+          {
+            "feature": "wind_speed",
+            "weight": 0.55,
+            "direction": "higher_is_better"
+          },
+          {
+            "feature": "dist_transmission_km",
+            "weight": 0.15,
+            "direction": "lower_is_better"
+          },
+          {
+            "feature": "demand_proxy",
+            "weight": 0.1,
+            "direction": "higher_is_better"
+          },
+          {
+            "feature": "dist_substation_km",
+            "weight": 0.05,
+            "direction": "lower_is_better"
+          },
+          {
+            "feature": "slope_deg",
+            "weight": 0.05,
+            "direction": "lower_is_better"
+          },
+          {
+            "feature": "inside_rez",
+            "weight": 0.1,
+            "direction": "higher_is_better"
+          }
+        ],
+        "input_sha256": "499403e0310dc8b7983b9a57156ce4204a1ea8e7b6d6fa18fa43e1b6e33bbe77"
+      },
+      "eligible_count": 23266,
+      "top_five": [
+        {
+          "cell_id": "S31.186_E151.686",
+          "suitability_score": 0.9265894934503678,
+          "rank": 1,
+          "key_components": {
+            "wind_speed": 0.5016845705277704,
+            "dist_transmission_km": 0.13944837649116945,
+            "demand_proxy": 0.09999999999999998,
+            "dist_substation_km": 0.046534043052995765,
+            "slope_deg": 0.038922503378432206,
+            "inside_rez": 0.09999999999999998
+          },
+          "centroid_lat": -31.18625,
+          "centroid_lon": 151.68625000000003
+        },
+        {
+          "cell_id": "S31.186_E151.736",
+          "suitability_score": 0.920483652239318,
+          "rank": 2,
+          "key_components": {
+            "wind_speed": 0.49883186986606104,
+            "dist_transmission_km": 0.1384071848609617,
+            "demand_proxy": 0.09999999999999998,
+            "dist_substation_km": 0.04618651256366936,
+            "slope_deg": 0.03705808494862596,
+            "inside_rez": 0.09999999999999998
+          },
+          "centroid_lat": -31.18625,
+          "centroid_lon": 151.73625
+        },
+        {
+          "cell_id": "S31.136_E151.686",
+          "suitability_score": 0.9189691536416961,
+          "rank": 3,
+          "key_components": {
+            "wind_speed": 0.4961275056391596,
+            "dist_transmission_km": 0.14170328963019374,
+            "demand_proxy": 0.09999999999999998,
+            "dist_substation_km": 0.04728629164631488,
+            "slope_deg": 0.033852066726027766,
+            "inside_rez": 0.09999999999999998
+          },
+          "centroid_lat": -31.136250000000004,
+          "centroid_lon": 151.68625000000003
+        },
+        {
+          "cell_id": "S31.236_E151.686",
+          "suitability_score": 0.9163976839210506,
+          "rank": 4,
+          "key_components": {
+            "wind_speed": 0.4977303579576791,
+            "dist_transmission_km": 0.13708657442651356,
+            "demand_proxy": 0.09999999999999998,
+            "dist_substation_km": 0.04574608146711788,
+            "slope_deg": 0.03583467006974002,
+            "inside_rez": 0.09999999999999998
+          },
+          "centroid_lat": -31.236250000000005,
+          "centroid_lon": 151.68625000000003
+        },
+        {
+          "cell_id": "S32.436_E149.086",
+          "suitability_score": 0.9105330177364475,
+          "rank": 5,
+          "key_components": {
+            "wind_speed": 0.4732809470100408,
+            "dist_transmission_km": 0.14882268109367927,
+            "demand_proxy": 0.09999999999999998,
+            "dist_substation_km": 0.04964120834644422,
+            "slope_deg": 0.03878818128628317,
+            "inside_rez": 0.09999999999999998
+          },
+          "centroid_lat": -32.43625,
+          "centroid_lon": 149.08625000000004
+        }
+      ],
+      "selected_site": {
+        "cell_id": "S31.186_E151.686",
+        "features": {
+          "wind_speed": 8.161779322624206,
+          "dist_transmission_km": 23.2453707094105,
+          "demand_proxy": 1.0,
+          "dist_substation_km": 23.233800728626676,
+          "slope_deg": 3.3216944444444443,
+          "inside_rez": true,
+          "cell_id": "S31.186_E151.686",
+          "centroid_lat": -31.18625,
+          "centroid_lon": 151.68625000000003,
+          "area_km2": 26.420439802868422,
+          "wind_confidence": "valid",
+          "source_region": "NSW1",
+          "demand_confidence": "high",
+          "dist_connection_km": null,
+          "rez_name": "New England REZ",
+          "infra_confidence": "low",
+          "elevation_m": 1254.9341666666667,
+          "tri": null,
+          "land_use": "3.2.0 Grazing modified pastures",
+          "protected_area": false,
+          "protected_area_name": "",
+          "geo_confidence": "high",
+          "eligible": true,
+          "exclusion_reason": null,
+          "triggered_rules": null,
+          "data_flags": null,
+          "n_missing_features": 1,
+          "data_confidence": "high",
+          "confidence_score": 0.83,
+          "confidence_notes": "Missing connection-point distance"
+        },
+        "contributions": {
+          "wind_speed": 0.5016845705277704,
+          "dist_transmission_km": 0.13944837649116945,
+          "demand_proxy": 0.09999999999999998,
+          "dist_substation_km": 0.046534043052995765,
+          "slope_deg": 0.038922503378432206,
+          "inside_rez": 0.09999999999999998
+        },
+        "suitability_score": 0.9265894934503678,
+        "rank": 1,
+        "eligible": true,
+        "explanation": {
+          "cell_id": "S31.186_E151.686",
+          "eligible": true,
+          "headline": "Higher-ranked candidate under the selected assumptions and criteria",
+          "positive_factors": [
+            "Strong wind resource (top decile)",
+            "Close to transmission (top decile)",
+            "Inside a Renewable Energy Zone (present)"
+          ],
+          "weaknesses": [],
+          "proxy_caveats": [
+            "Demand shown is a spatial proxy allocated below the AEMO region, not measured local demand"
+          ],
+          "data_quality_notes": [
+            "Confidence: high \u2014 Missing connection-point distance"
+          ]
+        }
+      }
+    },
+    "grid_led": {
+      "run": {
+        "run_id": "e43fd84cddd53cb5",
+        "weights_id": "grid_led",
+        "scenario": "grid_led",
+        "criteria": [
+          {
+            "feature": "wind_speed",
+            "weight": 0.25,
+            "direction": "higher_is_better"
+          },
+          {
+            "feature": "dist_transmission_km",
+            "weight": 0.35,
+            "direction": "lower_is_better"
+          },
+          {
+            "feature": "demand_proxy",
+            "weight": 0.1,
+            "direction": "higher_is_better"
+          },
+          {
+            "feature": "dist_substation_km",
+            "weight": 0.1,
+            "direction": "lower_is_better"
+          },
+          {
+            "feature": "slope_deg",
+            "weight": 0.05,
+            "direction": "lower_is_better"
+          },
+          {
+            "feature": "inside_rez",
+            "weight": 0.15,
+            "direction": "higher_is_better"
+          }
+        ],
+        "input_sha256": "499403e0310dc8b7983b9a57156ce4204a1ea8e7b6d6fa18fa43e1b6e33bbe77"
+      },
+      "eligible_count": 23266,
+      "top_five": [
+        {
+          "cell_id": "S32.436_E149.086",
+          "suitability_score": 0.9504512237174723,
+          "rank": 1,
+          "key_components": {
+            "wind_speed": 0.21512770318638222,
+            "dist_transmission_km": 0.34725292255191836,
+            "demand_proxy": 0.1,
+            "dist_substation_km": 0.09928241669288847,
+            "slope_deg": 0.038788181286283176,
+            "inside_rez": 0.15
+          },
+          "centroid_lat": -32.43625,
+          "centroid_lon": 149.08625000000004
+        },
+        {
+          "cell_id": "S32.486_E149.086",
+          "suitability_score": 0.9472013205664667,
+          "rank": 2,
+          "key_components": {
+            "wind_speed": 0.21014462097416672,
+            "dist_transmission_km": 0.34866347409093035,
+            "demand_proxy": 0.1,
+            "dist_substation_km": 0.09765180645979571,
+            "slope_deg": 0.04074141904157389,
+            "inside_rez": 0.15
+          },
+          "centroid_lat": -32.48625,
+          "centroid_lon": 149.08625000000004
+        },
+        {
+          "cell_id": "S30.186_E151.636",
+          "suitability_score": 0.9460655995653536,
+          "rank": 3,
+          "key_components": {
+            "wind_speed": 0.20901709507589591,
+            "dist_transmission_km": 0.34610967230941697,
+            "demand_proxy": 0.1,
+            "dist_substation_km": 0.09894036215498839,
+            "slope_deg": 0.04199847002505246,
+            "inside_rez": 0.15
+          },
+          "centroid_lat": -30.18625,
+          "centroid_lon": 151.63625000000002
+        },
+        {
+          "cell_id": "S30.086_E151.736",
+          "suitability_score": 0.9458845422701987,
+          "rank": 4,
+          "key_components": {
+            "wind_speed": 0.21152214698018193,
+            "dist_transmission_km": 0.3474073811090952,
+            "demand_proxy": 0.1,
+            "dist_substation_km": 0.09622420195283127,
+            "slope_deg": 0.040730812228090406,
+            "inside_rez": 0.15
+          },
+          "centroid_lat": -30.08625,
+          "centroid_lon": 151.73625
+        },
+        {
+          "cell_id": "S30.086_E151.686",
+          "suitability_score": 0.9456534573223311,
+          "rank": 5,
+          "key_components": {
+            "wind_speed": 0.21228505823624805,
+            "dist_transmission_km": 0.34762276098372524,
+            "demand_proxy": 0.1,
+            "dist_substation_km": 0.0966164917646449,
+            "slope_deg": 0.03912914633771279,
+            "inside_rez": 0.15
+          },
+          "centroid_lat": -30.08625,
+          "centroid_lon": 151.68625000000003
+        }
+      ],
+      "selected_site": {
+        "cell_id": "S32.436_E149.086",
+        "features": {
+          "wind_speed": 7.84901939868927,
+          "dist_transmission_km": 2.5937031174507803,
+          "demand_proxy": 1.0,
+          "dist_substation_km": 2.717831461237594,
+          "slope_deg": 3.361972222222222,
+          "inside_rez": true,
+          "cell_id": "S32.436_E149.086",
+          "centroid_lat": -32.43625,
+          "centroid_lon": 149.08625000000004,
+          "area_km2": 26.072120130951706,
+          "wind_confidence": "valid",
+          "source_region": "NSW1",
+          "demand_confidence": "high",
+          "dist_connection_km": null,
+          "rez_name": "Central-West Orana REZ",
+          "infra_confidence": "low",
+          "elevation_m": 543.5733333333334,
+          "tri": null,
+          "land_use": "3.2.0 Grazing modified pastures",
+          "protected_area": false,
+          "protected_area_name": "",
+          "geo_confidence": "high",
+          "eligible": true,
+          "exclusion_reason": null,
+          "triggered_rules": null,
+          "data_flags": null,
+          "n_missing_features": 1,
+          "data_confidence": "high",
+          "confidence_score": 0.83,
+          "confidence_notes": "Missing connection-point distance"
+        },
+        "contributions": {
+          "wind_speed": 0.21512770318638222,
+          "dist_transmission_km": 0.34725292255191836,
+          "demand_proxy": 0.1,
+          "dist_substation_km": 0.09928241669288847,
+          "slope_deg": 0.038788181286283176,
+          "inside_rez": 0.15
+        },
+        "suitability_score": 0.9504512237174723,
+        "rank": 1,
+        "eligible": true,
+        "explanation": {
+          "cell_id": "S32.436_E149.086",
+          "eligible": true,
+          "headline": "Higher-ranked candidate under the selected assumptions and criteria",
+          "positive_factors": [
+            "Close to transmission (top decile)",
+            "Strong wind resource (strong)",
+            "Inside a Renewable Energy Zone (present)"
+          ],
+          "weaknesses": [],
+          "proxy_caveats": [
+            "Demand shown is a spatial proxy allocated below the AEMO region, not measured local demand"
+          ],
+          "data_quality_notes": [
+            "Confidence: high \u2014 Missing connection-point distance"
+          ]
+        }
+      }
+    }
+  },
+  "exclusions": {
+    "count": 24045,
+    "sample": {
+      "cell_id": "S28.186_E141.036",
+      "reason_codes": [
+        "outside_nsw_land"
+      ],
+      "reason_text": "Outside NSW land boundary (cell centroid)",
+      "centroid_lat": -28.18625,
+      "centroid_lon": 141.03625000000002
+    },
+    "sample_detail": {
+      "cell_id": "S28.186_E141.036",
+      "features": {
+        "wind_speed": 7.139910380840302,
+        "dist_transmission_km": 406.41554769423385,
+        "demand_proxy": 1.0,
+        "dist_substation_km": 406.41554769423385,
+        "slope_deg": 0.9812611111111111,
+        "inside_rez": false,
+        "cell_id": "S28.186_E141.036",
+        "centroid_lat": -28.18625,
+        "centroid_lon": 141.03625000000002,
+        "area_km2": 27.2047591048166,
+        "wind_confidence": "valid",
+        "source_region": "QLD1",
+        "demand_confidence": "high",
+        "dist_connection_km": null,
+        "rez_name": null,
+        "infra_confidence": "low",
+        "elevation_m": 93.76305555555555,
+        "tri": null,
+        "land_use": "2.1.0 Grazing native vegetation",
+        "protected_area": false,
+        "protected_area_name": "",
+        "geo_confidence": "high",
+        "eligible": false,
+        "exclusion_reason": "Outside NSW land boundary (cell centroid)",
+        "triggered_rules": "outside_nsw_land",
+        "data_flags": null,
+        "n_missing_features": 1,
+        "data_confidence": "high",
+        "confidence_score": 0.83,
+        "confidence_notes": "Missing connection-point distance"
+      },
+      "contributions": {},
+      "suitability_score": null,
+      "rank": null,
+      "eligible": false,
+      "explanation": {
+        "cell_id": "S28.186_E141.036",
+        "eligible": false,
+        "exclusion_reasons": [
+          {
+            "code": "outside_nsw_land",
+            "text": "Outside NSW land boundary (cell centroid)"
+          }
+        ],
+        "proxy_caveats": [
+          "Demand shown is a spatial proxy allocated below the AEMO region, not measured local demand"
+        ],
+        "data_quality_notes": [
+          "Confidence: high \u2014 Missing connection-point distance"
+        ]
+      }
+    }
+  },
+  "scenario_comparison": {
+    "labels": {
+      "a": "Wind-led",
+      "b": "Grid-led"
+    },
+    "compared_count": 23266,
+    "changed_rank_count": 23259,
+    "examples": [
+      {
+        "cell_id": "S31.186_E151.686",
+        "rank_a": 1,
+        "rank_b": 25,
+        "rank_delta": -24
+      },
+      {
+        "cell_id": "S31.186_E151.736",
+        "rank_a": 2,
+        "rank_b": 51,
+        "rank_delta": -49
+      },
+      {
+        "cell_id": "S31.136_E151.686",
+        "rank_a": 3,
+        "rank_b": 28,
+        "rank_delta": -25
+      },
+      {
+        "cell_id": "S31.236_E151.686",
+        "rank_a": 4,
+        "rank_b": 82,
+        "rank_delta": -78
+      },
+      {
+        "cell_id": "S32.436_E149.086",
+        "rank_a": 5,
+        "rank_b": 1,
+        "rank_delta": 4
+      }
+    ]
+  },
+  "external_sanity": {
+    "scenario": "wind_led",
+    "reference": "DATA/infrastructure/generators/ga_wind_generators_2026_nsw.geojson",
+    "reference_sha256": "ee63e1b966d9aabbc944152f3a5dff373926ed515302b9c1ff46aa67b3c9fdb0",
+    "source_name_field": "feature_name",
+    "status_filter": "Operational",
+    "containment_crs": "EPSG:3577",
+    "outcome": {
+      "expected": "Most operational wind farms are expected to fall in the Upper_Quartile (Percentile >= 75) of the Eligible_Cell score population.",
+      "observed": "13 of 16 known wind farms in the Upper_Quartile (proportion 0.812)",
+      "passed": true,
+      "label": "Upper_Quartile count"
+    },
+    "rows": [
+      {
+        "wind_farm": "Cullerin Range Wind Farm",
+        "cell_id": "S34.786_E149.386",
+        "score": 0.8172276524688018,
+        "rank": 396.0,
+        "percentile": 98.30224361729563,
+        "in_upper_quartile": true,
+        "notes": "In Upper_Quartile (Percentile 98.3 >= 75), as expected."
+      },
+      {
+        "wind_farm": "Blayney Wind Farm",
+        "cell_id": "S33.636_E149.186",
+        "score": 0.7710330851530752,
+        "rank": 929.0,
+        "percentile": 96.01134703000086,
+        "in_upper_quartile": true,
+        "notes": "In Upper_Quartile (Percentile 96.0 >= 75), as expected."
+      },
+      {
+        "wind_farm": "Woodlawn Wind Farm",
+        "cell_id": "S35.086_E149.586",
+        "score": 0.8435566536105841,
+        "rank": 196.0,
+        "percentile": 99.16186710220923,
+        "in_upper_quartile": true,
+        "notes": "In Upper_Quartile (Percentile 99.2 >= 75), as expected."
+      },
+      {
+        "wind_farm": "Gunning",
+        "cell_id": "S34.686_E149.386",
+        "score": 0.8371875753781554,
+        "rank": 232.0,
+        "percentile": 99.00713487492479,
+        "in_upper_quartile": true,
+        "notes": "In Upper_Quartile (Percentile 99.0 >= 75), as expected."
+      },
+      {
+        "wind_farm": "Capital Hill Wind Farm",
+        "cell_id": "S35.136_E149.536",
+        "score": 0.8198928500477515,
+        "rank": 375.0,
+        "percentile": 98.39250408321155,
+        "in_upper_quartile": true,
+        "notes": "In Upper_Quartile (Percentile 98.4 >= 75), as expected."
+      },
+      {
+        "wind_farm": "Boco Rock",
+        "cell_id": "S36.586_E149.136",
+        "score": 0.6972817519439238,
+        "rank": 6104.0,
+        "percentile": 73.76858935786126,
+        "in_upper_quartile": false,
+        "notes": "Percentile 73.8 (mid-range)."
+      },
+      {
+        "wind_farm": "Bango Wind Farm",
+        "cell_id": "S34.586_E148.836",
+        "score": 0.7284330174460285,
+        "rank": 3174.0,
+        "percentile": 86.36207341184561,
+        "in_upper_quartile": true,
+        "notes": "In Upper_Quartile (Percentile 86.4 >= 75), as expected."
+      },
+      {
+        "wind_farm": "Bodangora Wind Farm",
+        "cell_id": "S32.436_E149.086",
+        "score": 0.9105330177364475,
+        "rank": 5.0,
+        "percentile": 99.98280753030173,
+        "in_upper_quartile": true,
+        "notes": "In Upper_Quartile (Percentile 100.0 >= 75), as expected."
+      },
+      {
+        "wind_farm": "Gullen Range Wind Farm",
+        "cell_id": "S34.686_E149.486",
+        "score": 0.7728455574791979,
+        "rank": 884.0,
+        "percentile": 96.20476231410642,
+        "in_upper_quartile": true,
+        "notes": "In Upper_Quartile (Percentile 96.2 >= 75), as expected."
+      },
+      {
+        "wind_farm": "Gullen Range Wind Farm",
+        "cell_id": "S34.636_E149.436",
+        "score": 0.8485295460616618,
+        "rank": 162.0,
+        "percentile": 99.30800309464455,
+        "in_upper_quartile": true,
+        "notes": "In Upper_Quartile (Percentile 99.3 >= 75), as expected."
+      },
+      {
+        "wind_farm": "Taralga Wind Farm",
+        "cell_id": "S34.436_E149.886",
+        "score": null,
+        "rank": null,
+        "percentile": null,
+        "in_upper_quartile": false,
+        "notes": "Containing cell 'S34.436_E149.886' is an Excluded_Cell (null suitability_score/rank); the farm sits in land the pipeline excluded. Recorded honestly; model NOT adjusted."
+      },
+      {
+        "wind_farm": "White Rock Solar Farm",
+        "cell_id": "S29.786_E151.536",
+        "score": 0.7932163557693832,
+        "rank": 624.0,
+        "percentile": 97.32227284449411,
+        "in_upper_quartile": true,
+        "notes": "In Upper_Quartile (Percentile 97.3 >= 75), as expected."
+      },
+      {
+        "wind_farm": "White Rock Wind Farm",
+        "cell_id": "S29.786_E151.536",
+        "score": 0.7932163557693832,
+        "rank": 624.0,
+        "percentile": 97.32227284449411,
+        "in_upper_quartile": true,
+        "notes": "In Upper_Quartile (Percentile 97.3 >= 75), as expected."
+      },
+      {
+        "wind_farm": "Sapphire Wind Farm",
+        "cell_id": "S29.686_E151.436",
+        "score": 0.8377982417835314,
+        "rank": 227.0,
+        "percentile": 99.02862546204763,
+        "in_upper_quartile": true,
+        "notes": "In Upper_Quartile (Percentile 99.0 >= 75), as expected."
+      },
+      {
+        "wind_farm": "Silverton Wind Farm",
+        "cell_id": "S31.786_E141.286",
+        "score": 0.7803175544653876,
+        "rank": 770.0,
+        "percentile": 96.69474770050718,
+        "in_upper_quartile": true,
+        "notes": "In Upper_Quartile (Percentile 96.7 >= 75), as expected."
+      },
+      {
+        "wind_farm": "Rye Park Wind Farm",
+        "cell_id": "S34.786_E148.986",
+        "score": null,
+        "rank": null,
+        "percentile": null,
+        "in_upper_quartile": false,
+        "notes": "Containing cell 'S34.786_E148.986' is an Excluded_Cell (null suitability_score/rank); the farm sits in land the pipeline excluded. Recorded honestly; model NOT adjusted."
+      }
+    ],
+    "anomalies": [
+      {
+        "check": "Known Wind Farm Comparison",
+        "description": "Known wind farm 'Taralga Wind Farm' locates to Excluded_Cell 'S34.436_E149.886' with a null suitability_score.",
+        "kind": "data_issue",
+        "investigation_note": "Distinguish a DATA issue from a MODEL result: an operational farm on excluded land usually means an exclusion layer (protected area, land use) or the generator coordinate is wrong. If the exclusion is genuinely correct at this resolution, it is a legitimate model result. Investigate the input before any change; the model is never adjusted to raise this cell's score."
+      },
+      {
+        "check": "Known Wind Farm Comparison",
+        "description": "Known wind farm 'Rye Park Wind Farm' locates to Excluded_Cell 'S34.786_E148.986' with a null suitability_score.",
+        "kind": "data_issue",
+        "investigation_note": "Distinguish a DATA issue from a MODEL result: an operational farm on excluded land usually means an exclusion layer (protected area, land use) or the generator coordinate is wrong. If the exclusion is genuinely correct at this resolution, it is a legitimate model result. Investigate the input before any change; the model is never adjusted to raise this cell's score."
+      }
+    ],
+    "interpretation": "A plausibility comparison, not an accuracy metric or site approval. All excluded/out-of-grid reference locations are retained for investigation."
+  },
+  "release_ready": false
+}

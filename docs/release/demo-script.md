@@ -46,7 +46,10 @@ claim a network connection. The service compares all 23,266 eligible cells;
 
 Taralga and Rye Park have null score/rank because their coarse cells are
 excluded. Keep them visible and inspect the source geometry/rules before any
-design change. Boco Rock is at percentile 73.77, below the quartile threshold.
+design change. Their recorded protected-area overlaps are Tarlo River and
+Bango respectively. The rule excludes a whole cell on any CAPAD overlap,
+not just when the generator point is protected. Boco Rock is at percentile
+73.77, below the quartile threshold.
 The GA file contains duplicate Gullen Range records and a record named
 White Rock Solar Farm classified as Wind/Turbine - Wind. Counts are records,
 not unique farms. This ambiguity is retained, not removed to improve results.

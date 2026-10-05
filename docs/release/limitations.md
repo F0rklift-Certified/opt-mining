@@ -36,6 +36,10 @@ recommendation, connection offer or planning approval.
   excluded reference anomalies. Inspect their overlap/slope assumptions and
   coarse grid placement rather than fitting weights to existing farms.
   Full outcomes remain in `rehearsal.json`.
+  Actual cell reasons are `protected_area: Tarlo River` for Taralga and
+  `protected_area: Bango` for Rye Park. The frozen any-cell-intersection rule
+  is stricter than checking the generator point, so inspect parcel geometry
+  before proposing a change; do not override an exclusion because a farm exists.
   Counts are GA records, not unique farms: Gullen Range appears twice, and
   the source labels White Rock Solar Farm as wind/turbine technology. This
   classification ambiguity is retained for review, not silently filtered out.
