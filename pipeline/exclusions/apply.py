@@ -1,15 +1,18 @@
 """
 Exclusion layer stage — S1-07.
 
-Reads the common analysis grid plus the raw geographic and wind source
-datasets, computes the per-cell fields the configured exclusion rules need,
-evaluates those rules, and writes:
+Reads the common analysis grid and joins the per-cell feature tables the
+upstream stages produce (S1-06 geographic.features, S1-03 wind.features) on
+cell_id, evaluates the configured exclusion rules against the joined fields,
+and writes:
 
     DATA/exclusions/optmining_exclusions_2024_nsw.gpkg    — Eligibility_Table
     DATA/exclusions/metadata/exclusion_summary.md          — method report
 
-See pipeline/exclusions/__init__.py for why this reads raw sources directly
-instead of a S1-06/S1-03 Feature_Table (neither exists in code yet).
+The stage no longer re-samples raw rasters/vectors: every per-cell field
+(protected_area, protected_area_name, slope_deg, urban_area, on_land,
+wind_speed_100m_ms) comes from the statewide-NSW feature tables, joined on
+cell_id. See pipeline/exclusions/__init__.py for the migration note.
 
 Importable entry point:
     from pipeline.exclusions.apply import run
@@ -26,15 +29,10 @@ from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
-import rasterio
-import shapely.geometry as shp_geom
-from rasterio.warp import transform as warp_transform
-from rasterio.warp import transform_geom
 
 from . import config
 from . import rules as rules_mod
-from .raster_stats import zonal_mean
-from ..common.geo import apply_vsicurl_env, atomic_write_text, banner
+from ..common.geo import atomic_write_text, banner
 
 
 # ---------------------------------------------------------------------------
@@ -74,161 +72,103 @@ def read_grid_cells(grid_path: Path) -> gpd.GeoDataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Vector overlap (protected areas, urban centres) — EPSG:3577
+# Feature-table inputs (joined on cell_id)
 # ---------------------------------------------------------------------------
 
 
-def _load_vector(path: Path, source_label: str) -> gpd.GeoDataFrame:
-    if not path.exists():
-        raise RuntimeError(f"{source_label} source not found: {path}")
-    try:
-        gdf = gpd.read_file(path)
-    except Exception as exc:  # noqa: BLE001 — re-raised as a halting error
-        raise RuntimeError(f"{source_label} source could not be read: {path} ({exc})") from exc
-    if gdf.crs is None:
-        raise ValueError(f"{source_label} source has no declared CRS: {path}")
-
-    n_invalid = int((~gdf.geometry.is_valid).sum())
-    if n_invalid:
-        # Real-world reserve/locality boundaries commonly carry small
-        # self-intersections; repair with the standard buffer(0) trick
-        # rather than letting an invalid geometry silently corrupt the
-        # sjoin's intersection result.
-        print(f"      ({source_label}: repairing {n_invalid} invalid geometr"
-              f"{'y' if n_invalid == 1 else 'ies'} via buffer(0))")
-        gdf["geometry"] = gdf.geometry.buffer(0)
-
-    return gdf
-
-
-def _overlap_join(
-    cells: gpd.GeoDataFrame,
-    features: gpd.GeoDataFrame,
-    name_field: str | None,
-) -> dict[str, tuple[bool, str]]:
-    """
-    Spatial join (intersects) of `cells` against `features`, both
-    reprojected to COMPUTATION_CRS (EPSG:3577) — the intersection CRS the
-    S1-06 design specifies for the same overlap test, kept consistent here
-    (Constitution: CRS explicit at every boundary).
-
-    Returns {cell_id: (overlap_bool, joined_distinct_names)}. When
-    `name_field` is given, a feature with a missing/blank name contributes
-    the UNNAMED_PROTECTED_AREA_PLACEHOLDER; distinct names are de-duplicated
-    and joined with PROTECTED_AREA_NAME_DELIMITER, in sorted (deterministic)
-    order.
-    """
-    cells_proj = cells[["cell_id", "geometry"]].to_crs(config.COMPUTATION_CRS)
-    features_proj = features.to_crs(config.COMPUTATION_CRS)
-
-    joined = gpd.sjoin(cells_proj, features_proj, how="inner", predicate="intersects")
-
-    result: dict[str, tuple[bool, str]] = {cid: (False, "") for cid in cells["cell_id"]}
-    if joined.empty:
-        return result
-
-    for cell_id, group in joined.groupby("cell_id"):
-        if name_field and name_field in group.columns:
-            names = []
-            for raw in group[name_field]:
-                is_blank = raw is None or (isinstance(raw, float) and np.isnan(raw))
-                if not is_blank and str(raw).strip() == "":
-                    is_blank = True
-                names.append(config.UNNAMED_PROTECTED_AREA_PLACEHOLDER if is_blank else str(raw).strip())
-            distinct = sorted(dict.fromkeys(names))
-            joined_names = config.PROTECTED_AREA_NAME_DELIMITER.join(distinct)
-        else:
-            joined_names = ""
-        result[cell_id] = (True, joined_names)
-
-    return result
-
-
-def protected_area_overlap(cells: gpd.GeoDataFrame) -> dict[str, tuple[bool, str]]:
-    """CAPAD overlap — full-NSW coverage. Implements frozen decision Q6 (binary exclusion)."""
-    capad = _load_vector(config.CAPAD_PATH, "CAPAD protected areas")
-    return _overlap_join(cells, capad, name_field="NAME")
-
-
-def urban_overlap(
-    cells: gpd.GeoDataFrame,
-) -> tuple[dict[str, bool], tuple[float, float, float, float]]:
-    """
-    ABS Urban Centre/Locality overlap — New England REZ window only. Also
-    returns the source's coverage bounds (EPSG:4326) so the caller can flag
-    cells outside that window rather than silently trusting a False result.
-
-    The ABS UCL extract includes a "Remainder of State/Territory" feature
-    (`sos_code_2021 == "13"`) — a catch-all polygon for everything OUTSIDE
-    every actual urban centre/locality. It is not an urban area and is
-    dropped before the overlap join (see config.URBAN_EXCLUDE_SOS_CODES);
-    including it would flag almost the entire grid as "urban".
-    """
-    urban = _load_vector(config.URBAN_PATH, "ABS Urban Centres/Localities")
-    if "sos_code_2021" in urban.columns:
-        n_before = len(urban)
-        urban = urban[~urban["sos_code_2021"].isin(config.URBAN_EXCLUDE_SOS_CODES)]
-        print(f"      (dropped {n_before - len(urban)} non-urban 'Rural Balance' feature(s))")
-    result = _overlap_join(cells, urban, name_field=None)
-    coverage_bounds = tuple(urban.to_crs(config.STORAGE_CRS).total_bounds)
-    return {cid: overlap for cid, (overlap, _name) in result.items()}, coverage_bounds
-
-
-# ---------------------------------------------------------------------------
-# Raster fields (slope, wind speed)
-# ---------------------------------------------------------------------------
-
-
-def _reproject_geom(geom, src_crs: str, dst_crs):
-    mapping = transform_geom(src_crs, dst_crs, geom.__geo_interface__)
-    return shp_geom.shape(mapping)
-
-
-def _raster_field(
-    cells: gpd.GeoDataFrame,
-    raster_path: Path,
+def _read_feature_table(
+    path: Path,
+    layer: str,
     source_label: str,
-) -> dict[str, float | None]:
+    required_columns: list[str],
+    n_grid_cells: int,
+) -> gpd.GeoDataFrame:
     """
-    Per-cell zonal mean of one raster's band 1, using the coverage
-    short-circuit + cell-centre mask in raster_stats.zonal_mean. Cell
-    geometry/centroids are reprojected to the raster's own CRS at the read
-    boundary if it differs from STORAGE_CRS (logged via the halting check
-    below rather than silently assumed).
+    Open one per-cell feature GeoPackage with its EXPLICIT layer and halt
+    loudly (raise) on any condition that would otherwise produce a silently
+    partial exclusion table: a missing/unreadable file, a missing cell_id or
+    required column, duplicate cell_id values, or a row count that does not
+    match the analysis grid.
+
+    A silent left-join to nulls is specifically forbidden here — a null in,
+    e.g., wind_speed_100m_ms or slope_deg is read by the rule engine as a
+    genuine `missing_wind_data` / `missing_slope_data` exclusion, so a
+    coverage mismatch must stop the run rather than mass-exclude cells.
     """
-    if not raster_path.exists():
-        raise RuntimeError(f"{source_label} source not found: {raster_path}")
+    if not path.exists():
+        raise FileNotFoundError(
+            f"{source_label} feature table not found: {path} — run the "
+            f"producing stage first (e.g. `python -m pipeline --only wind.features` "
+            f"or `--only geographic.features`)."
+        )
+    try:
+        gdf = gpd.read_file(path, layer=layer)
+    except Exception as exc:  # noqa: BLE001 — re-raised as a halting error
+        raise RuntimeError(
+            f"{source_label} feature table could not be read: {path} "
+            f"(layer={layer!r}; {exc})"
+        ) from exc
 
-    apply_vsicurl_env()
-    result: dict[str, float | None] = {}
+    if "cell_id" not in gdf.columns:
+        raise ValueError(f"{source_label} feature table has no 'cell_id' column: {path}")
 
-    with rasterio.open(raster_path) as src:
-        if src.crs is None:
-            raise ValueError(f"{source_label} raster has no declared CRS: {raster_path}")
-        needs_reproject = str(src.crs) != config.STORAGE_CRS
+    missing_cols = [c for c in required_columns if c not in gdf.columns]
+    if missing_cols:
+        raise ValueError(
+            f"{source_label} feature table missing required column(s) {missing_cols}: {path}"
+        )
 
-        for cell_id, geom, lon, lat in zip(
-            cells["cell_id"], cells.geometry, cells["centroid_lon"], cells["centroid_lat"]
-        ):
-            cell_geom, centroid = geom, (lon, lat)
-            if needs_reproject:
-                cell_geom = _reproject_geom(geom, config.STORAGE_CRS, src.crs)
-                (cx,), (cy,) = warp_transform(config.STORAGE_CRS, src.crs, [lon], [lat])
-                centroid = (cx, cy)
-            stat = zonal_mean(src, cell_geom, centroid)
-            result[cell_id] = stat.value
+    dupes = gdf["cell_id"][gdf["cell_id"].duplicated()].unique().tolist()
+    if dupes:
+        shown = dupes[:10]
+        suffix = " ..." if len(dupes) > 10 else ""
+        raise ValueError(
+            f"{source_label} feature table has duplicate cell_id values: {shown}{suffix}"
+        )
 
-    return result
+    if len(gdf) != n_grid_cells:
+        raise ValueError(
+            f"{source_label} feature table row count ({len(gdf):,}) does not match the "
+            f"analysis grid cell count ({n_grid_cells:,}): {path}. Exclusions joins the "
+            f"feature tables 1:1 on cell_id; a coverage mismatch must halt rather than "
+            f"silently mass-exclude cells."
+        )
+
+    # Drop geometry — the join carries only the scalar fields; the output
+    # geometry comes from the grid cells.
+    return gdf[["cell_id", *required_columns]]
 
 
-def slope_field(cells: gpd.GeoDataFrame) -> dict[str, float | None]:
-    """Mean Horn slope (degrees) — statistic frozen by decision Q3 (mean for scoring)."""
-    return _raster_field(cells, config.SLOPE_RASTER_PATH, "Slope (SRTM GL3 Horn slope)")
+def read_feature_tables(n_grid_cells: int) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
+    """
+    Read the geographic and wind per-cell feature tables, each with its
+    explicit `layer=`, selecting only the columns the exclusion rules need.
 
-
-def wind_speed_field(cells: gpd.GeoDataFrame) -> dict[str, float | None]:
-    """Mean GWA v4 wind speed (m/s) at 100 m hub height — frozen decision Q2 (primary height)."""
-    return _raster_field(cells, config.WIND_SPEED_RASTER_PATH, "GWA wind speed (100 m)")
+    Returns (geographic_df, wind_df), both keyed on cell_id with exactly
+    `n_grid_cells` rows (halt-on-mismatch, see `_read_feature_table`).
+    """
+    geographic = _read_feature_table(
+        config.GEOGRAPHIC_FEATURE_PATH,
+        config.GEOGRAPHIC_FEATURE_LAYER,
+        "Geographic",
+        [
+            "slope_deg",
+            "land_use",
+            "protected_area",
+            "protected_area_name",
+            "urban_area",
+            "on_land",
+        ],
+        n_grid_cells,
+    )
+    wind = _read_feature_table(
+        config.WIND_FEATURE_PATH,
+        config.WIND_FEATURE_LAYER,
+        "Wind",
+        ["wind_speed_100m"],
+        n_grid_cells,
+    )
+    return geographic, wind
 
 
 # ---------------------------------------------------------------------------
@@ -241,34 +181,51 @@ def build_cell_table(
     rules: list[dict],
     verbose: bool = False,
 ) -> gpd.GeoDataFrame:
-    """Compute every per-cell field, evaluate the rules, and assemble the Eligibility_Table."""
-    if verbose:
-        print("    Computing protected-area overlap (CAPAD, EPSG:3577)...")
-    protected = protected_area_overlap(cells)
+    """
+    Join the per-cell feature tables on cell_id, evaluate the rules, and
+    assemble the Eligibility_Table.
 
+    Every eligibility field is read from the statewide-NSW feature tables
+    (geographic.features + wind.features) via an inner 1:1 join on cell_id —
+    nothing is re-sampled here and nothing depends on the grid's centroid
+    columns.
+    """
+    n_cells = len(cells)
     if verbose:
-        print("    Computing urban-centre overlap (ABS UCL, EPSG:3577)...")
-    urban, urban_coverage_bounds = urban_overlap(cells)
+        print("    Reading geographic + wind feature tables (joined on cell_id)...")
+    geographic, wind = read_feature_tables(n_cells)
 
-    if verbose:
-        print("    Sampling slope (SRTM GL3 Horn slope, cell-centre mean)...")
-    slope = slope_field(cells)
-
-    if verbose:
-        print("    Sampling wind speed (GWA v4, 100 m, cell-centre mean)...")
-    wind = wind_speed_field(cells)
-
-    u_west, u_south, u_east, u_north = urban_coverage_bounds
+    # Inner-join on cell_id. The grid frame carries the output geometry; the
+    # feature tables carry the scalar fields. The join must be 1:1 and cover
+    # every grid cell — anything less is a halting condition (a dropped or
+    # duplicated row would skew eligibility).
+    joined = (
+        cells[["cell_id", "geometry"]]
+        .merge(geographic, on="cell_id", how="inner", validate="one_to_one")
+        .merge(wind, on="cell_id", how="inner", validate="one_to_one")
+    )
+    if len(joined) != n_cells:
+        matched = set(joined["cell_id"])
+        unmatched = [cid for cid in cells["cell_id"] if cid not in matched][:10]
+        raise ValueError(
+            f"cell_id join did not cover every grid cell: grid has {n_cells:,} cells, "
+            f"joined table has {len(joined):,}. Sample unmatched cell_id(s): {unmatched}. "
+            f"The geographic/wind feature tables must each carry exactly one row per grid "
+            f"cell_id."
+        )
 
     rows = []
-    for cell_id, lon, lat in zip(cells["cell_id"], cells["centroid_lon"], cells["centroid_lat"]):
-        p_overlap, p_name = protected[cell_id]
+    for rec in joined.itertuples(index=False):
         fields = {
-            "protected_area": p_overlap,
-            "protected_area_name": p_name,
-            "slope_deg": slope[cell_id],
-            "urban_area": urban[cell_id],
-            "wind_speed_100m_ms": wind[cell_id],
+            "protected_area": rec.protected_area,
+            "protected_area_name": rec.protected_area_name,
+            "slope_deg": rec.slope_deg,
+            "urban_area": rec.urban_area,
+            # Wind feature column is `wind_speed_100m`; the rule field key is
+            # `wind_speed_100m_ms` (keep the rename explicit, as the
+            # integration merge does for wind_speed_100m -> wind_speed).
+            "wind_speed_100m_ms": rec.wind_speed_100m,
+            "on_land": rec.on_land,
         }
         eligible, reason_pairs = rules_mod.evaluate_cell_detailed(fields, rules)
         # Derive the backward-compatible human string + machine name list from
@@ -282,20 +239,9 @@ def build_cell_table(
         )
         triggered = [p["code"] for p in reason_pairs]
 
-        # Non-exclusionary "soft" flag: outside the urban dataset's own
-        # coverage window, `urban_area == False` is an absence of evidence,
-        # not evidence of absence — flag it rather than let it pass as good.
-        data_flags: list[str] = []
-        in_urban_coverage = (u_west <= lon <= u_east) and (u_south <= lat <= u_north)
-        if not in_urban_coverage:
-            data_flags.append(
-                "Urban-centre data unavailable outside New England REZ coverage "
-                "(urban_area defaults to False, not confirmed)"
-            )
-
         rows.append(
             {
-                "cell_id": cell_id,
+                "cell_id": rec.cell_id,
                 "eligible": eligible,
                 "exclusion_reason": exclusion_reason,
                 "triggered_rules": rules_mod.REASON_DELIMITER.join(triggered) if triggered else None,
@@ -309,11 +255,16 @@ def build_cell_table(
                 "slope_deg": fields["slope_deg"],
                 "urban_area": fields["urban_area"],
                 "wind_speed_100m_ms": fields["wind_speed_100m_ms"],
-                "data_flags": "; ".join(data_flags) if data_flags else None,
+                # data_flags no longer carries the New-England urban
+                # coverage-window note: urban_area is now statewide-definite
+                # from the joined geographic feature table. It stays in the
+                # output schema (null unless the geographic builder carries a
+                # soft note) so OUTPUT_COLUMNS is unchanged.
+                "data_flags": None,
             }
         )
 
-    return gpd.GeoDataFrame(rows, geometry=cells.geometry.values, crs=cells.crs)
+    return gpd.GeoDataFrame(rows, geometry=joined.geometry.values, crs=cells.crs)
 
 
 # ---------------------------------------------------------------------------
@@ -367,9 +318,11 @@ def _write_report(
     out.write("# Exclusion layer summary (S1-07)\n\n")
     out.write(banner("exclusions.apply"))
     out.write(
-        "\nSee `pipeline/exclusions/__init__.py` for the scope note: this stage reads raw "
-        "geographic/wind sources directly rather than a S1-06/S1-03 Feature_Table, because "
-        "those stages are design-documented but not yet implemented in code.\n\n"
+        "\nThis stage joins the per-cell geographic feature table "
+        "(`geographic.features`) and the wind feature table (`wind.features`) on "
+        "`cell_id` — both statewide-NSW over every one of the analysis grid's cells — "
+        "and evaluates the configured rules against the joined fields. See "
+        "`pipeline/exclusions/__init__.py` for the scope note.\n\n"
     )
     out.write(f"Rules config: `{rules_path}`\n\n")
 
@@ -393,15 +346,16 @@ def _write_report(
         f"**{n_flagged:,}** ({100.0 * n_flagged / total:.1f}%)\n\n"
     )
 
-    out.write("## Data-source coverage caveat\n\n")
+    out.write("## Data-source coverage\n\n")
     out.write(
-        "The slope, wind-speed and urban-centre sources currently cover only the New England "
-        "REZ study window, not the full NSW grid; CAPAD (protected areas) is full-NSW. Cells "
-        "outside that window have `slope_deg` / `wind_speed_100m_ms` = null and are excluded "
-        "by the `missing_wind_data` rule (per the Constitution: \"where critical data is "
-        "missing, exclude the cell\") rather than being scored on invented data. This is a "
-        "real, documented gap in Sprint 1 source coverage, not a defect in this stage — see "
-        "`pipeline/exclusions/__init__.py`.\n\n"
+        "Every per-cell field is read from the statewide-NSW feature tables joined on "
+        "`cell_id`: `protected_area` / `protected_area_name` / `slope_deg` / `urban_area` / "
+        "`on_land` from `geographic.features`, and `wind_speed_100m_ms` from `wind.features`. "
+        "Both tables carry a value for every one of the grid's cells, so the exclusion layer "
+        "now covers the full NSW grid rather than a windowed subset. A cell is still excluded "
+        "where a critical field is genuinely null (`missing_wind_data`, `missing_slope_data`) "
+        "or where its centre is offshore/marine (`offshore_or_marine`), per the Constitution's "
+        "\"where critical data is missing, exclude the cell\" rule.\n\n"
     )
 
     out.write("## Rule configuration (verbatim)\n\n")

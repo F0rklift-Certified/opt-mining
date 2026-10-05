@@ -35,24 +35,23 @@ REPORT_FILENAME = "exclusion_summary.md"
 # (it is written inline in that module's run()), so it is repeated here verbatim.
 GRID_PATH = _grid_config.PROJECT_ROOT / "DATA" / "grid" / "nsw_analysis_grid.gpkg"
 
-CAPAD_PATH = _geo_config.GEO_DIR / "protected" / "dcceew_capad-terrestrial_2024_nsw.geojson"
-URBAN_PATH = _geo_config.GEO_DIR / "urban" / f"abs_ucl_2021_{_geo_config.DEFAULT_AREA}.geojson"
-# ABS UCL/SOS ("Section of State") classification: sos_code_2021 == "13" is
-# "Rural Balance" — the catch-all polygon covering everything OUTSIDE every
-# actual urban centre/locality in the state (its own geometry spans well
-# beyond the New England REZ, out past the NSW coastline). It is not an
-# urban area and MUST be excluded from the urban-overlap test, or almost
-# every rural cell in the state is incorrectly flagged as urban. Real
-# urban features carry sos_code_2021 "11" (Other Urban) or "12" (Bounded
-# Locality) — both are genuine urban centres/localities per the ABS UCL
-# structure and are kept.
-URBAN_EXCLUDE_SOS_CODES = {"13"}
-SLOPE_RASTER_PATH = (
-    _geo_config.GEO_DIR / "elevation" / f"srtm-gl3_slope-horn_90m_{_geo_config.DEFAULT_AREA}.tif"
+# --- Feature-table inputs (joined on cell_id) ---
+# The exclusion stage no longer samples raw rasters/vectors; it joins the
+# per-cell feature tables the upstream stages already produce (S1-03 wind,
+# S1-06 geographic), each statewide-NSW and keyed on cell_id. These two
+# constants are composed from the producing domains' own configs — never
+# re-typed literals — and mirror integration/config.py's WIND_PATH /
+# GEOGRAPHIC_PATH so an upstream rename flows through both.
+WIND_FEATURE_PATH = (
+    _wind_config.WIND_FEATURES_DIR
+    / f"gwa_v4_wind-feature_{_wind_config.WIND_FEATURE_VINTAGE}_nsw.gpkg"
 )
-WIND_SPEED_RASTER_PATH = (
-    _wind_config.WIND_DIR / f"gwa_v4_wind-speed_100m_{_wind_config.DEFAULT_AREA}.tif"
+WIND_FEATURE_LAYER = "wind_features"  # wind/features.py FEATURE_LAYER
+
+GEOGRAPHIC_FEATURE_PATH = (
+    _geo_config.GEO_DIR / "features" / "optmining_geographic-features_2024_nsw.gpkg"
 )
+GEOGRAPHIC_FEATURE_LAYER = "geographic_features"  # geographic/features.py OUTPUT_LAYER
 
 # --- Rules config ---
 DEFAULT_RULES_PATH = Path(__file__).resolve().parent / "exclusion_rules.yaml"
