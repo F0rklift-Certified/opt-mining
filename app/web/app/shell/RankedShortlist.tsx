@@ -47,7 +47,7 @@ export default function RankedShortlist({
   rows,
   selectedCellId,
   onSelect,
-}: RankedShortlistProps): JSX.Element {
+}: RankedShortlistProps): React.JSX.Element {
   const noteId = useId();
   if (rows.length === 0) return <p>No eligible cells were returned.</p>;
 

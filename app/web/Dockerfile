@@ -1,7 +1,7 @@
 # Frontend_App (Next.js/React) container — S3-01a Application Shell Scaffold.
 #
 # Node base image (design §Compose_Stack: "web/Dockerfile — Node base
-# (e.g. node:20-slim): install deps, build the Next.js app, run it on port 3000").
+# (Node 24 LTS): install deps, build the Next.js app, run it on port 3000.
 #
 # Multi-stage build:
 #   1. deps    — install node_modules from the lockfile/manifest
@@ -13,16 +13,15 @@
 # (see app/docker-compose.yml and app/web/.env.example), never hard-coded.
 
 # ---- Stage 1: install dependencies ------------------------------------------
-FROM node:20-slim AS deps
+FROM node:24-slim AS deps
 WORKDIR /app
 
-# Copy only the manifest(s) first so dependency install is cached independently
-# of source changes. The lockfile is optional at scaffold time.
-COPY package.json package-lock.json* ./
-RUN npm install
+# Install the exact reviewed lockfile, independently of source changes.
+COPY package.json package-lock.json ./
+RUN npm ci
 
 # ---- Stage 2: build the Next.js app -----------------------------------------
-FROM node:20-slim AS builder
+FROM node:24-slim AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -35,7 +34,7 @@ ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
 RUN npm run build
 
 # ---- Stage 3: run the built app ---------------------------------------------
-FROM node:20-slim AS runner
+FROM node:24-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 

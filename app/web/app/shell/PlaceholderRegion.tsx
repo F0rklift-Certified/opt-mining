@@ -53,7 +53,7 @@ export default function PlaceholderRegion({
   id,
   ariaLabel,
   body = DEFAULT_BODY,
-}: PlaceholderRegionProps): JSX.Element {
+}: PlaceholderRegionProps): React.JSX.Element {
   const headingId = id ? `${id}-heading` : undefined;
   return (
     <section
