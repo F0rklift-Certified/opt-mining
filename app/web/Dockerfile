@@ -27,10 +27,16 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# NEXT_PUBLIC_* values are inlined at build time; the value is supplied by the
+# NEXT_PUBLIC_* values are inlined at build time; the values are supplied by the
 # build environment (Compose / CI), never baked into this file.
+#   * NEXT_PUBLIC_API_BASE_URL     — browser-reachable backend URL.
+#   * NEXT_PUBLIC_BASEMAP_TILE_URL — XYZ raster tile URL for the S3-03a map
+#     basemap (map context only). Omitting it still builds; the map then renders
+#     the cell layer over an empty background (graceful degradation).
 ARG NEXT_PUBLIC_API_BASE_URL
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
+ARG NEXT_PUBLIC_BASEMAP_TILE_URL
+ENV NEXT_PUBLIC_BASEMAP_TILE_URL=${NEXT_PUBLIC_BASEMAP_TILE_URL}
 
 RUN npm run build
 

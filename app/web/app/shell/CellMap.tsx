@@ -32,6 +32,7 @@ import {
   DecisionServiceError,
   type CellCollection,
   type DecisionService,
+  type ExcludedRow,
 } from "../api/decision-service";
 
 export interface CellMapProps {
@@ -41,10 +42,71 @@ export interface CellMapProps {
   service: DecisionService;
 }
 
-/** GeoJSON source id and the two circle layers (design §5.6). */
+/** GeoJSON source id and the three circle layers (design §5.6). */
 const SOURCE_ID = "cells";
-const EXCLUDED_LAYER_ID = "cells-excluded";
+const EXCLUDED_NODATA_LAYER_ID = "cells-excluded-nodata";
+const EXCLUDED_ENV_LAYER_ID = "cells-excluded-env";
 const ELIGIBLE_LAYER_ID = "cells-eligible";
+
+/**
+ * The engine exclusion-rule code marking a cell as outside the wind-resource
+ * data footprint. A cell excluded ONLY by this code was never assessed on its
+ * merits — it has no wind value — so it is a DATA-COVERAGE boundary, not an
+ * environmental rule-out. The code is the engine's own `reason_codes` value
+ * from `get_exclusions` (S2-03 vocabulary), carried through unchanged; this
+ * component invents no code and re-evaluates no rule.
+ */
+const MISSING_WIND_CODE = "missing_wind_data";
+
+/**
+ * Per-cell exclusion class derived from the engine's `reason_codes` (NOT
+ * recomputed): a cell whose only reason is `missing_wind_data` is "nodata"
+ * (unassessed — outside the wind footprint); any cell carrying a different
+ * rule (protected area, slope, urban) is "environmental" — a genuine rule-out.
+ * The derived class is written onto each excluded Feature's `properties` as
+ * `exclusion_class` so the layers can style the two honestly apart.
+ */
+type ExclusionClass = "nodata" | "environmental";
+const EXCLUSION_CLASS_PROP = "exclusion_class";
+
+/**
+ * Classify one excluded cell from its engine reason codes. "Only missing wind
+ * data" -> nodata; anything else (incl. missing-wind co-occurring with a real
+ * rule) -> environmental, because a real environmental rule genuinely fired.
+ */
+function classifyExclusion(reasonCodes: string[]): ExclusionClass {
+  const hasEnvironmentalRule = reasonCodes.some(
+    (code) => code !== MISSING_WIND_CODE,
+  );
+  return hasEnvironmentalRule ? "environmental" : "nodata";
+}
+
+/**
+ * Join the engine's exclusion reasons onto the served cell GeoJSON, stamping
+ * `exclusion_class` on every excluded Feature. This is a pure lookup keyed on
+ * `cell_id` — no decision math, no reprojection: the classes come straight
+ * from `get_exclusions` reason codes. Eligible features are left untouched.
+ * Returns a NEW FeatureCollection (the served data is not mutated in place).
+ */
+function withExclusionClasses(
+  collection: CellCollection,
+  exclusions: ExcludedRow[],
+): CellCollection {
+  const classByCell = new Map<string, ExclusionClass>();
+  for (const row of exclusions) {
+    classByCell.set(row.cell_id, classifyExclusion(row.reason_codes ?? []));
+  }
+  const features = (collection.features ?? []).map((feature) => {
+    const properties = feature.properties;
+    if (properties.eligible) return feature;
+    const cls = classByCell.get(properties.cell_id) ?? "environmental";
+    return {
+      ...feature,
+      properties: { ...properties, [EXCLUSION_CLASS_PROP]: cls },
+    };
+  });
+  return { ...collection, features };
+}
 
 /**
  * Required OSM attribution for the public basemap (design §5.1). The default
@@ -84,35 +146,49 @@ function basemapStyle(): StyleSpecification {
 }
 
 /**
- * The muted, low-opacity excluded layer (bottom). Styling reads only the served
- * `eligible` property; zoom LOD keeps the state-wide view legible (design §5.6).
+ * The faint "no wind data" layer (bottom): cells outside the wind-resource
+ * footprint, excluded ONLY for missing data and never assessed on merit. Drawn
+ * palest so it reads as an unassessed carpet, not a rule-out. Filtered on the
+ * engine-derived `exclusion_class` (design §5.6).
  */
-function excludedLayer(): maplibregl.CircleLayerSpecification {
+function excludedNoDataLayer(): maplibregl.CircleLayerSpecification {
   return {
-    id: EXCLUDED_LAYER_ID,
+    id: EXCLUDED_NODATA_LAYER_ID,
     type: "circle",
     source: SOURCE_ID,
-    filter: ["==", ["get", "eligible"], false],
+    filter: [
+      "all",
+      ["==", ["get", "eligible"], false],
+      ["==", ["get", EXCLUSION_CLASS_PROP], "nodata"],
+    ],
     paint: {
-      "circle-color": "#9aa0a6",
-      "circle-radius": [
-        "interpolate",
-        ["linear"],
-        ["zoom"],
-        5,
-        1.5,
-        9,
-        4,
-      ],
-      "circle-opacity": [
-        "interpolate",
-        ["linear"],
-        ["zoom"],
-        5,
-        0.15,
-        9,
-        0.4,
-      ],
+      "circle-color": "#c7ccd1",
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 1.5, 9, 4],
+      "circle-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.12, 9, 0.3],
+    },
+  };
+}
+
+/**
+ * The environmental-exclusion layer (middle): cells a genuine hard rule ruled
+ * out (protected area, slope, urban). A distinct slate/blue so a real rule-out
+ * is clearly NOT the same as "unassessed/no data". Filtered on the
+ * engine-derived `exclusion_class` (design §5.6).
+ */
+function excludedEnvLayer(): maplibregl.CircleLayerSpecification {
+  return {
+    id: EXCLUDED_ENV_LAYER_ID,
+    type: "circle",
+    source: SOURCE_ID,
+    filter: [
+      "all",
+      ["==", ["get", "eligible"], false],
+      ["==", ["get", EXCLUSION_CLASS_PROP], "environmental"],
+    ],
+    paint: {
+      "circle-color": "#5b6b8c",
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 2, 9, 5],
+      "circle-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.5, 9, 0.75],
     },
   };
 }
@@ -215,8 +291,10 @@ export default function CellMap({ runId, service }: CellMapProps): JSX.Element {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
-      // Excluded is added first so it sits beneath the eligible layer.
-      map.addLayer(excludedLayer());
+      // Draw order (bottom -> top): faint no-data carpet, then the genuine
+      // environmental rule-outs, then the eligible score layer on top.
+      map.addLayer(excludedNoDataLayer());
+      map.addLayer(excludedEnvLayer());
       map.addLayer(eligibleLayer());
       setMapReady(true);
       const pending = pendingDataRef.current;
@@ -267,10 +345,21 @@ export default function CellMap({ runId, service }: CellMapProps): JSX.Element {
     // dropped iff a newer run has superseded it. The effect does not use a
     // separate "active" flag, so a `mapReady` re-run of the same run does not
     // cancel the in-flight fetch for that run.
-    service
-      .getRunCells(runId)
-      .then((collection) => {
+    //
+    // The cells layer is the required data path; the exclusions call enriches
+    // it with the per-cell exclusion class (no-data vs environmental). The
+    // exclusions fetch is best-effort: if it is unavailable or fails, the cells
+    // still render (every excluded cell then falls back to the environmental
+    // style), so the map never fails for want of the enrichment.
+    Promise.all([
+      service.getRunCells(runId),
+      Promise.resolve()
+        .then(() => service.getExclusions?.(runId) ?? [])
+        .catch(() => [] as ExcludedRow[]),
+    ])
+      .then(([cells, exclusions]) => {
         if (myId !== requestIdRef.current) return; // stale run superseded
+        const collection = withExclusionClasses(cells, exclusions);
         // The "cells" source exists iff the load handler has run (it adds the
         // source and sets mapReady together), so source presence is the live
         // readiness signal — robust to the mapReady value captured at effect
@@ -300,6 +389,41 @@ export default function CellMap({ runId, service }: CellMapProps): JSX.Element {
     <div>
       <div ref={containerRef} className="om-map" aria-label="Interactive cell map" />
       {statusText(runId, loading, error)}
+      <MapLegend />
     </div>
+  );
+}
+
+/**
+ * A static legend naming the three cell classes the layers paint, so the map's
+ * "New England square" is read honestly: eligible candidates vs genuine
+ * environmental rule-outs vs cells never assessed for want of wind data. The
+ * swatch colours mirror the layer paint above.
+ */
+function MapLegend(): JSX.Element {
+  return (
+    <ul className="om-map__legend" aria-label="Map legend">
+      <li>
+        <span
+          className="om-map__swatch om-map__swatch--eligible"
+          aria-hidden="true"
+        />
+        Eligible candidate (shade = suitability score)
+      </li>
+      <li>
+        <span
+          className="om-map__swatch om-map__swatch--env"
+          aria-hidden="true"
+        />
+        Excluded — environmental rule (protected area, slope, urban)
+      </li>
+      <li>
+        <span
+          className="om-map__swatch om-map__swatch--nodata"
+          aria-hidden="true"
+        />
+        Not assessed — outside wind-data coverage
+      </li>
+    </ul>
   );
 }
