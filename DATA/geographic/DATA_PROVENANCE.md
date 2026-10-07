@@ -80,7 +80,7 @@ to stay under the 10 MB commit guardrail — window extracts are full resolution
 | **Name** | National Land Use Map v7.1, ALUM Classification v8, 2020–21 |
 | **Publisher** | ABARES (Department of Agriculture, Fisheries and Forestry) |
 | **Source URL** | `https://www.agriculture.gov.au/sites/default/files/documents/NLUM_v7_1_250m_ALUMV8_2020_21_alb_20260814.zip` (64.2 MB) |
-| **Samples** | Study-window clip (884×999 px) kept in **native EPSG:3577** — no resampling; 144-class table machine-extracted from the zip's CSV |
+| **Samples** | Study-window clip (884×999 px) kept in **native EPSG:3577** — no resampling; 144-class table machine-extracted from the zip's CSV. **Statewide:** an NSW-wide clip `landuse/abares_nlum-alumv8_2020-21_nsw.tif` (~3.5 MB) is produced by `scripts/fetch_build_geographic_nsw.py` and is the operative land-use source the `geographic.features` builder consumes; it is a regenerable (gitignored) artefact. |
 | **Temporal coverage** | 2020–21 land-use year (file published 2026-08-14); underlying state mapping vintages vary and are documented by ABARES |
 | **Native CRS** | EPSG:3577 (GDA94 / Australian Albers), 250 m pixels |
 | **Units** | Categorical int16 ALUM v8 codes; 0 = "No data/offshore" |
@@ -96,7 +96,7 @@ to stay under the 10 MB commit guardrail — window extracts are full resolution
 | **Name** | NASA SRTM GL1 (1 arc-second, ~30 m) and GL3 (3 arc-second, ~90 m) |
 | **Publisher** | NASA/USGS; mirrored by OpenTopography (S3, public) |
 | **Source URL** | `https://opentopography.s3.sdsc.edu/raster/SRTM_GL{1,3}/SRTM_GL{1,3}_srtm.vrt` |
-| **Samples** | GL3 study-window clip (2400×2400 px, 5.9 MB); GL1 0.5° sub-window containing both Task 1 wind farms (1800×1800 px, 2.5 MB). National mosaics never downloaded — windowed `/vsicurl/` reads only |
+| **Samples** | GL3 study-window clip (2400×2400 px, 5.9 MB); GL1 0.5° sub-window containing both Task 1 wind farms (1800×1800 px, 2.5 MB). National mosaics never downloaded — windowed `/vsicurl/` reads only. **Statewide:** NSW-wide GL3 clips `elevation/srtm-gl3_elevation_90m_nsw.tif` (~107 MB) and the derived `elevation/srtm-gl3_slope-horn_90m_nsw.tif` (~193 MB) are produced by `scripts/fetch_build_geographic_nsw.py` and are the operative elevation/slope sources the `geographic.features` builder consumes; both are regenerable (gitignored) artefacts. |
 | **Why not Geoscience Australia** | GA's ArcGIS services return HTTP 403 to scripted clients (probe recorded); ELVIS is interactive-only. SRTM is the same lineage GA's 1-second DEM suite derives from, without GA's smoothing (DEM-S) |
 | **Temporal coverage** | Single epoch — SRTM mission, February 2000 |
 | **Native CRS** | EPSG:4326, int16 metres above sea level |
@@ -123,15 +123,17 @@ to stay under the 10 MB commit guardrail — window extracts are full resolution
 | **Publisher** | Natural Earth (community, hosted on GitHub) |
 | **Source URL** | `https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_land.geojson` |
 | **Licence** | Public domain |
-| **Purpose** | This is the OptMining prototype's land-mask source — sampled to assess it against the ABS outline (`metadata/landmask_assessment.md`); **assessment outcome: prefer the ABS outline** (21 of its 28 false-land cells carry top-decile wind) |
-| **Limitations** | 1:50m generalisation smooths the coastline by kilometres in places; retained for reference, not recommended as the production mask |
+| **Purpose** | The OptMining prototype's land-mask source. Sampled to assess it against the ABS outline (`metadata/landmask_assessment.md`). **Operative use (statewide-coverage fix):** `pipeline/geographic/features.py` uses it as the `on_land` source — the per-cell `on_land` boolean is a cell-centroid point-in-polygon test against these land polygons in EPSG:3577, and the `offshore_or_marine` exclusion rule removes `on_land == False` cells. The land mask is swappable to the ABS national outline by a single path constant if a stricter coastline is preferred (the assessment favoured the ABS outline; Natural Earth is the currently-wired operative mask). |
+| **Limitations** | 1:50m generalisation smooths the coastline by kilometres in places (~5 km), adequate at the 0.05° / ~5 km analysis resolution but not a precise coastline; swappable to the ABS outline by one path constant. |
 
 ---
 
 ## Scope and limitations (directory-wide)
 
-1. Samples cover the Task 1 study window (New England REZ) plus national small
-   vectors; nothing here demonstrates national-scale processing cost.
+1. The committed raster clips cover the Task 1 study window (New England REZ); the
+   statewide-coverage fix additionally produces NSW-wide `_nsw` elevation/slope/NLUM
+   clips (regenerable, gitignored artefacts, §4–§5) that are the operative sources
+   for the full-NSW `geographic.features` build. National mosaics are never committed.
 2. The committed national vectors are generalised (~50 m, recorded per file in the
    manifest). Re-fetch without `maxAllowableOffset` for finer work.
 3. NEM regions, slope and TRI are derived files — regenerate from source rather
