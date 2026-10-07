@@ -5,11 +5,11 @@
   "analysis_resolution": "~5 km (0.05 degree) analysis grid cell",
   "preliminary_disclaimer": "This report is a preliminary-screening plausibility sanity check. It asks whether the pipeline's outputs make sense against known reality; it is NOT a formal accuracy assessment and NOT a site approval. Surprising results are documented honestly for investigation, and the model is never adjusted to make a check pass.",
   "run_metadata": {
-    "run_timestamp": "2026-10-05T15:17:06+00:00",
-    "pipeline_version": "51508a48f87e609332a5148a92641695bb040fb2-dirty",
+    "run_timestamp": "2026-10-07T05:03:24+00:00",
+    "pipeline_version": "403817a4e5a11a5d2236710a42a42046d44cc60a-dirty",
     "n_cells": 47311,
     "n_eligible": 32525,
-    "resolved_shortlist_path": "DATA/shortlist/sprint1_shortlist_20261005.geojson"
+    "resolved_shortlist_path": "DATA/shortlist/sprint1_shortlist_20261007T050319.geojson"
   },
   "checks": {
     "known_wind_farm_comparison": {
