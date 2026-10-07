@@ -338,7 +338,10 @@ describe("CellMap click-to-inspect (S3-03b)", () => {
   function fireLayerEvent(
     event: string,
     layerId: string,
-    features?: { properties: Record<string, unknown> }[],
+    features?: {
+      properties: Record<string, unknown>;
+      geometry?: { type: string; coordinates: number[] };
+    }[],
   ): void {
     const handler = layerHandlers[`${event}:${layerId}`];
     expect(handler).toBeDefined();
@@ -456,5 +459,97 @@ describe("CellMap click-to-inspect (S3-03b)", () => {
     expect(canvasCursor).toBe("pointer");
     fireLayerEvent("mouseleave", "cells-eligible");
     expect(canvasCursor).toBe("");
+  });
+
+  it("adds the selection source and outline layer on load", async () => {
+    const getRunCells = jest.fn().mockResolvedValue(featureCollection("run-1"));
+    render(<CellMap runId="run-1" service={serviceWithCells(getRunCells)} />);
+    await waitFor(() => expect(setDataSpy).toHaveBeenCalled());
+
+    expect(addSourceSpy).toHaveBeenCalledWith("cell-selection");
+    expect(addLayerSpy).toHaveBeenCalledWith("cell-selection-outline");
+  });
+
+  it("draws a square around the hovered cell's point on mousemove", async () => {
+    const getRunCells = jest.fn().mockResolvedValue(featureCollection("run-1"));
+    render(<CellMap runId="run-1" service={serviceWithCells(getRunCells)} />);
+    await waitFor(() => expect(setDataSpy).toHaveBeenCalled());
+
+    const d = 0.0225; // SELECTION_HALF_DEG — half-width of the highlight square
+    const lng = 151.2;
+    const lat = -30.1;
+    fireLayerEvent("mousemove", "cells-eligible", [
+      {
+        properties: {
+          cell_id: "S30.100_E151.200",
+          eligible: true,
+          suitability_score: 0.9,
+          rank: 1,
+        },
+        geometry: { type: "Point", coordinates: [lng, lat] },
+      },
+    ]);
+
+    // The last setData call targets the selection source with a closed square
+    // ring centred on the hovered point and inset by d on every side.
+    const applied = setDataSpy.mock.calls.at(-1)?.[0] as GeoJSON.FeatureCollection;
+    expect(applied.type).toBe("FeatureCollection");
+    expect(applied.features).toHaveLength(1);
+    const feature = applied.features[0];
+    expect(feature?.geometry.type).toBe("Polygon");
+    const ring = (feature?.geometry as GeoJSON.Polygon).coordinates[0];
+    expect(ring).toEqual([
+      [lng - d, lat - d],
+      [lng + d, lat - d],
+      [lng + d, lat + d],
+      [lng - d, lat + d],
+      [lng - d, lat - d],
+    ]);
+  });
+
+  it("clears the highlight square when the pointer leaves the cell layer", async () => {
+    const getRunCells = jest.fn().mockResolvedValue(featureCollection("run-1"));
+    render(<CellMap runId="run-1" service={serviceWithCells(getRunCells)} />);
+    await waitFor(() => expect(setDataSpy).toHaveBeenCalled());
+
+    // Hover to draw a square, then leave: the last setData empties the source.
+    fireLayerEvent("mousemove", "cells-eligible", [
+      {
+        properties: {
+          cell_id: "S30.100_E151.200",
+          eligible: true,
+          suitability_score: 0.9,
+          rank: 1,
+        },
+        geometry: { type: "Point", coordinates: [151.2, -30.1] },
+      },
+    ]);
+    fireLayerEvent("mouseleave", "cells-eligible");
+
+    const applied = setDataSpy.mock.calls.at(-1)?.[0] as GeoJSON.FeatureCollection;
+    expect(applied.type).toBe("FeatureCollection");
+    expect(applied.features).toHaveLength(0);
+  });
+
+  it("does not draw a square when the hovered feature has no point geometry", async () => {
+    const getRunCells = jest.fn().mockResolvedValue(featureCollection("run-1"));
+    render(<CellMap runId="run-1" service={serviceWithCells(getRunCells)} />);
+    await waitFor(() => expect(setDataSpy).toHaveBeenCalled());
+
+    setDataSpy.mockClear();
+    // A hovered feature with no geometry draws no square: setData is not called
+    // for the selection source.
+    fireLayerEvent("mousemove", "cells-eligible", [
+      {
+        properties: {
+          cell_id: "S30.100_E151.200",
+          eligible: true,
+          suitability_score: 0.9,
+          rank: 1,
+        },
+      },
+    ]);
+
+    expect(setDataSpy).not.toHaveBeenCalled();
   });
 });

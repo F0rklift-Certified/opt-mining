@@ -57,6 +57,78 @@ const EXCLUDED_ENV_LAYER_ID = "cells-excluded-env";
 const ELIGIBLE_LAYER_ID = "cells-eligible";
 
 /**
+ * The selection-highlight source and its outline layer (S3-03b): a single
+ * square drawn around the cell currently under the pointer. The source holds
+ * either an empty FeatureCollection (nothing hovered) or one square-ring
+ * Polygon built around the hovered cell's point; the `line` layer traces it so
+ * the square reads as an outline, not a fill. Drawn ABOVE every cell layer so
+ * the highlight is never hidden behind a cell.
+ */
+const SELECTION_SOURCE_ID = "cell-selection";
+const SELECTION_LAYER_ID = "cell-selection-outline";
+
+/**
+ * Half-width (in degrees) of the selection square around the clicked point. The
+ * analysis grid is ~5 km, i.e. roughly 0.045° of latitude; half of that frames
+ * one cell snugly without overlapping its neighbours. A fixed geographic size
+ * (not pixel-based) so the square tracks the cell as the map zooms. A geometric
+ * presentation value only — no decision math.
+ */
+const SELECTION_HALF_DEG = 0.0225;
+
+/**
+ * Build the selection source data from the hovered cell's point, or an empty
+ * FeatureCollection when nothing is hovered. The square is a closed ring
+ * centred on `[lng, lat]`, inset by {@link SELECTION_HALF_DEG} on each side. A
+ * pure geometric read of coordinates already in memory — no decision math, no
+ * network call. Returns a NEW object each call (never mutates shared state).
+ */
+function selectionSquareData(
+  point: [number, number] | null,
+): GeoJSON.FeatureCollection {
+  if (!point) {
+    return { type: "FeatureCollection", features: [] };
+  }
+  const lng = point[0];
+  const lat = point[1];
+  const d = SELECTION_HALF_DEG;
+  const ring: number[][] = [
+    [lng - d, lat - d],
+    [lng + d, lat - d],
+    [lng + d, lat + d],
+    [lng - d, lat + d],
+    [lng - d, lat - d],
+  ];
+  return {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        properties: {},
+        geometry: { type: "Polygon", coordinates: [ring] },
+      },
+    ],
+  };
+}
+
+/**
+ * The selection-highlight outline layer (top-most): a bright line tracing the
+ * square around the selected cell. Drawn above every cell layer so the
+ * highlight is always visible.
+ */
+function selectionLayer(): maplibregl.LineLayerSpecification {
+  return {
+    id: SELECTION_LAYER_ID,
+    type: "line",
+    source: SELECTION_SOURCE_ID,
+    paint: {
+      "line-color": "#111827",
+      "line-width": 2,
+    },
+  };
+}
+
+/**
  * The three cell layers click/hover handling is scoped to (S3-03b): every
  * class of cell — eligible, environmental rule-out, unassessed no-data — can be
  * inspected, so an excluded cell surfaces a selection too (its score/rank null).
@@ -502,6 +574,12 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
   // the mount effect depending on it — keeping the S3-03a lifecycle untouched.
   const onSelectCellRef = useRef<CellMapProps["onSelectCell"]>(onSelectCell);
   onSelectCellRef.current = onSelectCell;
+  // Paints/clears the selection square from the click handler. Set in the load
+  // handler once the selection source exists; a stable ref so the mount-only
+  // effect never depends on it. `null` point clears the highlight.
+  const setSelectionSquareRef = useRef<(point: [number, number] | null) => void>(
+    () => {},
+  );
   const [mapReady, setMapReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -541,11 +619,29 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
       map.addLayer(excludedNoDataLayer());
       map.addLayer(excludedEnvLayer());
       map.addLayer(eligibleLayer());
+      // The selection-highlight source + its outline layer go on top of every
+      // cell layer so the square around the clicked cell is never obscured.
+      map.addSource(SELECTION_SOURCE_ID, {
+        type: "geojson",
+        data: selectionSquareData(null),
+      });
+      map.addLayer(selectionLayer());
+      // Expose a setter the click handler uses to paint/clear the square. The
+      // selection source exists from here on, so this never races the layer.
+      setSelectionSquareRef.current = (point: [number, number] | null) => {
+        (map.getSource(SELECTION_SOURCE_ID) as GeoJSONSource | undefined)?.setData(
+          selectionSquareData(point),
+        );
+      };
       // Click-to-inspect (S3-03b): scope click handling to the three cell
       // layers so any cell — eligible or excluded — surfaces a selection. The
       // handler reads the clicked feature's own `properties` (already in
       // memory) and invokes the current `onSelectCell`; no network call, no
-      // decision math. mouseenter/leave toggle the pointer cursor over cells.
+      // decision math.
+      //
+      // The highlight square follows the pointer: `mousemove` over a cell draws
+      // the square around whichever cell is under the cursor, and `mouseleave`
+      // clears it. `mouseenter` also sets the pointer cursor over cells.
       for (const layerId of CELL_LAYER_IDS) {
         map.on("click", layerId, (event: maplibregl.MapLayerMouseEvent) => {
           const properties = event.features?.[0]?.properties;
@@ -556,11 +652,23 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
             ),
           );
         });
+        map.on("mousemove", layerId, (event: maplibregl.MapLayerMouseEvent) => {
+          // Draw the highlight square around the hovered cell's own point.
+          const geometry = event.features?.[0]?.geometry;
+          if (geometry?.type !== "Point") return;
+          const lng = geometry.coordinates[0];
+          const lat = geometry.coordinates[1];
+          if (lng !== undefined && lat !== undefined) {
+            setSelectionSquareRef.current([lng, lat]);
+          }
+        });
         map.on("mouseenter", layerId, () => {
           map.getCanvas().style.cursor = "pointer";
         });
         map.on("mouseleave", layerId, () => {
           map.getCanvas().style.cursor = "";
+          // Clear the highlight when the pointer leaves the cell layer.
+          setSelectionSquareRef.current(null);
         });
       }
       setMapReady(true);
@@ -607,6 +715,9 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
     const myId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
+    // A new run supersedes any prior selection: clear the highlight square so a
+    // stale square never lingers over a cell that belongs to the previous run.
+    setSelectionSquareRef.current(null);
 
     // `requestIdRef` is the single staleness guard (design §5.3): a response is
     // dropped iff a newer run has superseded it. The effect does not use a
