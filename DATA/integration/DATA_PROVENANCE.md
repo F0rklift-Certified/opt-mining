@@ -52,8 +52,9 @@ fix (a documented re-freeze of a *derived* baseline, not a bypass of the gate �
   reference.
 - **Old SHA-256:** `8b300ca520ff42028fbb7b09024916580c105967c92fa8ade575c4e006c196fd`
   (New-England-window baseline, 1,233 eligible cells).
-- **New SHA-256:** `1e5f5a1c73ed14de356866105db128fffbcb780cae8c835fff804750fbed87cc`
-  (statewide baseline, 32,525 eligible cells), recorded by `freeze_baseline(write=True)` with the
+- **New SHA-256:** `4062224a2b96adace37f5166feb0fb7b7dbd9251e9433ed5028659347d2a1c80`
+  (statewide baseline, 32,525 eligible cells, re-frozen after the `missing_demand_data` rule and
+  the full chain regeneration), recorded by `freeze_baseline(write=True)` with the
   original `frozen_at_utc` preserved. Re-validation then reports `all_passed = true` and the
   "Baseline hash matches the frozen reference" check reads "match".
 - **Not a frozen-parameter change:** no §2 decision (Q1–Q7) is touched and geographic extent is
