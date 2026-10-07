@@ -1,24 +1,56 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 
 import type { DecisionService } from "../api/decision-service";
 import { BASELINE_CRITERIA } from "./AnalysisControls";
 import AppShell from "./AppShell";
 
+// Layer-scoped map handlers captured by `${event}:${layerId}` so a test can
+// drive CellMap's click-to-inspect path (S3-03b) without a GL context.
+const mapLayerHandlers: Record<string, (event: unknown) => void> = {};
+
+/** Fire the captured map click handler for a layer with one feature. */
+function mapClickOnLayer(
+  layerId: string,
+  properties: Record<string, unknown>,
+): void {
+  const handler = mapLayerHandlers[`click:${layerId}`];
+  if (!handler) throw new Error(`no click handler registered for ${layerId}`);
+  // The handler calls a React state setter; wrap it so the update is flushed.
+  act(() => {
+    handler({ features: [{ properties }] });
+  });
+}
+
 // jsdom has no WebGL, so CellMap's maplibregl.Map is mocked. The mock records
 // the load callback and exposes a setData spy so the map lifecycle runs without
-// a GL context; see CellMap.test.tsx for the detailed assertions.
+// a GL context; see CellMap.test.tsx for the detailed assertions. The layer
+// `on(event, layerId, cb)` form is captured so click-to-inspect is drivable.
 jest.mock("maplibre-gl", () => {
   class MockMap {
-    private handlers: Record<string, () => void> = {};
-    on(event: string, cb: () => void) {
-      this.handlers[event] = cb;
-      if (event === "load") cb();
+    on(event: string, layerOrCb: unknown, maybeCb?: (event: unknown) => void) {
+      if (typeof layerOrCb === "function") {
+        if (event === "load") (layerOrCb as () => void)();
+        return;
+      }
+      if (typeof maybeCb === "function") {
+        mapLayerHandlers[`${event}:${layerOrCb as string}`] = maybeCb;
+      }
     }
     addControl() {}
     addSource() {}
     addLayer() {}
     getSource() {
       return { setData: jest.fn() };
+    }
+    getCanvas() {
+      return { style: { cursor: "" } };
     }
     remove() {}
   }
@@ -152,5 +184,106 @@ describe("AppShell service integration", () => {
       // only the field the user touched, never re-derives the rest.
       expect(lastCall.weights.criteria.slice(1)).toEqual(BASELINE_CRITERIA.slice(1));
     });
+  });
+});
+
+describe("AppShell display filters & shared selection (S3-03b)", () => {
+  it("re-queries ranked results with the new top-N and does NOT re-run analysis (AC2/AC4)", async () => {
+    const service = serviceWithFlaggedDataset();
+    render(<AppShell service={service} />);
+
+    // Wait for the initial run so the ranked table (and its filter) are shown.
+    await screen.findByText("run-wind-1");
+    await waitFor(() =>
+      expect(service.getRankedResults).toHaveBeenCalledWith("run-wind-1", { top_n: 10 }),
+    );
+
+    const runCallsBefore = (service.runAnalysis as jest.Mock).mock.calls.length;
+    const cellsCallsBefore = (service.getRunCells as jest.Mock).mock.calls.length;
+
+    fireEvent.change(screen.getByLabelText("Top N sites"), {
+      target: { value: "3" },
+    });
+
+    await waitFor(() =>
+      expect(service.getRankedResults).toHaveBeenLastCalledWith("run-wind-1", {
+        top_n: 3,
+      }),
+    );
+
+    // The filter is a display query only: no new run, no re-fetch of cells —
+    // nothing that could re-trigger scoring/normalisation/ranking.
+    expect((service.runAnalysis as jest.Mock).mock.calls.length).toBe(runCallsBefore);
+    expect((service.getRunCells as jest.Mock).mock.calls.length).toBe(cellsCallsBefore);
+  });
+
+  it("applies a minimum-suitability filter via getRankedResults without re-running analysis", async () => {
+    const service = serviceWithFlaggedDataset();
+    render(<AppShell service={service} />);
+
+    await screen.findByText("run-wind-1");
+    const runCallsBefore = (service.runAnalysis as jest.Mock).mock.calls.length;
+
+    fireEvent.change(screen.getByLabelText("Min suitability"), {
+      target: { value: "0.9" },
+    });
+
+    await waitFor(() =>
+      expect(service.getRankedResults).toHaveBeenLastCalledWith("run-wind-1", {
+        top_n: 10,
+        min_score: 0.9,
+      }),
+    );
+    expect((service.runAnalysis as jest.Mock).mock.calls.length).toBe(runCallsBefore);
+  });
+
+  it("drives Site-detail from a clicked ranked row (shared CellSelection)", async () => {
+    const service = serviceWithFlaggedDataset();
+    render(<AppShell service={service} />);
+
+    await screen.findByText("run-wind-1");
+
+    // Default Site-detail shows the first-ranked site (rank 1 cell).
+    const siteDetail = screen.getByRole("region", {
+      name: "Site detail / explanation",
+    });
+
+    // Click the SECOND ranked row's cell button; Site-detail must follow it.
+    fireEvent.click(screen.getByRole("button", { name: "S30.200_E151.300" }));
+
+    await waitFor(() => {
+      expect(within(siteDetail).getByText("S30.200_E151.300")).toBeInTheDocument();
+    });
+    // The row-sourced selection carries that row's rank/score — proving the
+    // ranked table drives the shared selection, no getSiteDetail round-trip.
+    expect(within(siteDetail).getByText("2")).toBeInTheDocument();
+    expect(within(siteDetail).getByText("0.874")).toBeInTheDocument();
+  });
+
+  it("drives Site-detail from a map click using the SAME CellSelection shape (AC3)", async () => {
+    const service = serviceWithFlaggedDataset();
+    render(<AppShell service={service} />);
+
+    await screen.findByText("run-wind-1");
+
+    const siteDetail = screen.getByRole("region", {
+      name: "Site detail / explanation",
+    });
+
+    // The map's onSelectCell is wired to the SAME setter the ranked rows use.
+    // Fire the captured map click handler for an eligible cell; Site-detail
+    // must update identically to a row click — proving the shapes are shared.
+    mapClickOnLayer("cells-eligible", {
+      cell_id: "S99.000_E150.000",
+      eligible: true,
+      suitability_score: 0.655,
+      rank: 7,
+    });
+
+    await waitFor(() => {
+      expect(within(siteDetail).getByText("S99.000_E150.000")).toBeInTheDocument();
+    });
+    expect(within(siteDetail).getByText("7")).toBeInTheDocument();
+    expect(within(siteDetail).getByText("0.655")).toBeInTheDocument();
   });
 });

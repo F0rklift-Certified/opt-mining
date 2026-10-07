@@ -229,6 +229,63 @@ body {
 }
 
 /*
+ * A ranked-results cell is selectable (S3-03b): the cell id becomes a plain
+ * button that surfaces the shared selection. Styled as inline text, not a
+ * chrome button, so the table reads unchanged until hovered/focused.
+ */
+.om-results__select {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.om-results__select:hover,
+.om-results__select:focus-visible {
+  text-decoration: underline;
+}
+
+/*
+ * Display filters (S3-03b): a small top-N / min-suitability control above the
+ * ranked table. Styling only — the filter is a display query over fixed engine
+ * output; it never re-runs scoring or normalisation.
+ */
+.om-ranked {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.om-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--om-border);
+  border-radius: 4px;
+}
+
+.om-filter__legend {
+  font-weight: 600;
+  padding: 0 0.35rem;
+}
+
+.om-filter__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+}
+
+.om-filter__input {
+  width: 6rem;
+}
+
+/*
  * Interactive map (S3-03a). MapLibre renders into .om-map, which MUST carry an
  * explicit height or the GL canvas collapses to 0px. The status line reuses the
  * muted shell palette for the loading / no-run / error messages.

@@ -22,7 +22,11 @@ import { join } from "node:path";
 
 import { render, screen, waitFor } from "@testing-library/react";
 
-import type { CellCollection, DecisionService } from "../api/decision-service";
+import type {
+  CellCollection,
+  CellSelection,
+  DecisionService,
+} from "../api/decision-service";
 import { DecisionServiceError } from "../api/decision-service";
 import CellMap from "./CellMap";
 
@@ -30,12 +34,29 @@ const setDataSpy = jest.fn();
 const addSourceSpy = jest.fn();
 const addLayerSpy = jest.fn();
 
+/**
+ * Layer-scoped handlers (click / mouseenter / mouseleave) the component
+ * registers inside the load handler, captured keyed by `${event}:${layerId}`
+ * so a test can fire a synthetic event at a given layer (S3-03b). Also records
+ * the mock canvas cursor so the pointer-cursor wiring is assertable.
+ */
+let layerHandlers: Record<string, (event: unknown) => void> = {};
+let canvasCursor = "";
+
 jest.mock("maplibre-gl", () => {
   class MockMap {
-    on(event: string, cb: () => void) {
-      // Fire the load handler synchronously so the "cells" source is added and
-      // mapReady flips true before any fetched data is applied.
-      if (event === "load") cb();
+    // Two-arg form registers the load handler (S3-03a); the three-arg form is a
+    // layer-scoped handler (S3-03b) captured by `${event}:${layerId}`.
+    on(event: string, layerOrCb: unknown, maybeCb?: (event: unknown) => void) {
+      if (typeof layerOrCb === "function") {
+        // Fire the load handler synchronously so the "cells" source is added
+        // and mapReady flips true before any fetched data is applied.
+        if (event === "load") (layerOrCb as () => void)();
+        return;
+      }
+      if (typeof maybeCb === "function") {
+        layerHandlers[`${event}:${layerOrCb as string}`] = maybeCb;
+      }
     }
     addControl() {}
     addSource(id: string) {
@@ -46,6 +67,20 @@ jest.mock("maplibre-gl", () => {
     }
     getSource() {
       return { setData: (...args: unknown[]) => setDataSpy(...args) };
+    }
+    getCanvas() {
+      return {
+        get style() {
+          return {
+            get cursor() {
+              return canvasCursor;
+            },
+            set cursor(value: string) {
+              canvasCursor = value;
+            },
+          };
+        },
+      };
     }
     remove() {}
   }
@@ -134,6 +169,8 @@ beforeEach(() => {
   setDataSpy.mockClear();
   addSourceSpy.mockClear();
   addLayerSpy.mockClear();
+  layerHandlers = {};
+  canvasCursor = "";
 });
 
 describe("CellMap (S3-03a map rendering)", () => {
@@ -293,5 +330,131 @@ describe("CellMap (S3-03a map rendering)", () => {
     const source = readFileSync(join(__dirname, "CellMap.tsx"), "utf8");
     expect(source).not.toMatch(/\bfetch\s*\(/);
     expect(source).toContain("service.getRunCells");
+  });
+});
+
+describe("CellMap click-to-inspect (S3-03b)", () => {
+  /** Fire the captured layer handler with a synthetic MapLibre event. */
+  function fireLayerEvent(
+    event: string,
+    layerId: string,
+    features?: { properties: Record<string, unknown> }[],
+  ): void {
+    const handler = layerHandlers[`${event}:${layerId}`];
+    expect(handler).toBeDefined();
+    handler?.({ features });
+  }
+
+  it("invokes onSelectCell with the clicked eligible cell's typed selection", async () => {
+    const getRunCells = jest.fn().mockResolvedValue(featureCollection("run-1"));
+    const onSelectCell = jest.fn();
+    render(
+      <CellMap
+        runId="run-1"
+        service={serviceWithCells(getRunCells)}
+        onSelectCell={onSelectCell}
+      />,
+    );
+    await waitFor(() => expect(setDataSpy).toHaveBeenCalled());
+
+    fireLayerEvent("click", "cells-eligible", [
+      {
+        properties: {
+          cell_id: "S30.100_E151.200",
+          eligible: true,
+          suitability_score: 0.9,
+          rank: 1,
+        },
+      },
+    ]);
+
+    expect(onSelectCell).toHaveBeenCalledTimes(1);
+    const selection = onSelectCell.mock.calls[0]?.[0] as CellSelection;
+    expect(selection).toEqual({
+      cell_id: "S30.100_E151.200",
+      eligible: true,
+      suitability_score: 0.9,
+      rank: 1,
+    });
+  });
+
+  it("yields null score/rank when an excluded cell is clicked", async () => {
+    const getRunCells = jest.fn().mockResolvedValue(featureCollection("run-1"));
+    const onSelectCell = jest.fn();
+    render(
+      <CellMap
+        runId="run-1"
+        service={serviceWithCells(getRunCells)}
+        onSelectCell={onSelectCell}
+      />,
+    );
+    await waitFor(() => expect(setDataSpy).toHaveBeenCalled());
+
+    // An excluded feature carries no score/rank (null in the GeoJSON); the
+    // selection reports eligible:false with both coerced to null.
+    fireLayerEvent("click", "cells-excluded-env", [
+      {
+        properties: {
+          cell_id: "env-1",
+          eligible: false,
+          suitability_score: null,
+          rank: null,
+        },
+      },
+    ]);
+
+    const selection = onSelectCell.mock.calls[0]?.[0] as CellSelection;
+    expect(selection).toEqual({
+      cell_id: "env-1",
+      eligible: false,
+      suitability_score: null,
+      rank: null,
+    });
+  });
+
+  it("does not throw when a cell is clicked and no onSelectCell is wired", async () => {
+    const getRunCells = jest.fn().mockResolvedValue(featureCollection("run-1"));
+    render(<CellMap runId="run-1" service={serviceWithCells(getRunCells)} />);
+    await waitFor(() => expect(setDataSpy).toHaveBeenCalled());
+
+    expect(() =>
+      fireLayerEvent("click", "cells-eligible", [
+        {
+          properties: {
+            cell_id: "S30.100_E151.200",
+            eligible: true,
+            suitability_score: 0.9,
+            rank: 1,
+          },
+        },
+      ]),
+    ).not.toThrow();
+  });
+
+  it("ignores a click that carries no feature", async () => {
+    const getRunCells = jest.fn().mockResolvedValue(featureCollection("run-1"));
+    const onSelectCell = jest.fn();
+    render(
+      <CellMap
+        runId="run-1"
+        service={serviceWithCells(getRunCells)}
+        onSelectCell={onSelectCell}
+      />,
+    );
+    await waitFor(() => expect(setDataSpy).toHaveBeenCalled());
+
+    fireLayerEvent("click", "cells-eligible", []);
+    expect(onSelectCell).not.toHaveBeenCalled();
+  });
+
+  it("toggles the canvas pointer cursor on mouseenter/mouseleave over cells", async () => {
+    const getRunCells = jest.fn().mockResolvedValue(featureCollection("run-1"));
+    render(<CellMap runId="run-1" service={serviceWithCells(getRunCells)} />);
+    await waitFor(() => expect(setDataSpy).toHaveBeenCalled());
+
+    fireLayerEvent("mouseenter", "cells-eligible");
+    expect(canvasCursor).toBe("pointer");
+    fireLayerEvent("mouseleave", "cells-eligible");
+    expect(canvasCursor).toBe("");
   });
 });

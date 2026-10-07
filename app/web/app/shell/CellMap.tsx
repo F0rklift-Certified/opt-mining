@@ -31,6 +31,7 @@ import type {
 import {
   DecisionServiceError,
   type CellCollection,
+  type CellSelection,
   type DecisionService,
   type ExcludedRow,
 } from "../api/decision-service";
@@ -41,6 +42,12 @@ export interface CellMapProps {
   runId: string | null;
   /** The shared typed client (single integration point). */
   service: DecisionService;
+  /**
+   * Surfaced when a cell is clicked, carrying the clicked feature's own
+   * properties as a {@link CellSelection} (S3-03b). Optional — the map renders
+   * and the lifecycle runs unchanged when no handler is wired.
+   */
+  onSelectCell?: (selection: CellSelection) => void;
 }
 
 /** GeoJSON source id and the three circle layers (design §5.6). */
@@ -48,6 +55,39 @@ const SOURCE_ID = "cells";
 const EXCLUDED_NODATA_LAYER_ID = "cells-excluded-nodata";
 const EXCLUDED_ENV_LAYER_ID = "cells-excluded-env";
 const ELIGIBLE_LAYER_ID = "cells-eligible";
+
+/**
+ * The three cell layers click/hover handling is scoped to (S3-03b): every
+ * class of cell — eligible, environmental rule-out, unassessed no-data — can be
+ * inspected, so an excluded cell surfaces a selection too (its score/rank null).
+ */
+const CELL_LAYER_IDS = [
+  ELIGIBLE_LAYER_ID,
+  EXCLUDED_ENV_LAYER_ID,
+  EXCLUDED_NODATA_LAYER_ID,
+];
+
+/**
+ * Build the stable {@link CellSelection} from a clicked feature's own
+ * `properties` (S3-03b). A pure read of the engine-produced values already in
+ * memory — no decision math, no network call: `suitability_score` / `rank` fall
+ * back to null for an excluded cell, exactly as the contract specifies.
+ */
+function selectionFromProperties(
+  properties: {
+    cell_id: string;
+    eligible: boolean;
+    suitability_score?: number | null;
+    rank?: number | null;
+  },
+): CellSelection {
+  return {
+    cell_id: properties.cell_id,
+    eligible: properties.eligible,
+    suitability_score: properties.suitability_score ?? null,
+    rank: properties.rank ?? null,
+  };
+}
 
 /**
  * The engine exclusion-rule code marking a cell as outside the wind-resource
@@ -450,13 +490,18 @@ function statusText(runId: string | null, loading: boolean, error: string | null
 }
 
 /** The interactive-map region body: a MapLibre map of the Run's cells. */
-export default function CellMap({ runId, service }: CellMapProps): JSX.Element {
+export default function CellMap({ runId, service, onSelectCell }: CellMapProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const pendingDataRef = useRef<CellCollection | null>(null);
   const requestIdRef = useRef(0);
   // The run currently fetched; prevents a `mapReady` re-run from refetching.
   const fetchedRunRef = useRef<string | null>(null);
+  // The latest selection callback, held in a ref so the once-run `load` handler
+  // (registered in a mount-only effect) always invokes the current prop without
+  // the mount effect depending on it — keeping the S3-03a lifecycle untouched.
+  const onSelectCellRef = useRef<CellMapProps["onSelectCell"]>(onSelectCell);
+  onSelectCellRef.current = onSelectCell;
   const [mapReady, setMapReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -496,6 +541,28 @@ export default function CellMap({ runId, service }: CellMapProps): JSX.Element {
       map.addLayer(excludedNoDataLayer());
       map.addLayer(excludedEnvLayer());
       map.addLayer(eligibleLayer());
+      // Click-to-inspect (S3-03b): scope click handling to the three cell
+      // layers so any cell — eligible or excluded — surfaces a selection. The
+      // handler reads the clicked feature's own `properties` (already in
+      // memory) and invokes the current `onSelectCell`; no network call, no
+      // decision math. mouseenter/leave toggle the pointer cursor over cells.
+      for (const layerId of CELL_LAYER_IDS) {
+        map.on("click", layerId, (event: maplibregl.MapLayerMouseEvent) => {
+          const properties = event.features?.[0]?.properties;
+          if (!properties) return;
+          onSelectCellRef.current?.(
+            selectionFromProperties(
+              properties as Parameters<typeof selectionFromProperties>[0],
+            ),
+          );
+        });
+        map.on("mouseenter", layerId, () => {
+          map.getCanvas().style.cursor = "pointer";
+        });
+        map.on("mouseleave", layerId, () => {
+          map.getCanvas().style.cursor = "";
+        });
+      }
       setMapReady(true);
       const pending = pendingDataRef.current;
       if (pending) {

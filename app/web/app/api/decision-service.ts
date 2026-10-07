@@ -30,6 +30,24 @@ export interface RankedResultsFilter {
   min_score?: number | null;
 }
 
+/**
+ * The stable, typed selection a view surfaces when a single cell is inspected
+ * (S3-03b). It is the shared cross-view contract the future Site-detail view
+ * (S3-05) consumes: both a map `click` (reading a feature's `CellProperties`)
+ * and a ranked-table row (a `RankedRow`) produce this same shape, so map
+ * selection and table selection are interchangeable. It carries only the
+ * engine-produced identity/score/eligibility already in memory — no decision
+ * math, no network call — keyed on the stable `cell_id` the detail view uses to
+ * fetch its richer explanation on demand via `getSiteDetail`. For an excluded
+ * cell `suitability_score` and `rank` are null.
+ */
+export interface CellSelection {
+  cell_id: string;
+  eligible: boolean;
+  suitability_score: number | null;
+  rank: number | null;
+}
+
 export interface DecisionService {
   runAnalysis(request: RunRequest): Promise<RunHandle>;
   getRankedResults(
