@@ -34,6 +34,7 @@ import {
   type DecisionService,
   type ExcludedRow,
 } from "../api/decision-service";
+import { NSW_BOUNDARY } from "./nsw-boundary";
 
 export interface CellMapProps {
   /** `engine.run.run_id` for the currently-loaded run, or null when none. */
@@ -126,6 +127,175 @@ function withExclusionClasses(
     };
   });
   return { ...collection, features };
+}
+
+/**
+ * The NSW boundary source and its two presentation-only layers (S3-03a). The
+ * source carries two features — a dimming mask that greys everything OUTSIDE
+ * NSW, and the NSW outline for the border line — tagged with `properties.kind`
+ * so each layer filters to its own feature. Both are drawn BELOW the three cell
+ * layers so cells and the border stay fully visible over the dimmed surround.
+ */
+const NSW_SOURCE_ID = "nsw-boundary";
+const NSW_MASK_LAYER_ID = "nsw-mask";
+const NSW_BORDER_LAYER_ID = "nsw-border";
+
+/**
+ * Ray-casting point-in-polygon over one linear ring (an array of `[lng, lat]`
+ * vertices). Reads coordinates only — no decision math — so the geographic clip
+ * stays inside the decision-free rule. A plain `for` loop (never `.reduce`) to
+ * satisfy the scope-guard. Returns true when the point lies inside the ring.
+ */
+function pointInRing(lng: number, lat: number, ring: number[][]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const vi = ring[i];
+    const vj = ring[j];
+    if (!vi || !vj) continue;
+    const xi = vi[0];
+    const yi = vi[1];
+    const xj = vj[0];
+    const yj = vj[1];
+    if (
+      xi === undefined ||
+      yi === undefined ||
+      xj === undefined ||
+      yj === undefined
+    ) {
+      continue;
+    }
+    const intersects =
+      yi > lat !== yj > lat &&
+      lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * True when `[lng, lat]` falls inside the NSW MultiPolygon: inside a polygon's
+ * outer ring (index 0) and not inside any of that polygon's holes. Iterates all
+ * polygons/rings (so islands such as Lord Howe are included). Reads coordinates
+ * only — this is a geographic test, not decision math.
+ */
+function pointInNsw(lng: number, lat: number): boolean {
+  const polygons = NSW_BOUNDARY.coordinates;
+  for (let p = 0; p < polygons.length; p++) {
+    const polygon = polygons[p];
+    if (!polygon) continue;
+    const outer = polygon[0];
+    if (!outer || !pointInRing(lng, lat, outer)) continue;
+    let inHole = false;
+    for (let h = 1; h < polygon.length; h++) {
+      const hole = polygon[h];
+      if (hole && pointInRing(lng, lat, hole)) {
+        inHole = true;
+        break;
+      }
+    }
+    if (!inHole) return true;
+  }
+  return false;
+}
+
+/**
+ * Clip the served cells to the NSW shape: keep only Point features whose
+ * coordinate falls inside the NSW MultiPolygon. A pure transform in the data
+ * path (returns a NEW FeatureCollection; never mutates served data). It removes
+ * features geographically only — it does not read, recompute, or change any
+ * `eligible` / `suitability_score` / `exclusion_class` value, so the styling of
+ * surviving cells is untouched. Uses `.filter` only (never `.reduce`/`.sort`).
+ */
+function clipToNsw(collection: CellCollection): CellCollection {
+  const features = (collection.features ?? []).filter((feature) => {
+    const geometry = feature.geometry;
+    if (geometry.type !== "Point") return false;
+    const lng = geometry.coordinates[0];
+    const lat = geometry.coordinates[1];
+    if (lng === undefined || lat === undefined) return false;
+    return pointInNsw(lng, lat);
+  });
+  return { ...collection, features };
+}
+
+/**
+ * World bounding box used as the outer ring of the dimming mask (lon/lat). The
+ * mask polygon fills this rectangle and cuts NSW out as holes, so everything
+ * outside the NSW shape is dimmed while NSW itself stays clear.
+ */
+const WORLD_BBOX_RING: number[][] = [
+  [-180, -85],
+  [180, -85],
+  [180, 85],
+  [-180, 85],
+  [-180, -85],
+];
+
+/**
+ * Build the `nsw-boundary` source data once: a FeatureCollection carrying the
+ * dimming-mask Polygon (world bbox with every NSW polygon's outer ring cut out
+ * as a hole, including islands) tagged `kind: "mask"`, and the raw NSW
+ * MultiPolygon tagged `kind: "border"` for the outline line. Interior holes
+ * (lakes) of NSW polygons are not cut into the mask — a deliberate, negligible
+ * simplification at state scale.
+ */
+function nswBoundaryData(): GeoJSON.FeatureCollection {
+  const maskRings: number[][][] = [WORLD_BBOX_RING];
+  for (let p = 0; p < NSW_BOUNDARY.coordinates.length; p++) {
+    const polygon = NSW_BOUNDARY.coordinates[p];
+    const outer = polygon ? polygon[0] : undefined;
+    if (outer) maskRings.push(outer);
+  }
+  return {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        properties: { kind: "mask" },
+        geometry: { type: "Polygon", coordinates: maskRings },
+      },
+      {
+        type: "Feature",
+        properties: { kind: "border" },
+        geometry: NSW_BOUNDARY,
+      },
+    ],
+  };
+}
+
+/**
+ * The outside-NSW dimming mask (bottom-most of the boundary layers): a
+ * semi-transparent dark fill of the mask Polygon feature so everything beyond
+ * the NSW shape reads as out of scope.
+ */
+function nswMaskLayer(): maplibregl.FillLayerSpecification {
+  return {
+    id: NSW_MASK_LAYER_ID,
+    type: "fill",
+    source: NSW_SOURCE_ID,
+    filter: ["==", ["get", "kind"], "mask"],
+    paint: {
+      "fill-color": "#0b1a2b",
+      "fill-opacity": 0.35,
+    },
+  };
+}
+
+/**
+ * The NSW border line tracing the state outline, drawn above the mask and below
+ * the cell layers so the shape reads clearly without obscuring any cell.
+ */
+function nswBorderLayer(): maplibregl.LineLayerSpecification {
+  return {
+    id: NSW_BORDER_LAYER_ID,
+    type: "line",
+    source: NSW_SOURCE_ID,
+    filter: ["==", ["get", "kind"], "border"],
+    paint: {
+      "line-color": "#1f2a37",
+      "line-width": 1,
+    },
+  };
 }
 
 /**
@@ -309,6 +479,14 @@ export default function CellMap({ runId, service }: CellMapProps): JSX.Element {
     map.addControl(new maplibregl.NavigationControl());
 
     map.on("load", () => {
+      // The NSW boundary source + its mask/border layers are added FIRST so the
+      // cell layers below draw on top of them (dimmed surround, traced border).
+      map.addSource(NSW_SOURCE_ID, {
+        type: "geojson",
+        data: nswBoundaryData(),
+      });
+      map.addLayer(nswMaskLayer());
+      map.addLayer(nswBorderLayer());
       map.addSource(SOURCE_ID, {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
@@ -381,7 +559,10 @@ export default function CellMap({ runId, service }: CellMapProps): JSX.Element {
     ])
       .then(([cells, exclusions]) => {
         if (myId !== requestIdRef.current) return; // stale run superseded
-        const collection = withExclusionClasses(cells, exclusions);
+        // Enrich with exclusion classes, then clip the drawn cells to the NSW
+        // shape (presentation-only: removes out-of-state features geographically
+        // without touching any surviving cell's styling values).
+        const collection = clipToNsw(withExclusionClasses(cells, exclusions));
         // The "cells" source exists iff the load handler has run (it adds the
         // source and sets mapReady together), so source presence is the live
         // readiness signal — robust to the mapReady value captured at effect

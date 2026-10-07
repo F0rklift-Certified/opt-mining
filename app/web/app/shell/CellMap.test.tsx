@@ -27,6 +27,8 @@ import { DecisionServiceError } from "../api/decision-service";
 import CellMap from "./CellMap";
 
 const setDataSpy = jest.fn();
+const addSourceSpy = jest.fn();
+const addLayerSpy = jest.fn();
 
 jest.mock("maplibre-gl", () => {
   class MockMap {
@@ -36,8 +38,12 @@ jest.mock("maplibre-gl", () => {
       if (event === "load") cb();
     }
     addControl() {}
-    addSource() {}
-    addLayer() {}
+    addSource(id: string) {
+      addSourceSpy(id);
+    }
+    addLayer(layer: { id: string }) {
+      addLayerSpy(layer.id);
+    }
     getSource() {
       return { setData: (...args: unknown[]) => setDataSpy(...args) };
     }
@@ -126,19 +132,39 @@ function serviceWithCellsAndExclusions(
 
 beforeEach(() => {
   setDataSpy.mockClear();
+  addSourceSpy.mockClear();
+  addLayerSpy.mockClear();
 });
 
 describe("CellMap (S3-03a map rendering)", () => {
-  it("fetches the run's cells once and applies them to the map source", async () => {
+  it("fetches the run's cells once and applies the NSW-clipped collection to the map source", async () => {
     const collection = featureCollection("run-1");
     const getRunCells = jest.fn().mockResolvedValue(collection);
     render(<CellMap runId="run-1" service={serviceWithCells(getRunCells)} />);
 
-    await waitFor(() => {
-      expect(setDataSpy).toHaveBeenCalledWith(collection);
-    });
+    await waitFor(() => expect(setDataSpy).toHaveBeenCalled());
+    // The clip returns a NEW FeatureCollection, so we assert on its shape rather
+    // than object identity. The single cell [151.2, -30.1] is inside NSW, so it
+    // survives the clip and the applied collection has exactly one feature.
+    const applied = setDataSpy.mock.calls.at(-1)?.[0] as CellCollection;
+    expect(applied.type).toBe("FeatureCollection");
+    expect(applied.features).toHaveLength(1);
+    expect(applied.features?.[0]?.properties.cell_id).toBe("S30.100_E151.200");
     expect(getRunCells).toHaveBeenCalledTimes(1);
     expect(getRunCells).toHaveBeenCalledWith("run-1");
+  });
+
+  it("adds the NSW boundary source and the mask/border layers on load", () => {
+    const getRunCells = jest.fn().mockResolvedValue(featureCollection("run-1"));
+    render(<CellMap runId="run-1" service={serviceWithCells(getRunCells)} />);
+
+    expect(addSourceSpy).toHaveBeenCalledWith("nsw-boundary");
+    expect(addLayerSpy).toHaveBeenCalledWith("nsw-mask");
+    expect(addLayerSpy).toHaveBeenCalledWith("nsw-border");
+    // The three cell layers are still added above the boundary layers.
+    expect(addLayerSpy).toHaveBeenCalledWith("cells-excluded-nodata");
+    expect(addLayerSpy).toHaveBeenCalledWith("cells-excluded-env");
+    expect(addLayerSpy).toHaveBeenCalledWith("cells-eligible");
   });
 
   it("refetches when runId changes", async () => {
@@ -209,20 +235,48 @@ describe("CellMap (S3-03a map rendering)", () => {
       ),
     );
 
+    // The clip keeps only cells inside the NSW shape. The exclusion-class logic
+    // is unchanged and still exercised by the surviving cells:
     // A cell excluded ONLY by missing wind data is "nodata" (unassessed).
     expect(byId.get("nodata-1")?.exclusion_class).toBe("nodata");
-    // A cell excluded ONLY by missing demand data (e.g. the ACT enclave) is
-    // "nodata" too — a data-coverage gap, not an environmental rule-out.
-    expect(byId.get("demand-nodata-1")?.exclusion_class).toBe("nodata");
     // A cell carrying a real rule (protected area) is "environmental", even
     // though missing-wind co-occurs.
     expect(byId.get("env-1")?.exclusion_class).toBe("environmental");
-    // offshore_or_marine is a real geographic rule-out, so a dual-coded ocean
-    // cell (offshore + missing-slope) stays "environmental", not "nodata".
-    expect(byId.get("offshore-1")?.exclusion_class).toBe("environmental");
-    // Eligible cells are left untouched (no exclusion_class).
+    // Eligible cells are left untouched by the clip (no exclusion_class added).
     expect(byId.get("eligible-1")?.exclusion_class).toBeUndefined();
+    // Cells outside NSW are dropped by the geographic clip before reaching the
+    // source: `demand-nodata-1` (south of the border) and `offshore-1` (ocean
+    // east of the coast) never appear in the applied collection.
+    expect(byId.has("demand-nodata-1")).toBe(false);
+    expect(byId.has("offshore-1")).toBe(false);
     expect(getExclusions).toHaveBeenCalledWith("run-1");
+  });
+
+  it("clips cells geographically to NSW — a far-outside cell is dropped, an inside cell is kept", async () => {
+    const collection: CellCollection = {
+      type: "FeatureCollection",
+      run_id: "run-1",
+      features: [
+        {
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [151.2, -30.1] },
+          properties: { cell_id: "inside-nsw", eligible: true, suitability_score: 0.5, rank: 1 },
+        },
+        {
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [135.0, -25.0] },
+          properties: { cell_id: "central-australia", eligible: true, suitability_score: 0.5, rank: 2 },
+        },
+      ],
+    };
+    const getRunCells = jest.fn().mockResolvedValue(collection);
+    render(<CellMap runId="run-1" service={serviceWithCells(getRunCells)} />);
+
+    await waitFor(() => expect(setDataSpy).toHaveBeenCalled());
+    const applied = setDataSpy.mock.calls.at(-1)?.[0] as CellCollection;
+    const ids = (applied.features ?? []).map((f) => f.properties.cell_id);
+    expect(ids).toContain("inside-nsw");
+    expect(ids).not.toContain("central-australia");
   });
 
   it("still renders cells when getExclusions is unavailable (best-effort enrichment)", async () => {
