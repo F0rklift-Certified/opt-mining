@@ -95,6 +95,16 @@ function mixedCollection(runId: string): CellCollection {
         geometry: { type: "Point", coordinates: [150.3, -33.7] },
         properties: { cell_id: "env-1", eligible: false, suitability_score: null, rank: null },
       },
+      {
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [149.0, -35.3] },
+        properties: { cell_id: "demand-nodata-1", eligible: false, suitability_score: null, rank: null },
+      },
+      {
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [153.4, -30.0] },
+        properties: { cell_id: "offshore-1", eligible: false, suitability_score: null, rank: null },
+      },
     ],
   };
 }
@@ -173,6 +183,16 @@ describe("CellMap (S3-03a map rendering)", () => {
         reason_codes: ["protected_area", "missing_wind_data"],
         reason_text: "Protected area: Blue Mountains, Missing wind data",
       },
+      {
+        cell_id: "demand-nodata-1",
+        reason_codes: ["missing_demand_data"],
+        reason_text: "Missing demand data",
+      },
+      {
+        cell_id: "offshore-1",
+        reason_codes: ["offshore_or_marine", "missing_slope_data"],
+        reason_text: "Offshore or marine (not on land), Missing slope data",
+      },
     ]);
     render(
       <CellMap
@@ -191,9 +211,15 @@ describe("CellMap (S3-03a map rendering)", () => {
 
     // A cell excluded ONLY by missing wind data is "nodata" (unassessed).
     expect(byId.get("nodata-1")?.exclusion_class).toBe("nodata");
+    // A cell excluded ONLY by missing demand data (e.g. the ACT enclave) is
+    // "nodata" too — a data-coverage gap, not an environmental rule-out.
+    expect(byId.get("demand-nodata-1")?.exclusion_class).toBe("nodata");
     // A cell carrying a real rule (protected area) is "environmental", even
     // though missing-wind co-occurs.
     expect(byId.get("env-1")?.exclusion_class).toBe("environmental");
+    // offshore_or_marine is a real geographic rule-out, so a dual-coded ocean
+    // cell (offshore + missing-slope) stays "environmental", not "nodata".
+    expect(byId.get("offshore-1")?.exclusion_class).toBe("environmental");
     // Eligible cells are left untouched (no exclusion_class).
     expect(byId.get("eligible-1")?.exclusion_class).toBeUndefined();
     expect(getExclusions).toHaveBeenCalledWith("run-1");

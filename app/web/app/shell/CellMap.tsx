@@ -50,35 +50,55 @@ const ELIGIBLE_LAYER_ID = "cells-eligible";
 
 /**
  * The engine exclusion-rule code marking a cell as outside the wind-resource
- * data footprint. A cell excluded ONLY by this code was never assessed on its
- * merits — it has no wind value — so it is a DATA-COVERAGE boundary, not an
- * environmental rule-out. The code is the engine's own `reason_codes` value
- * from `get_exclusions` (S2-03 vocabulary), carried through unchanged; this
- * component invents no code and re-evaluates no rule.
+ * data footprint. One member of {@link NODATA_CODES}; retained as a named
+ * constant because it is the canonical "no wind value" marker referenced in
+ * the component's documentation. The code is the engine's own `reason_codes`
+ * value from `get_exclusions` (S2-03/F16 vocabulary), carried through
+ * unchanged; this component invents no code and re-evaluates no rule.
  */
 const MISSING_WIND_CODE = "missing_wind_data";
 
 /**
+ * The set of engine reason codes that mark a cell as UNASSESSED for want of a
+ * critical input value — a data-coverage gap, not an environmental rule-out.
+ * A cell carrying only these codes was never judged on its merits (no wind,
+ * no slope, or no demand value), so it must read as "not assessed", not as a
+ * ruled-out site. `offshore_or_marine` is deliberately NOT here: it is a real
+ * geographic rule-out (the cell is in the ocean), so it classes as
+ * environmental, including when it co-occurs with a missing-data code on an
+ * ocean cell. The codes are the engine's own F16 vocabulary, carried through
+ * unchanged.
+ */
+const NODATA_CODES = new Set<string>([
+  MISSING_WIND_CODE,
+  "missing_slope_data",
+  "missing_demand_data",
+]);
+
+/**
  * Per-cell exclusion class derived from the engine's `reason_codes` (NOT
- * recomputed): a cell whose only reason is `missing_wind_data` is "nodata"
- * (unassessed — outside the wind footprint); any cell carrying a different
- * rule (protected area, slope, urban) is "environmental" — a genuine rule-out.
- * The derived class is written onto each excluded Feature's `properties` as
- * `exclusion_class` so the layers can style the two honestly apart.
+ * recomputed): a cell whose reasons are ALL no-data codes is "nodata"
+ * (unassessed — a data-coverage gap); any cell carrying at least one genuine
+ * rule (protected area, slope threshold, urban, offshore/marine) is
+ * "environmental" — a real rule-out. The derived class is written onto each
+ * excluded Feature's `properties` as `exclusion_class` so the layers can
+ * style the two honestly apart.
  */
 type ExclusionClass = "nodata" | "environmental";
 const EXCLUSION_CLASS_PROP = "exclusion_class";
 
 /**
- * Classify one excluded cell from its engine reason codes. "Only missing wind
- * data" -> nodata; anything else (incl. missing-wind co-occurring with a real
- * rule) -> environmental, because a real environmental rule genuinely fired.
+ * Classify one excluded cell from its engine reason codes. A cell is "nodata"
+ * iff it has reasons AND every reason is a no-data code ({@link NODATA_CODES});
+ * otherwise it is "environmental". So a slope/wind/demand-missing-only cell is
+ * unassessed, while any genuine rule — or a dual-coded ocean cell carrying
+ * `offshore_or_marine` alongside a missing-data code — classes as a rule-out.
  */
 function classifyExclusion(reasonCodes: string[]): ExclusionClass {
-  const hasEnvironmentalRule = reasonCodes.some(
-    (code) => code !== MISSING_WIND_CODE,
-  );
-  return hasEnvironmentalRule ? "environmental" : "nodata";
+  const allNoData =
+    reasonCodes.length > 0 &&
+    reasonCodes.every((code) => NODATA_CODES.has(code));
+  return allNoData ? "nodata" : "environmental";
 }
 
 /**
@@ -146,9 +166,11 @@ function basemapStyle(): StyleSpecification {
 }
 
 /**
- * The faint "no wind data" layer (bottom): cells outside the wind-resource
- * footprint, excluded ONLY for missing data and never assessed on merit. Drawn
- * palest so it reads as an unassessed carpet, not a rule-out. Filtered on the
+ * The faint "no data" layer (bottom): cells excluded ONLY because a critical
+ * input value was missing (wind, slope, or demand) and so were never assessed
+ * on merit. Statewide this class is now rare — a small residual pocket such as
+ * the demand-less ACT enclave — rather than the old state-filling carpet.
+ * Drawn palest so it reads as unassessed, not a rule-out. Filtered on the
  * engine-derived `exclusion_class` (design §5.6).
  */
 function excludedNoDataLayer(): maplibregl.CircleLayerSpecification {
@@ -171,9 +193,9 @@ function excludedNoDataLayer(): maplibregl.CircleLayerSpecification {
 
 /**
  * The environmental-exclusion layer (middle): cells a genuine hard rule ruled
- * out (protected area, slope, urban). A distinct slate/blue so a real rule-out
- * is clearly NOT the same as "unassessed/no data". Filtered on the
- * engine-derived `exclusion_class` (design §5.6).
+ * out (protected area, excessive slope, urban, offshore/marine). A distinct
+ * slate/blue so a real rule-out is clearly NOT the same as "unassessed/no
+ * data". Filtered on the engine-derived `exclusion_class` (design §5.6).
  */
 function excludedEnvLayer(): maplibregl.CircleLayerSpecification {
   return {
@@ -395,10 +417,10 @@ export default function CellMap({ runId, service }: CellMapProps): JSX.Element {
 }
 
 /**
- * A static legend naming the three cell classes the layers paint, so the map's
- * "New England square" is read honestly: eligible candidates vs genuine
- * environmental rule-outs vs cells never assessed for want of wind data. The
- * swatch colours mirror the layer paint above.
+ * A static legend naming the three cell classes the layers paint, so the
+ * statewide (NSW-wide) map is read honestly: eligible candidates vs genuine
+ * environmental rule-outs vs the few cells left unassessed for want of a
+ * critical input value. The swatch colours mirror the layer paint above.
  */
 function MapLegend(): JSX.Element {
   return (
@@ -415,14 +437,14 @@ function MapLegend(): JSX.Element {
           className="om-map__swatch om-map__swatch--env"
           aria-hidden="true"
         />
-        Excluded — environmental rule (protected area, slope, urban)
+        Excluded — environmental rule (protected area, slope, urban, offshore)
       </li>
       <li>
         <span
           className="om-map__swatch om-map__swatch--nodata"
           aria-hidden="true"
         />
-        Not assessed — outside wind-data coverage
+        Not assessed — missing input data (e.g. no demand value)
       </li>
     </ul>
   );
