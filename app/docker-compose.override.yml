@@ -1,0 +1,55 @@
+# Dev override — live reload without rebuilding the image on every edit.
+#
+# Compose automatically merges this file on top of docker-compose.yml when you
+# run `docker compose up` from app/. It bind-mounts the source into the running
+# containers and swaps the production run commands for dev servers with hot
+# reload, so plain source edits are picked up WITHOUT `--build`.
+#
+#     docker compose up          # dev: live reload (this override applies)
+#     docker compose up --build  # still rebuild when deps/Dockerfiles change
+#
+# To run the production-style stack instead (no mounts, built artefacts), opt
+# out of the override explicitly:
+#
+#     docker compose -f docker-compose.yml up --build
+#
+# WHEN YOU STILL NEED --build even with this override:
+#   * requirements.txt / app/api/requirements.txt / package.json change
+#     (dependency layers are baked into the image).
+#   * a Dockerfile changes.
+#   * NEXT_PUBLIC_* values change — Next.js inlines them at build time. In dev
+#     mode (`next dev`) they are instead read live from app/web/.env.local, so
+#     editing that file + restarting the web container is enough; no --build.
+
+services:
+  # --- Backend_App (FastAPI) — uvicorn --reload -------------------------------
+  api:
+    # Mount the two source trees the API serves from so edits reload live.
+    # Paths mirror the image layout: the engine package sits at /srv/pipeline
+    # (on PYTHONPATH=/srv) and the API source at /srv/app/api (uvicorn's CWD).
+    volumes:
+      - ../pipeline:/srv/pipeline
+      - ./api:/srv/app/api
+      # Materialised inputs the six operations read. Mounting them means data
+      # refreshes show up without a rebuild too.
+      - ../DATA/integration:/srv/DATA/integration
+      - ../DATA/exclusions:/srv/DATA/exclusions
+      - ../DATA/explanation:/srv/DATA/explanation
+    # --reload watches the mounted source and restarts the worker on change.
+    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+  # --- Frontend_App (Next.js) — next dev (fast refresh) -----------------------
+  web:
+    # The web image builds from context ./web, so the app lives at /app.
+    # Mount the host source over it, but keep the container's node_modules
+    # (installed in the image) via an anonymous volume so the host dir does not
+    # shadow them. The .next build cache is likewise kept container-local.
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+      - /app/.next
+    # The runner stage sets NODE_ENV=production; next dev needs development.
+    environment:
+      - NODE_ENV=development
+    # next dev gives React Fast Refresh; no rebuild needed for source edits.
+    command: ["npm", "run", "dev"]
