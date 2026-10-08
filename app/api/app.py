@@ -1,13 +1,15 @@
 """
 Backend_App — FastAPI application entry point (S3-01a scaffold).
 
-Constructs a single ``FastAPI()`` instance and registers exactly the six frozen
-S2-08 routes as thin delegating handlers (CONTRACT.md §2 endpoint mapping):
+Constructs a single ``FastAPI()`` instance and registers exactly the seven
+frozen S2-08 routes as thin delegating handlers (CONTRACT.md §2 endpoint
+mapping):
 
     POST /runs                            -> run_analysis
     GET  /runs/{run_id}/results           -> get_ranked_results
     GET  /runs/{run_id}/sites/{cell_id}   -> get_site_detail
     GET  /runs/{run_id}/exclusions        -> get_exclusions
+    GET  /runs/{run_id}/cells             -> get_run_cells
     POST /scenario-comparison             -> compare_scenarios
     GET  /data-quality                    -> get_data_quality
 
@@ -43,14 +45,16 @@ Run (dev):  uvicorn app:app --reload --port 8000   (from app/api/)
 
 from __future__ import annotations
 
-# All six frozen operations are surfaced from the service package (the two
-# grounding-gap operations were closed by tasks 1.2-1.4). app.py imports them
-# from that single public boundary and only delegates — it never decides.
+# All seven frozen operations are surfaced from the service package (the two
+# grounding-gap operations were closed by tasks 1.2-1.4; the seventh,
+# get_run_cells, by S3-03a under CONTRACT.md v1.1). app.py imports them from
+# that single public boundary and only delegates — it never decides.
 from pipeline.service import (
     compare_scenarios,
     get_data_quality,
     get_exclusions,
     get_ranked_results,
+    get_run_cells,
     get_site_detail,
     run_analysis,
 )
@@ -71,6 +75,7 @@ from pipeline.service.runs import (
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 # `app/api/` is run as the working directory (`uvicorn app:app` per the design
@@ -80,6 +85,7 @@ from fastapi.responses import JSONResponse
 # CORS origins (no origin literal lives in this module — Requirement 4.2).
 import settings
 from models import (
+    CellCollection,
     DataQualityStatus,
     ExcludedRow,
     RankedRow,
@@ -93,12 +99,12 @@ from models import (
 app = FastAPI(
     title="Opt-Mining Decision_Service",
     description=(
-        "The frozen S2-08 Decision_Service exposed over HTTP + OpenAPI. Six "
+        "The frozen S2-08 Decision_Service exposed over HTTP + OpenAPI. Seven "
         "operations, one per endpoint; the API delegates to the pure "
         "`pipeline.service` operations and holds no decision logic "
         "(CONTRACT.md §1, §2)."
     ),
-    version="1.0",
+    version="1.1",
 )
 
 # ---------------------------------------------------------------------------
@@ -114,6 +120,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# GZip the responses (S3-03a). The seventh operation (`get_run_cells`) returns a
+# GeoJSON FeatureCollection spanning the whole analysis grid (~47k cells), large
+# enough to benefit from compression; the dev/Compose stack runs uvicorn with no
+# ingress/proxy, so compression is applied on the app itself. GZip is added
+# IMMEDIATELY AFTER CORS so CORS stays the OUTERMOST middleware — Starlette runs
+# middleware in reverse registration order, so the last-added (GZip) wraps the
+# route and the first-added (CORS) wraps GZip, keeping CORS headers on every
+# response including compressed and preflight ones (design-review NIT-1).
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # ---------------------------------------------------------------------------
 # Task 4.3 — centralised service-exception -> HTTP-code mapping (CONTRACT.md §6,
@@ -183,7 +199,7 @@ for _fault_type, _status in _STATUS_FOR_FAULT.items():
 
 
 # ---------------------------------------------------------------------------
-# The six frozen routes (CONTRACT.md §2). Each is a thin, uniform delegator:
+# The seven frozen routes (CONTRACT.md §2). Each is a thin, uniform delegator:
 # parse -> call the matching pipeline.service operation with unchanged args ->
 # serialise the returned dataclass via to_dict(). No decision arithmetic.
 # ---------------------------------------------------------------------------
@@ -230,6 +246,19 @@ def read_exclusions(run_id: str) -> list[dict]:
     """`get_exclusions` — the Run's excluded cells with their reasons."""
     rows = get_exclusions(run_id)
     return [row.to_dict() for row in rows]
+
+
+@app.get("/runs/{run_id}/cells", response_model=CellCollection)
+def read_run_cells(run_id: str) -> dict:
+    """`get_run_cells` — the Run's cells as a GeoJSON FeatureCollection.
+
+    `run_id` is passed straight through; the operation projects the Scored_Table
+    into one Point Feature per cell, carrying each centroid in EPSG:4326
+    verbatim. It reuses the centralised `_STATUS_FOR_FAULT` map (missing Run ->
+    404, missing/unreadable output or missing centroid column -> 503), so no
+    mapping change is needed. This layer never reprojects or re-scores.
+    """
+    return get_run_cells(run_id).to_dict()
 
 
 @app.post("/scenario-comparison", response_model=ScenarioComparison)

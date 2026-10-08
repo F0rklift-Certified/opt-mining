@@ -7,8 +7,9 @@ terrestrial protected areas — into a per-cell feature table keyed to the commo
 analysis grid (``DATA/grid/nsw_analysis_grid.gpkg``, 47,311 cells at 0.05 deg).
 
 It emits exactly one row per grid ``cell_id`` with terrain statistics, a
-dominant land-use class, a protected-area constraint, a TRI value, and a
-per-cell confidence flag, plus an atomically-written do-not-edit method report.
+dominant land-use class, a protected-area constraint, a TRI value, an
+urban-area flag, an on-land flag, and a per-cell confidence flag, plus an
+atomically-written do-not-edit method report.
 The Feature_Table feeds the suitability model (S1-07) and the exclusion layer
 (S1-08).
 
@@ -105,7 +106,10 @@ CAPAD_PATH = (
     / "dcceew_capad-terrestrial_2024_nsw.geojson"
 )
 
-# Feature_Table schema — exactly these eight columns (Req 7.1), plus geometry.
+# Feature_Table schema — exactly these ten columns (Req 7.1), plus geometry.
+# urban_area and on_land were added by the statewide-coverage fix; both are
+# eligibility-only inputs the exclusion stage joins on cell_id (they are NOT
+# scored/weighted — do not add them to integration SCORED_FEATURE_COLUMNS).
 SCHEMA_COLUMNS = [
     "cell_id",
     "elevation_m",
@@ -114,8 +118,25 @@ SCHEMA_COLUMNS = [
     "protected_area",
     "protected_area_name",
     "tri",
+    "urban_area",
+    "on_land",
     "confidence_flag",
 ]
+
+# ABS UCL "Section of State" codes to DROP before the urban overlap. Code "13"
+# is "Rural Balance" — a single catch-all polygon spanning everything OUTSIDE
+# every real urban centre/locality in the state; including it would flag almost
+# the entire grid as urban. Codes "10" (Major Urban), "11" (Other Urban) and
+# "12" (Bounded Locality) are genuine urban centres/localities and are kept.
+URBAN_EXCLUDE_SOS_CODES = {"13"}
+
+# Default Natural Earth 1:50m land polygon used for the on_land land-mask test.
+# This is the same already-committed land definition pipeline/validate.py uses
+# for its land-mask assessment (centroid-in-land, point-in-polygon, EPSG:3577).
+LAND_PATH = (
+    PROJECT_ROOT / "DATA" / "geographic" / "coastline"
+    / "ne_land-50m_australia.geojson"
+)
 
 # Single consistent delimiter for joined protected-area names (Req 4.3).
 PROTECTED_AREA_NAME_DELIMITER = "; "
@@ -1043,6 +1064,171 @@ def _protected_overlap(
 
 
 # ---------------------------------------------------------------------------
+# Urban-centre overlap (statewide-coverage fix) — EPSG:3577
+# ---------------------------------------------------------------------------
+
+
+def _load_urban(path: Path) -> gpd.GeoDataFrame:
+    """
+    Load the ABS UCL urban-centre/locality vector layer.
+
+    Mirrors :func:`_load_capad`: a missing or unreadable source **halts loudly**
+    naming the path, so a missing urban extract can never silently become
+    ``urban_area=False`` for every cell (design §4.4 / the external-data
+    pause-and-ask rule). The returned GeoDataFrame carries the ``sos_code_2021``
+    attribute used to drop the "Rural Balance" catch-all polygon and geometry in
+    the file's declared CRS (EPSG:4326 by GeoJSON convention).
+
+    Raises
+    ------
+    RuntimeError
+        If the urban source is missing or cannot be read.
+    """
+    path = Path(path)
+    if not path.exists():
+        raise RuntimeError(
+            f"Urban-centre (ABS UCL) source is missing: {path}. The statewide "
+            f"urban extract must be acquired before the geographic feature build "
+            f"(see scripts/_acquire_ucl_nsw.py); urban_area is never defaulted to "
+            f"False for a missing source."
+        )
+    try:
+        return gpd.read_file(path)
+    except Exception as exc:  # unreadable / corrupt urban source
+        raise RuntimeError(
+            f"Urban-centre (ABS UCL) source could not be read: {path} ({exc})"
+        ) from exc
+
+
+def _urban_overlap(
+    cells_3577: gpd.GeoDataFrame,
+    urban_3577: gpd.GeoDataFrame,
+) -> dict[str, bool]:
+    """
+    Determine per-cell urban overlap against ABS UCL features.
+
+    Uses the same vectorised cell-centre intersection pattern as
+    :func:`_protected_overlap`: a single ``geopandas.sjoin(predicate="intersects")``
+    in ``COMPUTATION_CRS`` (EPSG:3577). Both inputs are expected to already be in
+    ``COMPUTATION_CRS``. ``sos_code_2021 == "13"`` ("Rural Balance") features are
+    dropped before the join (see :data:`URBAN_EXCLUDE_SOS_CODES`). Every
+    ``cell_id`` in ``cells_3577`` appears exactly once in the returned dict,
+    including cells with no overlap (``False``).
+
+    Parameters
+    ----------
+    cells_3577 : gpd.GeoDataFrame
+        Cell polygons with a ``cell_id`` column, reprojected to ``COMPUTATION_CRS``.
+    urban_3577 : gpd.GeoDataFrame
+        ABS UCL features reprojected to ``COMPUTATION_CRS``.
+
+    Returns
+    -------
+    dict[str, bool]
+        ``{cell_id: urban_area}`` for every cell.
+    """
+    result: dict[str, bool] = {cid: False for cid in cells_3577["cell_id"]}
+
+    urban = urban_3577
+    if "sos_code_2021" in urban.columns:
+        urban = urban[~urban["sos_code_2021"].isin(URBAN_EXCLUDE_SOS_CODES)]
+
+    if len(urban) == 0:
+        return result
+
+    cells = cells_3577[["cell_id", "geometry"]]
+    joined = gpd.sjoin(
+        cells, urban[["geometry"]], how="inner", predicate="intersects"
+    )
+    for cell_id in set(joined["cell_id"]):
+        result[cell_id] = True
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Land mask (statewide-coverage fix) — centroid-in-land, EPSG:3577
+# ---------------------------------------------------------------------------
+
+
+def _load_land(path: Path) -> gpd.GeoDataFrame:
+    """
+    Load the Natural Earth land-polygon layer for the ``on_land`` land mask.
+
+    Mirrors :func:`_load_capad`: a missing or unreadable source halts loudly
+    naming the path. The land definition is the same already-committed Natural
+    Earth 1:50m polygon set ``pipeline/validate.py`` uses for its land-mask
+    assessment.
+
+    Raises
+    ------
+    RuntimeError
+        If the land source is missing or cannot be read.
+    """
+    path = Path(path)
+    if not path.exists():
+        raise RuntimeError(
+            f"Land-mask (Natural Earth) source is missing: {path}"
+        )
+    try:
+        return gpd.read_file(path)
+    except Exception as exc:  # unreadable / corrupt land source
+        raise RuntimeError(
+            f"Land-mask (Natural Earth) source could not be read: {path} ({exc})"
+        ) from exc
+
+
+def _on_land(
+    cells_3577: gpd.GeoDataFrame,
+    land_3577: gpd.GeoDataFrame,
+) -> dict[str, bool]:
+    """
+    Determine per-cell ``on_land`` by a centroid-in-land point-in-polygon test.
+
+    Design §5.3: a cell is ``on_land = True`` iff its **centroid** lies within the
+    union of land polygons, computed in ``COMPUTATION_CRS`` (EPSG:3577). The
+    centroid is taken from each cell's geometry (the reader yields only
+    ``cell_id`` + ``geometry``, so there are no centroid columns to rely on), and
+    both the cells and the land polygons are expected to already be in
+    ``COMPUTATION_CRS``. The centroid test matches ``validate._point_in_polygons``
+    and the cell-centre inclusion rule used for every other overlap in this stage,
+    so no cell is both land and sea — the result is a clean boolean per cell.
+
+    Parameters
+    ----------
+    cells_3577 : gpd.GeoDataFrame
+        Cell polygons with a ``cell_id`` column, reprojected to ``COMPUTATION_CRS``.
+    land_3577 : gpd.GeoDataFrame
+        Natural Earth land polygons reprojected to ``COMPUTATION_CRS``.
+
+    Returns
+    -------
+    dict[str, bool]
+        ``{cell_id: on_land}`` for every cell.
+    """
+    result: dict[str, bool] = {cid: False for cid in cells_3577["cell_id"]}
+
+    if len(land_3577) == 0:
+        return result
+
+    # Build a point GeoDataFrame of cell centroids and sjoin against land polygons
+    # (point-in-polygon). "within"/"intersects" on a point give the same result;
+    # use "intersects" to mirror the other overlaps in this stage.
+    centroids = gpd.GeoDataFrame(
+        {"cell_id": list(cells_3577["cell_id"])},
+        geometry=cells_3577.geometry.centroid,
+        crs=cells_3577.crs,
+    )
+    joined = gpd.sjoin(
+        centroids, land_3577[["geometry"]], how="inner", predicate="intersects"
+    )
+    for cell_id in set(joined["cell_id"]):
+        result[cell_id] = True
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Per-cell confidence flag (Req 5)
 # ---------------------------------------------------------------------------
 
@@ -1141,7 +1327,7 @@ def _write_feature_table(gdf: gpd.GeoDataFrame, path: Path) -> None:
     Parameters
     ----------
     gdf : gpd.GeoDataFrame
-        The assembled Feature_Table (one row per ``cell_id``, the eight schema
+        The assembled Feature_Table (one row per ``cell_id``, the ten schema
         columns plus geometry). Geometry is expected to be in ``STORAGE_CRS``
         (copied byte-for-byte from the grid).
     path : Path
@@ -1197,8 +1383,8 @@ def _write_feature_table(gdf: gpd.GeoDataFrame, path: Path) -> None:
 # honours frozen decision Q3) and _categorical_mode (mode + lowest-code tie-break).
 REPORT_TERRAIN_VARIABLES = (
     # (column, source raster label, statistic, units)
-    ("elevation_m", "Elevation_Raster (SRTM GL3, New England REZ)", "mean of valid pixels", "metres AMSL"),
-    ("slope_deg", "Slope_Raster (Horn slope, New England REZ)", "mean of valid pixels", "degrees"),
+    ("elevation_m", "Elevation_Raster (SRTM GL3, NSW)", "mean of valid pixels", "metres AMSL"),
+    ("slope_deg", "Slope_Raster (Horn slope, NSW)", "mean of valid pixels", "degrees"),
     ("tri", "TRI (Riley, Glen-Innes sub-window)", "mean of valid pixels", "metres"),
 )
 
@@ -1370,14 +1556,35 @@ def _build_report(
         )
     out.write("\n")
     out.write(
-        "**Coverage gap.** The elevation, slope, and NLUM rasters currently cover "
-        "only the New England REZ, and the TRI raster covers only the tiny "
-        "Glen-Innes sub-window — not the full NSW grid. Cells whose centroid lies "
+        "**Coverage.** For the statewide-coverage build the elevation, slope and "
+        "NLUM rasters are the full-NSW SRTM GL3 / ABARES NLUM clips, so coverage "
+        "is NSW-wide (the per-raster inside/outside counts above are the ground "
+        "truth for this run). The TRI raster still covers only the tiny "
+        "Glen-Innes sub-window by design: TRI is out of coverage for almost the "
+        "entire grid and is therefore EXCLUDED from the confidence decision so it "
+        "does not flag the whole grid low (Req 6.6). Cells whose centroid lies "
         "outside a raster's extent are out of coverage for that raster: their "
         "derived variable is null and (for the required rasters) the cell is "
-        "flagged low confidence. TRI is out of coverage for almost the entire grid "
-        "by design and is therefore EXCLUDED from the confidence decision so it "
-        "does not flag the whole grid low (Req 6.6).\n\n"
+        "flagged low confidence.\n\n"
+    )
+    out.write(
+        "**Urban areas (`urban_area`).** Boolean per-cell overlap against the ABS "
+        "UCL 2021 urban centres/localities, computed as a cell-centre intersection "
+        f"in `{COMPUTATION_CRS}` (the same join basis as the protected-area "
+        "overlap). The single `sos_code_2021 == \"13\"` \"Rural Balance\" catch-all "
+        "polygon is dropped before the join; Major Urban / Other Urban / Bounded "
+        "Locality (codes 10/11/12) are kept. A missing urban source halts the run "
+        "— `urban_area` is never defaulted to False for an absent extract.\n\n"
+    )
+    out.write(
+        "**Land mask (`on_land`).** Boolean per-cell centroid-in-land test against "
+        "the Natural Earth 1:50m land polygons (`ne_land-50m_australia.geojson`), "
+        f"computed in `{COMPUTATION_CRS}` (point-in-polygon on each cell's "
+        "centroid). `on_land = False` marks offshore/marine cells so the exclusion "
+        "stage can rule them out before ranking. The NE 1:50m mask is coarse "
+        "(~5 km) and a few near-shore cells may be mis-classified; this is "
+        "accepted at the 0.05-degree analysis resolution and is swappable for the "
+        "ABS national boundary by one path constant.\n\n"
     )
 
     # --- Section 4: NoData / zero-valid + unmapped codes ---------------------
@@ -1496,6 +1703,8 @@ def run(
     tri_path: Path = TRI_PATH,
     nlum_path: Path = NLUM_PATH,
     capad_path: Path = CAPAD_PATH,
+    urban_path: Path | None = None,
+    land_path: Path | None = None,
 ) -> dict:
     """
     Build per-cell geographic/environmental features on the common analysis grid.
@@ -1506,13 +1715,26 @@ def run(
 
     Source-path parameters
     -----------------------
-    All source paths default to the module-level New-England-REZ constants, so
-    the historical call ``run()`` / ``run(verbose=True)`` behaves exactly as
-    before (backward-compatible). To re-run over a different coverage — e.g. the
-    full-NSW SRTM/NLUM clips produced by ``scripts/fetch_build_geographic_nsw.py``
-    — pass the corresponding ``*_path`` overrides. Nothing is fabricated: a cell
-    outside whatever raster is supplied still gets a null value and low confidence,
-    exactly as with the default window.
+    All raster/CAPAD source paths default to the module-level New-England-REZ
+    constants, so the historical call ``run()`` / ``run(verbose=True)`` behaves
+    exactly as before (backward-compatible). To re-run over a different coverage
+    — e.g. the full-NSW SRTM/NLUM clips produced by
+    ``scripts/fetch_build_geographic_nsw.py`` — pass the corresponding ``*_path``
+    overrides. Nothing is fabricated: a cell outside whatever raster is supplied
+    still gets a null value and low confidence, exactly as with the default window.
+
+    ``urban_path`` and ``land_path`` drive the two statewide-coverage columns:
+
+    - ``urban_path`` — the ABS UCL extract used to compute the ``urban_area``
+      boolean (cell-centre intersection in EPSG:3577, dropping
+      ``sos_code_2021 == "13"``). When ``None`` (the default) the ``urban_area``
+      column is emitted as all-``False`` **only if** no urban source is wired —
+      BUT the NSW build runner always passes a real path, and a path that is
+      given yet missing on disk **halts loudly** (``_load_urban`` raises) rather
+      than emitting a false ``urban_area``.
+    - ``land_path`` — the Natural Earth land polygons used to compute ``on_land``
+      (centroid-in-land, EPSG:3577). Defaults to :data:`LAND_PATH` (the
+      already-committed NE 1:50m land mask); a missing file halts loudly.
 
     Returns
     -------
@@ -1638,6 +1860,33 @@ def run(
     )
     protected = _protected_overlap(cells_3577, capad_3577)
 
+    # --- Urban-centre overlap (ABS UCL, statewide-coverage fix) --------------
+    # urban_area is eligibility-only. A path given but missing on disk halts
+    # loudly (_load_urban raises) — urban_area is NEVER defaulted to False for a
+    # missing source. When no urban_path is wired at all (legacy callers that
+    # predate this column), emit all-False so the historical schema contract is
+    # not silently populated with a fabricated urban answer.
+    if urban_path is not None:
+        if verbose:
+            print(f"    Urban-centre overlap (ABS UCL): {Path(urban_path).name}")
+        urban_gdf = _load_urban(urban_path)  # raises if missing/unreadable
+        urban_3577 = _reproject_to_computation_crs(
+            urban_gdf, source_id=Path(urban_path).name, log=crs_log, verbose=verbose
+        )
+        urban = _urban_overlap(cells_3577, urban_3577)
+    else:
+        urban = {cid: False for cid in cell_ids}
+
+    # --- Land mask (centroid-in-land, statewide-coverage fix) ----------------
+    land_source = LAND_PATH if land_path is None else land_path
+    if verbose:
+        print(f"    Land mask (on_land, centroid-in-land): {Path(land_source).name}")
+    land_gdf = _load_land(land_source)  # raises if missing/unreadable
+    land_3577 = _reproject_to_computation_crs(
+        land_gdf, source_id=Path(land_source).name, log=crs_log, verbose=verbose
+    )
+    on_land = _on_land(cells_3577, land_3577)
+
     # --- Assemble the one-row-per-cell_id Feature_Table (Req 7.1, 6.1) -------
     elevation_col: list[float | None] = []
     slope_col: list[float | None] = []
@@ -1645,6 +1894,8 @@ def run(
     land_use_col: list[str | None] = []
     protected_area_col: list[bool] = []
     protected_area_name_col: list[str] = []
+    urban_area_col: list[bool] = []
+    on_land_col: list[bool] = []
     confidence_col: list[str] = []
 
     confidence_counts: dict[str, int] = {CONFIDENCE_HIGH: 0, CONFIDENCE_LOW: 0}
@@ -1678,6 +1929,8 @@ def run(
         land_use_col.append(nlum.land_use)
         protected_area_col.append(prot_flag)
         protected_area_name_col.append(prot_name)
+        urban_area_col.append(bool(urban[cell_id]))
+        on_land_col.append(bool(on_land[cell_id]))
         confidence_col.append(confidence)
 
     feature_gdf = gpd.GeoDataFrame(
@@ -1689,6 +1942,8 @@ def run(
             "protected_area": protected_area_col,
             "protected_area_name": protected_area_name_col,
             "tri": tri_col,
+            "urban_area": urban_area_col,
+            "on_land": on_land_col,
             "confidence_flag": confidence_col,
         },
         geometry=list(cells["geometry"]),  # copied byte-for-byte from grid (Req 7.3)
@@ -1753,7 +2008,7 @@ def validate(feature_table_path: Path, grid_path: Path) -> dict:
           count; observed = Feature_Table row count.
         - Exact ``cell_id`` set match (Req 11.2): expected = grid ``cell_id`` set;
           observed = missing count + extra count (both 0 to pass).
-        - Schema columns match Req 7 (Req 11.3): expected = the eight
+        - Schema columns match Req 7 (Req 11.3): expected = the ten
           :data:`SCHEMA_COLUMNS`; observed = the actual non-geometry columns.
         - ``slope_deg`` in [0, 90] or null (Req 11.4): observed = count of
           out-of-range non-null cells (0 to pass).
@@ -1812,7 +2067,7 @@ def validate(feature_table_path: Path, grid_path: Path) -> dict:
     )
 
     # --- Schema columns match Req 7 (Req 11.3) -------------------------------
-    # Compare the non-geometry columns against the exact eight SCHEMA_COLUMNS.
+    # Compare the non-geometry columns against the exact ten SCHEMA_COLUMNS.
     actual_columns = [c for c in table.columns if c != "geometry"]
     check(
         "Schema columns match Req 7",

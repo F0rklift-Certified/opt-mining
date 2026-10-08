@@ -29,7 +29,7 @@ This runner performs, in order:
      against the rebuilt, re-frozen table and re-writes
      ``DATA/integration/metadata/integrated_input_validation.json`` — the exact
      sidecar the decision service reads verbatim for its data-quality banner
-     (``pipeline.service.data_quality.get_data_quality``). When the coverage gaps
+     (``pipeline.service.quality.get_data_quality``). When the coverage gaps
      are closed, the five missing-value checks that were failing should now pass;
      any that remain failing reflect real, still-uncovered cells (never hidden).
 

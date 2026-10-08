@@ -49,37 +49,46 @@ from pipeline.scoring.weights import Criterion, WeightsConfig, load_weights
 from pipeline.scoring.write import build_scored_table, write_scored_table
 
 
-FROZEN_INTEGRATED_SHA256 = (
-    "8b300ca520ff42028fbb7b09024916580c105967c92fa8ade575c4e006c196fd"
-)
+# Reviewed snapshot update — statewide-coverage fix (FEAT-003). The S2-02
+# baseline was deliberately re-frozen after the exclusions stage was migrated to
+# statewide NSW coverage (join of the wind + geographic + demand feature tables)
+# and the missing_demand_data rule was added, so every pinned value below moves
+# from the old New-England-window baseline (8b300ca5…c196fd, 1,233 eligible) to
+# the statewide baseline. See .agents/tasks/nsw-wind-coverage/statewide-fix.
+#
+# The integrated .gpkg's SHA-256 is intentionally NOT pinned as a literal: a
+# GeoPackage is a SQLite container whose byte layout is not reproducible across
+# regenerations, so test_frozen_dataset_identity_and_exclusion_population checks
+# the recorded/frozen/on-disk hashes agree with each other instead. The content
+# identity is pinned by the reproducible row/eligibility counts below.
 FROZEN_ROWS = 47_311
-FROZEN_ELIGIBLE_ROWS = 1_233
-FROZEN_EXCLUDED_ROWS = 46_078
+FROZEN_ELIGIBLE_ROWS = 32_525
+FROZEN_EXCLUDED_ROWS = 14_786
 
 EXPECTED_BASELINE_TOP_FIVE = (
-    ("S30.186_E151.636", 0.9324172958364101),
-    ("S30.636_E151.586", 0.9304033540651924),
-    ("S30.086_E151.686", 0.9241267054330178),
-    ("S30.236_E151.586", 0.9237187266324157),
-    ("S30.286_E151.636", 0.9236170726352617),
+    ("S31.186_E151.686", 0.9205203606505237),
+    ("S32.436_E149.086", 0.9197696937823575),
+    ("S30.186_E151.636", 0.9181371600411556),
+    ("S32.436_E149.036", 0.9179498613593562),
+    ("S32.486_E149.086", 0.9170993549990476),
 )
 EXPECTED_WIND_LED_TOP_FIVE = (
-    "S30.086_E151.686",
-    "S30.086_E151.736",
-    "S30.186_E151.636",
-    "S30.236_E151.586",
-    "S30.286_E151.636",
+    "S31.186_E151.686",
+    "S31.186_E151.736",
+    "S31.136_E151.686",
+    "S31.236_E151.686",
+    "S32.436_E149.086",
 )
 EXPECTED_GRID_LED_TOP_FIVE = (
-    "S30.636_E151.586",
-    "S30.286_E151.636",
-    "S30.136_E151.686",
-    "S30.236_E151.586",
-    "S30.286_E151.686",
+    "S32.436_E149.086",
+    "S32.486_E149.086",
+    "S30.186_E151.636",
+    "S30.086_E151.736",
+    "S30.086_E151.686",
 )
-EXPECTED_SCENARIO_RANK_CHANGES = 1_228
+EXPECTED_SCENARIO_RANK_CHANGES = 32_519
 EXPECTED_EXPLANATION_SHA256 = (
-    "dabe4f4c74d927dbabc3ede1cd2a5b930c72fcf3a40322f962045228330a05a9"
+    "429b704b1d25376b2c731755e0b93719a119600dec2f9dd298d5549e70a5a691"
 )
 TOLERANCE = 1e-12
 
@@ -300,8 +309,22 @@ def test_frozen_dataset_identity_and_exclusion_population(frozen_backend_run):
     manifest_path = Path("DATA/integration/metadata/integration_manifest.json")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))["derived_features"][0]
 
-    assert manifest["sha256_gpkg"] == FROZEN_INTEGRATED_SHA256
-    assert sha256_file(scoring_config.INTEGRATED_PATH) == FROZEN_INTEGRATED_SHA256
+    # Frozen-dataset identity. A GeoPackage is a SQLite container whose byte
+    # layout is NOT reproducible across regenerations (page ordering / internal
+    # bookkeeping differ run-to-run even for identical rows), so pinning a
+    # literal SHA-256 of the .gpkg flakes on every legitimate rebuild. The
+    # meaningful, deterministic identity guarantee is self-consistency: the hash
+    # the integration manifest recorded, the frozen S2-02 baseline reference,
+    # and the actual on-disk file must all agree. The row/eligibility counts
+    # below (which ARE reproducible) pin the dataset's content.
+    on_disk_sha = sha256_file(scoring_config.INTEGRATED_PATH)
+    baseline_manifest = json.loads(
+        Path("DATA/integration/metadata/integrated_baseline_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert manifest["sha256_gpkg"] == on_disk_sha
+    assert baseline_manifest["sha256"] == on_disk_sha
     assert len(run.features) == FROZEN_ROWS
     assert int(run.mask.sum()) == FROZEN_ELIGIBLE_ROWS
     assert int((~run.mask).sum()) == FROZEN_EXCLUDED_ROWS

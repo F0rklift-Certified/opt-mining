@@ -4,8 +4,8 @@
       "output_file": "DATA/integration/optmining_integrated-features_2026_nsw.gpkg",
       "csv_file": "DATA/integration/optmining_integrated-features_2026_nsw.csv",
       "stage": "integration",
-      "generated_utc": "2026-09-17T01:59:28+00:00",
-      "git_commit": "23b669a3878497c561489b558d25775909f25c80-dirty",
+      "generated_utc": "2026-10-07T05:03:05+00:00",
+      "git_commit": "403817a4e5a11a5d2236710a42a42046d44cc60a-dirty",
       "rows": 47311,
       "columns": [
         "cell_id",
@@ -39,10 +39,10 @@
         "confidence_score",
         "confidence_notes"
       ],
-      "sha256_gpkg": "8b300ca520ff42028fbb7b09024916580c105967c92fa8ade575c4e006c196fd",
-      "sha256_csv": "f8e861bce48d86f9387983b8d12d0b2e3288099b804d9767ef49459ce50df2a2",
-      "bytes_gpkg": 33161216,
-      "bytes_csv": 23660089,
+      "sha256_gpkg": "4062224a2b96adace37f5166feb0fb7b7dbd9251e9433ed5028659347d2a1c80",
+      "sha256_csv": "4dce43f84ab7cb93ceef21835cda56589d3f6d8d8daa1d1bd061eb5fb1b22b3c",
+      "bytes_gpkg": 23347200,
+      "bytes_csv": 14943812,
       "inputs": [
         {
           "name": "grid",
@@ -59,7 +59,7 @@
           "layer": "wind_features",
           "rows": 47311,
           "crs": "EPSG:4326",
-          "sha256": "46256d3e6a764286c9ee3db9bac3fe8e4bcc25588dd49ef239fea0beaa4e4303",
+          "sha256": "33e5b4bcb10ec9d698fc41e8cd3116b10c3925424f1dbaf21d958a0332fa5a2f",
           "bytes": 13803520
         },
         {
@@ -68,8 +68,8 @@
           "layer": "geographic_features",
           "rows": 47311,
           "crs": "EPSG:4326",
-          "sha256": "b000ae2bf994f17f35a9199ee7a2ba5ca2c37efbb76dbc54c01dc9e342a067ae",
-          "bytes": 14823424
+          "sha256": "af9db24669bdaf6d45154987d133d7c03a7b01833c920d601b93fa3057c04031",
+          "bytes": 14888960
         },
         {
           "name": "infrastructure",
@@ -95,8 +95,8 @@
           "layer": "optmining_exclusions_2024_nsw.gpkg",
           "rows": 47311,
           "crs": "EPSG:4326",
-          "sha256": "08c44e99dc08fd63a8ae7644cf25ab9091aef302b398f8fc63d9fc7633347110",
-          "bytes": 24358912
+          "sha256": "e1bebde00500c3969239ad8b33e64e6a5e7f5660bdb32c04362de60f7ef3e172",
+          "bytes": 16560128
         }
       ],
       "confidence_weights": {

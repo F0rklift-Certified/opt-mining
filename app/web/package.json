@@ -15,6 +15,7 @@
     "generate:api-client": "npm run generate:api-schema && openapi-typescript openapi/decision-service.openapi.json --empty-objects-unknown -o app/api/generated.ts"
   },
   "dependencies": {
+    "maplibre-gl": "4.7.1",
     "next": "14.2.35",
     "openapi-fetch": "0.15.0",
     "react": "18.3.1",

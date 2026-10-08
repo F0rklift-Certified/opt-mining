@@ -51,7 +51,7 @@ CELL_DEG = 0.1
 
 _SCORE = config.REQUIRED_SCORE_COLUMNS[1]  # "suitability_score"
 _RANK = config.REQUIRED_SCORE_COLUMNS[2]  # "rank"
-_NAME = config.REQUIRED_WIND_GENERATOR_ATTR  # "name"
+_NAME = config.REQUIRED_WIND_GENERATOR_ATTR  # "feature_name"
 
 
 def _cell_id(col: int, row: int) -> str:

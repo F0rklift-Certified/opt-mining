@@ -20,6 +20,57 @@ function mapRegion(): HTMLElement {
   return screen.getByRole("region", { name: "Interactive map" });
 }
 
+// Layer-scoped map handlers captured by `${event}:${layerId}` so a test can
+// drive CellMap's click-to-inspect path (S3-03b) without a GL context.
+const mapLayerHandlers: Record<string, (event: unknown) => void> = {};
+
+/** Fire the captured map click handler for a layer with one feature. */
+function mapClickOnLayer(
+  layerId: string,
+  properties: Record<string, unknown>,
+): void {
+  const handler = mapLayerHandlers[`click:${layerId}`];
+  if (!handler) throw new Error(`no click handler registered for ${layerId}`);
+  // The handler calls a React state setter; wrap it so the update is flushed.
+  act(() => {
+    handler({ features: [{ properties }] });
+  });
+}
+
+// jsdom has no WebGL, so CellMap's maplibregl.Map is mocked. The mock records
+// the load callback and exposes a setData spy so the map lifecycle runs without
+// a GL context; see CellMap.test.tsx for the detailed assertions. The layer
+// `on(event, layerId, cb)` form is captured so click-to-inspect is drivable.
+jest.mock("maplibre-gl", () => {
+  class MockMap {
+    on(event: string, layerOrCb: unknown, maybeCb?: (event: unknown) => void) {
+      if (typeof layerOrCb === "function") {
+        if (event === "load") (layerOrCb as () => void)();
+        return;
+      }
+      if (typeof maybeCb === "function") {
+        mapLayerHandlers[`${event}:${layerOrCb as string}`] = maybeCb;
+      }
+    }
+    addControl() {}
+    addSource() {}
+    addLayer() {}
+    getSource() {
+      return { setData: jest.fn() };
+    }
+    getCanvas() {
+      return { style: { cursor: "" } };
+    }
+    remove() {}
+  }
+  return {
+    __esModule: true,
+    default: { Map: MockMap, NavigationControl: class {} },
+    Map: MockMap,
+    NavigationControl: class {},
+  };
+});
+
 function serviceWithFlaggedDataset(): DecisionService {
   return {
     runAnalysis: jest.fn().mockResolvedValue({
@@ -48,6 +99,11 @@ function serviceWithFlaggedDataset(): DecisionService {
         { name: "unique cell ids", expected: "unique", observed: "unique", passed: true },
       ],
     }),
+    getRunCells: jest.fn().mockResolvedValue({
+      type: "FeatureCollection",
+      run_id: "run-wind-1",
+      features: [],
+    }),
   };
 }
 
@@ -61,12 +117,19 @@ describe("AppShell service integration", () => {
     expect(warning).toHaveTextContent("baseline hash");
 
     expect(await screen.findByText("run-wind-1")).toBeInTheDocument();
-    // Rank 1 is selected by default: shortlist row, map selection and detail.
+    // Rank 1 is selected by default: it shows in the shortlist row and in the
+    // getSiteDetail-backed detail panel. The map (CellMap) renders a container,
+    // not the cell-id text, so the id appears exactly twice.
     await waitFor(() => {
-      expect(screen.getAllByText("S30.100_E151.200")).toHaveLength(3);
+      expect(screen.getAllByText("S30.100_E151.200")).toHaveLength(2);
       expect(screen.getAllByText("0.912")).toHaveLength(2);
     });
-    expect(screen.getByText("2 ranked cells loaded from the engine; map rendering follows in S3-03a.")).toBeInTheDocument();
+    // The interactive-map region now renders the CellMap container (not the old
+    // placeholder copy); CellMap requests the Run's cells via the shared client.
+    expect(screen.getByLabelText("Interactive cell map")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(service.getRunCells).toHaveBeenCalledWith("run-wind-1");
+    });
 
     await waitFor(() => {
       expect(service.runAnalysis).toHaveBeenCalledWith({
@@ -127,7 +190,10 @@ describe("AppShell service integration", () => {
 
     expect(await within(detailRegion()).findByText(RANK_2)).toBeInTheDocument();
     expect(within(detailRegion()).queryByText(RANK_1)).not.toBeInTheDocument();
-    expect(within(mapRegion()).getByText(RANK_2)).toBeInTheDocument();
+    // The map region now renders the CellMap container; the selection is
+    // mirrored on the map through the shared SiteSelection (the pinned
+    // highlight square), not as cell-id text in the DOM.
+    expect(within(mapRegion()).getByLabelText("Interactive cell map")).toBeInTheDocument();
     expect(service.getSiteDetail).toHaveBeenLastCalledWith("run-wind-1", RANK_2);
     expect(screen.getByRole("button", { name: RANK_2 })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: RANK_1 })).toHaveAttribute("aria-pressed", "false");
@@ -167,7 +233,9 @@ describe("AppShell service integration", () => {
 
     expect(within(detailRegion()).getByText(RANK_1)).toBeInTheDocument();
     expect(within(detailRegion()).queryByText(RANK_2)).not.toBeInTheDocument();
-    expect(within(mapRegion()).getByText(RANK_1)).toBeInTheDocument();
+    // The map renders the CellMap container throughout; it tracks the active
+    // selection via the shared SiteSelection, not as cell-id text.
+    expect(within(mapRegion()).getByLabelText("Interactive cell map")).toBeInTheDocument();
   });
 
   it("reports a site-detail failure without hiding the shortlist", async () => {
@@ -243,5 +311,51 @@ describe("AppShell service integration", () => {
       // only the field the user touched, never re-derives the rest.
       expect(lastCall.weights.criteria.slice(1)).toEqual(BASELINE_CRITERIA.slice(1));
     });
+  });
+});
+
+describe("AppShell shared selection: map click (S3-03b + S3-04)", () => {
+  it("drives Site-detail from a map click through the SAME shared SiteSelection", async () => {
+    // The merged shell keeps the S3-04 ranked panel and getSiteDetail-backed
+    // detail, and ADDS the S3-03b CellMap. A map click adapts the emitted
+    // CellSelection to the shared SiteSelection ({runId, cellId}) via
+    // handleSelectSite, driving the SAME HTTP getSiteDetail detail a row click
+    // drives — proving map and shortlist resolve to one selection contract.
+    const service = serviceWithFlaggedDataset();
+    service.getSiteDetail = jest.fn().mockImplementation(
+      async (_runId: string, cellId: string) => ({
+        cell_id: cellId,
+        suitability_score: 0.655,
+        rank: 7,
+        eligible: true,
+      }),
+    );
+    render(<AppShell service={service} />);
+
+    await screen.findByText("run-wind-1");
+
+    const siteDetail = screen.getByRole("region", {
+      name: "Site detail / explanation",
+    });
+
+    // Fire the captured map click handler for an eligible cell. The map's
+    // onSelectCell adapts the CellSelection into the shared SiteSelection and
+    // calls getSiteDetail with the active run id and the clicked cell id.
+    mapClickOnLayer("cells-eligible", {
+      cell_id: "S99.000_E150.000",
+      eligible: true,
+      suitability_score: 0.655,
+      rank: 7,
+    });
+
+    await waitFor(() => {
+      expect(within(siteDetail).getByText("S99.000_E150.000")).toBeInTheDocument();
+    });
+    expect(service.getSiteDetail).toHaveBeenLastCalledWith(
+      "run-wind-1",
+      "S99.000_E150.000",
+    );
+    expect(within(siteDetail).getByText("7")).toBeInTheDocument();
+    expect(within(siteDetail).getByText("0.655")).toBeInTheDocument();
   });
 });

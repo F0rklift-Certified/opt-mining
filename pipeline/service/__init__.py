@@ -31,8 +31,13 @@ Modules:
                    score, rank, eligibility, and the S2-06 Explanation_Structure
                    carried through verbatim); `get_exclusions(run) ->
                    [ExcludedRow]` serves the S2-03 Eligibility_Table's excluded
-                   cells with their machine- and human-readable reasons. None
-                   re-scores, re-ranks or re-evaluates an exclusion.
+                   cells with their machine- and human-readable reasons; and
+                   `get_run_cells(run) -> CellCollection` projects the fixed
+                   Scored_Table into a GeoJSON FeatureCollection of per-cell
+                   EPSG:4326 centroids (one Point Feature per cell, eligible and
+                   excluded alike), carrying the centroids verbatim with no
+                   reprojection. None re-scores, re-ranks or re-evaluates an
+                   exclusion.
     filters      — The Display_Filters (top-N, minimum-score) `get_ranked_results`
                    accepts. PURE selections over the fixed `list[RankedRow]` a
                    Run produced: they change WHICH cells are shown but never a
@@ -40,39 +45,57 @@ Modules:
                    the `pipeline/shortlist/select.py` selection-by-rank pattern;
                    an all-excluding threshold or a top-N beyond the eligible
                    count returns an empty-but-valid set, never an error.
-    scenarios    — `compare_scenarios(scenario_a, scenario_b) -> ScenarioComparison`:
-                   the scenario-comparison operation. DELEGATES the whole
-                   comparison to the S2-07 engine
-                   (`pipeline.scoring.scenarios.compare_scenarios`) and only maps
-                   its result onto the frozen service shape — no comparison or
-                   diff arithmetic of its own (CONTRACT.md §4.5, §7-P3).
-    data_quality — `get_data_quality() -> DataQualityStatus`: the data-quality
-                   read operation. READS the S2-02 Validation_Result JSON the
-                   `validate` stage wrote and projects it verbatim onto the
-                   typed status — no validation of its own; an absent result is
-                   an honest fault, never a green banner (CONTRACT.md §5, §6).
+    scenarios    — `compare_scenarios(scenario_a, scenario_b) ->
+                   ScenarioComparison`: materialises each Scenario as its own
+                   S2-05 Run (via `run_analysis`) and reads the two rankings
+                   back (via `get_ranked_results`), returning a per-cell rank
+                   comparison with `rank_delta`. Each scenario's ranks are the
+                   ENGINE's, reused — never a second scorer (CONTRACT.md §4.5,
+                   §7 P5).
+    quality      — `get_data_quality() -> DataQualityStatus`: surfaces the S2-02
+                   Data_Quality_Status for the frozen integrated dataset by
+                   reading the Validation_Result sidecar the S2-02 validator
+                   wrote and projecting its `all_passed` verdict + per-check
+                   records through VERBATIM, so the Web_Application can show a
+                   data-quality banner when a blocking check failed. It runs no
+                   validation of its own; a missing/unreadable status fails
+                   honestly rather than reporting a passing verdict (CONTRACT.md
+                   §4.6, Requirement 5.1–5.3).
 """
 
-from .data_quality import get_data_quality
 from .filters import apply_display_filter, apply_min_score, apply_top_n
 from .models import (
+    CellCollection,
+    CellFeature,
+    DataQualityCheck,
     DataQualityStatus,
     ExcludedRow,
     RankedRow,
     RunHandle,
     ScenarioComparison,
+    ScenarioComparisonRow,
     SiteDetail,
 )
-from .results import get_exclusions, get_ranked_results, get_site_detail
+from .quality import get_data_quality
+from .results import (
+    get_exclusions,
+    get_ranked_results,
+    get_run_cells,
+    get_site_detail,
+)
 from .run_analysis import run_analysis
 from .scenarios import compare_scenarios
 
 __all__ = [
+    "CellCollection",
+    "CellFeature",
+    "DataQualityCheck",
     "DataQualityStatus",
     "ExcludedRow",
     "RankedRow",
     "RunHandle",
     "ScenarioComparison",
+    "ScenarioComparisonRow",
     "SiteDetail",
     "apply_display_filter",
     "apply_min_score",
@@ -81,6 +104,7 @@ __all__ = [
     "get_data_quality",
     "get_exclusions",
     "get_ranked_results",
+    "get_run_cells",
     "get_site_detail",
     "run_analysis",
 ]

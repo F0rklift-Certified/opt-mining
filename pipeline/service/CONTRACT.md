@@ -1,6 +1,8 @@
 # Decision_Service Contract (S2-08)
 
-**Status: FROZEN at the Sprint 2 / Sprint 3 boundary.**
+**Status: FROZEN at the Sprint 2 / Sprint 3 boundary. Current version: 1.1**
+(frozen at **1.0**; amended to **1.1** by S3-03a under the §8 change-control
+process — the `get_run_cells` geometry operation; see the [Change log](#8-change-log)).
 
 This document is the human-readable narration of the `Decision_Service` HTTP
 contract. It is the single boundary between the Sprint 2 decision engine
@@ -55,7 +57,10 @@ All served coordinates, where returned, are the grid centroids
 through unchanged. The service performs **no reprojection**; the EPSG:4326
 storage / EPSG:3577 computation boundary is handled entirely inside the engine
 (distances such as `dist_transmission_km` are already computed in EPSG:3577 by
-the upstream stages).
+the upstream stages). The `get_run_cells` geometry operation (§4.7, added in
+v1.1) is the **first** operation to return those centroids as geometry; it
+carries them through from the Scored_Table **verbatim** in EPSG:4326, still
+performing no reprojection and no new geometry arithmetic.
 
 ---
 
@@ -88,6 +93,7 @@ the HTTP layer; `app.py` maps each to an endpoint below.
 | 1.4 | `get_exclusions` | `GET /runs/{run_id}/exclusions` | `run_id` (path) | `ExcludedRow[]` |
 | 1.5 | `compare_scenarios` | `POST /scenario-comparison` | `ScenarioComparisonRequest` (body) | `ScenarioComparison` |
 | 1.6 | `get_data_quality` | `GET /data-quality` | — | `DataQualityStatus` |
+| 1.7 | `get_run_cells` | `GET /runs/{run_id}/cells` | `run_id` (path) | `CellCollection` (GeoJSON FeatureCollection) |
 
 ---
 
@@ -255,6 +261,35 @@ without also making the failure retrievable via this operation (Requirement 5.3)
 
 **Response — `DataQualityStatus`** (see §5).
 
+### 4.7 `get_run_cells` — `GET /runs/{run_id}/cells` (Requirement 1.7; added v1.1)
+
+Returns the Run's analysis cells as a **GeoJSON FeatureCollection** of per-cell
+centroids, so the Web_Application can draw the whole grid on a map. It reads the
+**fixed** Scored_Table and emits **one Point Feature per cell** — eligible
+**and** excluded cells alike — carrying each cell's centroid
+(`centroid_lat`, `centroid_lon`) through **verbatim in EPSG:4326** with **no
+reprojection** and **no new geometry arithmetic**. It does **not** join the
+integrated table; the centroids are the carried scalar columns the scoring stage
+wrote.
+
+**No recompute.** `suitability_score` and `rank` are read from the table and
+carried through unchanged (`null` for an excluded cell). A cell's `eligible`
+flag is the **identical** rule `get_ranked_results` applies — a non-null
+`suitability_score` **and** a non-null `rank`. Consequently the set of
+`eligible == true` `cell_id`s this operation returns **equals** the set
+`get_ranked_results(run_id)` returns unfiltered (the map and the ranking table
+show one engine output — §7 P1).
+
+**Request:** `run_id` (path).
+
+**Response — `CellCollection`** (see §5): a `FeatureCollection` whose `features`
+hold one `CellFeature` per Scored_Table row, in the table's own row order.
+
+**Errors:** an unknown Run returns an error naming the missing Run (`404`); a
+Scored_Table that is missing/unreadable, or that lacks a required centroid
+column (`centroid_lat` / `centroid_lon`), returns an error **naming the missing
+input** (`503`). See [§6](#6-error-handling).
+
 ---
 
 ## 5. Data models
@@ -373,6 +408,41 @@ unchanged.
 | `observed` | `string` | The observed value. |
 | `passed` | `boolean` | Whether this check passed. No silent passes — every check is reported. |
 
+### `CellCollection` (Requirement 1.7; added v1.1)
+
+A standard GeoJSON `FeatureCollection` carrying one Point Feature per analysis
+cell of a Run, plus the `run_id` the cells belong to.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `type` | `"FeatureCollection"` | GeoJSON discriminator (constant). |
+| `run_id` | `string` | The Run these cells belong to. |
+| `features` | `[CellFeature]` | One Point Feature per Scored_Table cell, in the table's row order. |
+
+`CellFeature`:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `type` | `"Feature"` | GeoJSON discriminator (constant). |
+| `geometry` | `CellGeometry` | The cell centroid as a GeoJSON Point. |
+| `properties` | `CellProperties` | The cell's non-geometric attributes. |
+
+`CellGeometry`:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `type` | `"Point"` | GeoJSON discriminator (constant). |
+| `coordinates` | `[number, number]` | `[centroid_lon, centroid_lat]` in **EPSG:4326**, carried through verbatim; no reprojection. |
+
+`CellProperties`:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `cell_id` | `string` | Analysis-cell id; joins to the grid. |
+| `eligible` | `boolean` | `true` iff `suitability_score` **and** `rank` are both non-null — the identical rule `get_ranked_results` uses. |
+| `suitability_score` | `number \| null` | The S2-05 score (never recomputed); `null` for an excluded cell. |
+| `rank` | `integer \| null` | The S2-05 rank; `null` for an excluded cell. |
+
 ---
 
 ## 6. Error handling
@@ -398,6 +468,10 @@ returned as empty sets with a `200`, **never** as an error (Requirement 7.4).
 
 - **P1 — One engine output.** For a Run, the score and rank of any `cell_id` are
   identical across `get_ranked_results` and `get_site_detail` (Requirement 2.3).
+  Likewise the set of `eligible == true` `cell_id`s `get_run_cells` returns
+  **equals** the set `get_ranked_results(run_id)` returns unfiltered — the map
+  and the ranking table are drawn from the same engine output (Requirement 1.7,
+  added v1.1).
 - **P2 — Filters do not re-score.** For any Display_Filter, the score and rank of
   every returned cell equal its unfiltered Run values (Requirement 3.1, 3.2).
 - **P3 — No recompute path.** No scoring / normalisation / ranking / exclusion
@@ -418,6 +492,7 @@ returned as empty sets with a `200`, **never** as an error (Requirement 7.4).
 | Version | Date | Change | Process |
 | --- | --- | --- | --- |
 | 1.0 | Sprint 2/3 boundary | Initial frozen contract: six operations, endpoint mapping, data models, weights interpretation, error handling. | Frozen per Requirement 6.5. |
+| 1.1 | S3-03a | Added the seventh operation `get_run_cells` (`GET /runs/{run_id}/cells`) returning a GeoJSON `CellCollection` of per-cell EPSG:4326 centroids (one Point Feature per cell, eligible and excluded alike; centroids carried verbatim, no reprojection; §1 clause, §2 row 1.7, §4.7, §5 `CellCollection`/`CellFeature`/`CellGeometry`/`CellProperties`, §7 P1 set-equality). No change to the v1.0 operations or their semantics. | Decision_Engine_Spec §8 change-control; propagated to the generated client (S3-01b). |
 
 Any post-freeze change to this contract or the published OpenAPI schema follows
 the Decision_Engine_Spec §8 change-control process, bumps the version above, and

@@ -60,6 +60,8 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from pipeline.service.models import (
+    CellCollection,
+    CellFeature,
     DataQualityCheck,
     DataQualityStatus,
     ExcludedRow,
@@ -195,6 +197,29 @@ def _scenario_comparisons():
         {"a": st.text(min_size=1, max_size=16), "b": st.text(min_size=1, max_size=16)}
     )
     return st.builds(ScenarioComparison, labels=labels, rows=rows)
+
+
+_coords = st.floats(min_value=-180.0, max_value=180.0, allow_nan=False, allow_infinity=False)
+
+
+def _cell_collections():
+    features = st.lists(
+        st.builds(
+            CellFeature,
+            cell_id=_cell_ids,
+            centroid_lon=_coords,
+            centroid_lat=_coords,
+            eligible=st.booleans(),
+            suitability_score=st.one_of(st.none(), _scores),
+            rank=st.one_of(st.none(), _ranks),
+        ),
+        max_size=6,
+    )
+    return st.builds(
+        CellCollection,
+        run_id=st.text(min_size=1, max_size=24),
+        features=features,
+    )
 
 
 def _data_quality_statuses():
@@ -373,6 +398,33 @@ def test_get_exclusions_is_pure_passthrough(rows, run_id):
 
         assert response.status_code == 200
         assert response.json() == [row.to_dict() for row in rows]
+        assert len(stub.calls) == 1
+        args, _kwargs = stub.calls[0]
+        assert args[0] == run_id
+    finally:
+        restore()
+
+
+# ---------------------------------------------------------------------------
+# GET /runs/{run_id}/cells  ->  get_run_cells(run_id)
+# ---------------------------------------------------------------------------
+
+
+@_PBT
+@given(
+    collection=_cell_collections(),
+    run_id=st.text(alphabet="abcdef0123456789", min_size=1, max_size=16),
+)
+def test_get_cells_is_pure_passthrough(collection, run_id):
+    # Feature: s3-01a-application-shell-scaffold, Property 2: pure pass-through
+    stub, restore = _patched("get_run_cells", collection)
+    try:
+        response = client.get(f"/runs/{_seg(run_id)}/cells")
+
+        assert response.status_code == 200
+        # The body is EXACTLY the operation's own serialisation of its return.
+        assert response.json() == collection.to_dict()
+        # run_id is passed through to the operation unchanged.
         assert len(stub.calls) == 1
         args, _kwargs = stub.calls[0]
         assert args[0] == run_id

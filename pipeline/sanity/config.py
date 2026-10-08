@@ -103,8 +103,10 @@ REQUIRED_INTEGRATED_COLUMNS = (
 )
 REQUIRED_GRID_COLUMNS = ("cell_id", "centroid_lat", "centroid_lon", "geometry")
 
-# The single attribute Check 1 needs from each Wind_Generators feature.
-REQUIRED_WIND_GENERATOR_ATTR = "name"
+# The single attribute Check 1 needs from each Wind_Generators feature — the
+# human-readable farm name. The GA Wind_Generators GeoJSON carries this as
+# `feature_name` (not `name`); Check 1 reads the farm name from that column.
+REQUIRED_WIND_GENERATOR_ATTR = "feature_name"
 
 # ---------------------------------------------------------------------------
 # Check 2 — Exclusion Validation: documented landmarks (Requirement 3.1, 3.2)
