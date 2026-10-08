@@ -18,6 +18,8 @@
   --om-success-border: #4d8753;
   --om-warning-bg: #fff4dc;
   --om-warning-border: #a76500;
+  --om-selected-bg: #e6eef8;
+  --om-selected-border: #2f5d8f;
 }
 
 * {
@@ -229,18 +231,152 @@ body {
 }
 
 /*
+ * Ranked shortlist (S3-04): rows follow the engine's order; one row is the
+ * selected site shared with the map and detail view. The table scrolls
+ * sideways rather than squeezing the component columns.
+ */
+.om-shortlist {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.om-shortlist__note {
+  font-size: 0.8rem;
+}
+
+.om-results__scroll {
+  overflow-x: auto;
+}
+
+.om-results th.om-results__num,
+.om-results td.om-results__num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.om-results thead th {
+  vertical-align: bottom;
+}
+
+.om-results td.om-results__num {
+  white-space: nowrap;
+}
+
+.om-results__row {
+  cursor: pointer;
+}
+
+.om-results__row:hover {
+  background: var(--om-bg);
+}
+
+.om-results__row--selected,
+.om-results__row--selected:hover {
+  background: var(--om-selected-bg);
+  color: var(--om-text);
+}
+
+.om-results__row--selected > :first-child {
+  box-shadow: inset 3px 0 0 var(--om-selected-border);
+}
+
+.om-results__select {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.om-results__select:focus-visible {
+  outline: 2px solid var(--om-selected-border);
+  outline-offset: 2px;
+}
+
+/*
+ * Interactive map (S3-03a). MapLibre renders into .om-map, which MUST carry an
+ * explicit height or the GL canvas collapses to 0px. The status line reuses the
+ * muted shell palette for the loading / no-run / error messages.
+ */
+.om-map {
+  height: 480px;
+  width: 100%;
+  border: 1px solid var(--om-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.om-map__status {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  color: var(--om-muted);
+}
+
+/*
+ * Map legend (S3-03a): names the three cell classes the layers paint so the
+ * rendering is read honestly — eligible candidates, genuine environmental
+ * rule-outs, and cells left unassessed outside the wind-data footprint. The
+ * swatch colours mirror the CellMap layer paint.
+ */
+.om-map__legend {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  font-size: 0.82rem;
+  color: var(--om-text);
+}
+
+.om-map__legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.om-map__swatch {
+  display: inline-block;
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  flex: none;
+}
+
+/* Mid-stop of the eligible score ramp (#fee5d9 -> #fb6a4a -> #a50f15). */
+.om-map__swatch--eligible {
+  background: #fb6a4a;
+}
+
+/* Matches excludedEnvLayer circle-color. */
+.om-map__swatch--env {
+  background: #5b6b8c;
+}
+
+/* Matches excludedNoDataLayer circle-color. */
+.om-map__swatch--nodata {
+  background: #c7ccd1;
+}
+
+/*
  * Fixed 2×2 grid: analysis controls (top-left), interactive map (top-right),
  * ranked results (bottom-left), site detail/explanation (bottom-right). On
- * narrow viewports the regions stack in a single column.
+ * narrow viewports the regions stack in a single column. `minmax(0, 1fr)`
+ * keeps wide content (the shortlist table) from stretching its column; that
+ * content scrolls inside its own region instead.
  */
 .om-shell__grid {
   display: grid;
   gap: 1rem;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 @media (min-width: 60rem) {
   .om-shell__grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 }

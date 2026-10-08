@@ -40,7 +40,14 @@ import pandas as pd
 from ..scoring import config as _scoring_config
 from . import config as _service_config
 from .filters import apply_display_filter
-from .models import ExcludedRow, RankedRow, RunHandle, SiteDetail
+from .models import (
+    CellCollection,
+    CellFeature,
+    ExcludedRow,
+    RankedRow,
+    RunHandle,
+    SiteDetail,
+)
 from .runs import (
     CellNotFoundError,
     EngineOutputError,
@@ -499,3 +506,90 @@ def get_exclusions(run: RunHandle | str) -> list[ExcludedRow]:
             )
         )
     return rows
+
+
+def get_run_cells(run: RunHandle | str) -> CellCollection:
+    """
+    Return a Run's cells as a GeoJSON FeatureCollection of per-cell centroids
+    (CONTRACT.md §4.7, Requirement 1.7).
+
+    Reads the materialised S2-05 Scored_Table for the Run and returns one
+    ``CellFeature`` (a GeoJSON Point) per cell — ELIGIBLE and EXCLUDED alike,
+    so the whole analysis grid can be drawn. Each Feature carries the cell's
+    centroid in EPSG:4326 VERBATIM (the engine's own ``centroid_lat`` /
+    ``centroid_lon``, carried through the scoring stage): the service performs
+    NO reprojection and NO new geometry arithmetic, and it does NOT join the
+    integrated table — the EPSG:4326/EPSG:3577 boundary is handled entirely
+    inside the engine (CONTRACT.md §1).
+
+    NO RECOMPUTE. The `suitability_score` and `rank` are read from the table and
+    carried through unchanged (``None`` for an excluded cell); this function
+    performs no scoring, normalisation or ranking (Requirement 2.4). A cell's
+    `eligible` flag is the IDENTICAL predicate `get_ranked_results` uses — a
+    non-null `suitability_score` AND a non-null `rank` — so the set of
+    ``eligible == True`` cell_ids this operation returns equals the set
+    `get_ranked_results(run_id)` returns unfiltered (CONTRACT.md §7 P1).
+
+    Parameters
+    ----------
+    run :
+        The Run to read, as the ``RunHandle`` returned by ``run_analysis`` or
+        its bare ``run_id`` string.
+
+    Returns
+    -------
+    CellCollection
+        A FeatureCollection with one Point Feature per Scored_Table cell, each
+        carrying its EPSG:4326 centroid, eligibility, and (nullable) score and
+        rank. Empty ``features`` when the Run's table has no cell (an
+        empty-but-valid result, not an error — CONTRACT.md §6).
+
+    Raises
+    ------
+    RunNotFoundError
+        The Run has no materialisation on disk (Requirement 7.1).
+    EngineOutputError
+        The Run's Scored_Table is missing or unreadable, or a required centroid
+        column (``centroid_lat`` / ``centroid_lon``) is absent — the error
+        names the missing input rather than fabricating a result (Requirement
+        7.3).
+    """
+    run_id = _run_id_of(run)
+    table = load_scored_table(run_id)
+
+    cell_col = _scoring_config.CELL_ID_COLUMN
+    score_col = _scoring_config.SCORE_COLUMN
+    rank_col = _scoring_config.RANK_COLUMN
+    lat_col, lon_col = _scoring_config.CARRIED_COLUMNS
+
+    # Project over the attribute columns only (drop the geometry), mirroring the
+    # sibling read ops (design-review NIT-3). The centroids are the carried
+    # scalar columns, not the GeoPackage geometry — read verbatim, never
+    # re-derived from the geometry.
+    frame = pd.DataFrame(table.drop(columns=[table.geometry.name], errors="ignore"))
+
+    for column in (lat_col, lon_col):
+        if column not in frame.columns:
+            raise EngineOutputError(
+                f"Run {run_id!r} Scored_Table has no {column!r} column; the "
+                f"per-cell centroid cannot be served. The engine output is "
+                f"missing a carried grid column; re-run the analysis."
+            )
+
+    features: list[CellFeature] = []
+    for _, row in frame.iterrows():
+        score = _opt_score(row[score_col])
+        rank = _opt_rank(row[rank_col])
+        features.append(
+            CellFeature(
+                cell_id=str(row[cell_col]),
+                centroid_lon=float(row[lon_col]),
+                centroid_lat=float(row[lat_col]),
+                # The IDENTICAL eligible rule get_ranked_results applies.
+                eligible=score is not None and rank is not None,
+                suitability_score=score,
+                rank=rank,
+            )
+        )
+
+    return CellCollection(run_id=run_id, features=features)

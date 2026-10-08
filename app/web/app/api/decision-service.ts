@@ -3,8 +3,10 @@
  *
  * Request and response shapes come exclusively from `generated.ts`, which is
  * produced from the live FastAPI OpenAPI document.  This wrapper only names
- * the six service operations and turns non-2xx responses into one consistent
+ * the seven service operations and turns non-2xx responses into one consistent
  * error; it contains no decision or data-transformation logic.
+ *
+ * S3-03a adds the seventh operation, `getRunCells`, the map's single data path.
  */
 import createClient from "openapi-fetch";
 
@@ -21,10 +23,29 @@ export type ScenarioComparisonRequest =
   components["schemas"]["ScenarioComparisonRequest"];
 export type ScenarioComparison = components["schemas"]["ScenarioComparison"];
 export type DataQualityStatus = components["schemas"]["DataQualityStatus"];
+export type CellCollection = components["schemas"]["CellCollection"];
 
 export interface RankedResultsFilter {
   top_n?: number | null;
   min_score?: number | null;
+}
+
+/**
+ * The stable, typed selection a view surfaces when a single cell is inspected
+ * (S3-03b). It is the shared cross-view contract the future Site-detail view
+ * (S3-05) consumes: both a map `click` (reading a feature's `CellProperties`)
+ * and a ranked-table row (a `RankedRow`) produce this same shape, so map
+ * selection and table selection are interchangeable. It carries only the
+ * engine-produced identity/score/eligibility already in memory — no decision
+ * math, no network call — keyed on the stable `cell_id` the detail view uses to
+ * fetch its richer explanation on demand via `getSiteDetail`. For an excluded
+ * cell `suitability_score` and `rank` are null.
+ */
+export interface CellSelection {
+  cell_id: string;
+  eligible: boolean;
+  suitability_score: number | null;
+  rank: number | null;
 }
 
 export interface DecisionService {
@@ -39,6 +60,7 @@ export interface DecisionService {
     request: ScenarioComparisonRequest,
   ): Promise<ScenarioComparison>;
   getDataQuality(): Promise<DataQualityStatus>;
+  getRunCells(runId: string): Promise<CellCollection>;
 }
 
 export class DecisionServiceError extends Error {
@@ -129,6 +151,15 @@ export function createDecisionServiceClient(
 
     async getDataQuality() {
       const { data, error, response } = await client.GET("/data-quality");
+      if (data === undefined) throw new DecisionServiceError(response.status, error);
+      return data;
+    },
+
+    async getRunCells(runId) {
+      const { data, error, response } = await client.GET(
+        "/runs/{run_id}/cells",
+        { params: { path: { run_id: runId } } },
+      );
       if (data === undefined) throw new DecisionServiceError(response.status, error);
       return data;
     },

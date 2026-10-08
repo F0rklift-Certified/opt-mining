@@ -1,6 +1,122 @@
 {
   "components": {
     "schemas": {
+      "CellCollection": {
+        "description": "A Run's cells as a GeoJSON FeatureCollection (CONTRACT.md \u00a75, \u00a74.7).\n\nOne Point Feature per Scored_Table cell (eligible and excluded alike),\ncarrying each cell's EPSG:4326 centroid verbatim. The set of `eligible`\nFeatures equals the set `get_ranked_results` returns for the Run (\u00a77 P1).",
+        "properties": {
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/CellFeature"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "type": {
+            "const": "FeatureCollection",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "run_id"
+        ],
+        "title": "CellCollection",
+        "type": "object"
+      },
+      "CellFeature": {
+        "description": "One analysis cell as a GeoJSON Point Feature (CONTRACT.md \u00a75, \u00a74.7).",
+        "properties": {
+          "geometry": {
+            "$ref": "#/components/schemas/CellGeometry"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/CellProperties"
+          },
+          "type": {
+            "const": "Feature",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "geometry",
+          "properties"
+        ],
+        "title": "CellFeature",
+        "type": "object"
+      },
+      "CellGeometry": {
+        "description": "A cell centroid's GeoJSON Point geometry (CONTRACT.md \u00a75, \u00a74.7).\n\n`coordinates` are ``[centroid_lon, centroid_lat]`` in EPSG:4326, carried\nthrough verbatim from the Scored_Table \u2014 no reprojection (CONTRACT.md \u00a71).",
+        "properties": {
+          "coordinates": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "title": "Coordinates",
+            "type": "array"
+          },
+          "type": {
+            "const": "Point",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "coordinates"
+        ],
+        "title": "CellGeometry",
+        "type": "object"
+      },
+      "CellProperties": {
+        "description": "A map cell's non-geometric properties (CONTRACT.md \u00a75, \u00a74.7).\n\n`eligible` is the same predicate `get_ranked_results` uses (score AND rank\nboth non-null); `suitability_score` / `rank` are null for an excluded cell.",
+        "properties": {
+          "cell_id": {
+            "title": "Cell Id",
+            "type": "string"
+          },
+          "eligible": {
+            "title": "Eligible",
+            "type": "boolean"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          },
+          "suitability_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suitability Score"
+          }
+        },
+        "required": [
+          "cell_id",
+          "eligible"
+        ],
+        "title": "CellProperties",
+        "type": "object"
+      },
       "Criterion": {
         "description": "One scored criterion inside a `Weights` configuration (CONTRACT.md \u00a75).\n\nMirrors the `scoring_weights.yaml` / scenario `criteria` entry so it is\nvalidated by the SAME engine parser (`pipeline/scoring/weights.py`), never a\nduplicate validator \u2014 hence no field constraints (e.g. weight >= 0, the\ndirection enum) are re-declared here.",
         "properties": {
@@ -313,10 +429,12 @@
             "type": "boolean"
           },
           "explanation": {
+            "additionalProperties": true,
             "title": "Explanation",
             "type": "object"
           },
           "features": {
+            "additionalProperties": true,
             "title": "Features",
             "type": "object"
           },
@@ -399,9 +517,9 @@
     }
   },
   "info": {
-    "description": "The frozen S2-08 Decision_Service exposed over HTTP + OpenAPI. Six operations, one per endpoint; the API delegates to the pure `pipeline.service` operations and holds no decision logic (CONTRACT.md \u00a71, \u00a72).",
+    "description": "The frozen S2-08 Decision_Service exposed over HTTP + OpenAPI. Seven operations, one per endpoint; the API delegates to the pure `pipeline.service` operations and holds no decision logic (CONTRACT.md \u00a71, \u00a72).",
     "title": "Opt-Mining Decision_Service",
-    "version": "1.0"
+    "version": "1.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -461,6 +579,46 @@
           }
         },
         "summary": "Create Run"
+      }
+    },
+    "/runs/{run_id}/cells": {
+      "get": {
+        "description": "`get_run_cells` \u2014 the Run's cells as a GeoJSON FeatureCollection.\n\n`run_id` is passed straight through; the operation projects the Scored_Table\ninto one Point Feature per cell, carrying each centroid in EPSG:4326\nverbatim. It reuses the centralised `_STATUS_FOR_FAULT` map (missing Run ->\n404, missing/unreadable output or missing centroid column -> 503), so no\nmapping change is needed. This layer never reprojects or re-scores.",
+        "operationId": "read_run_cells_runs__run_id__cells_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CellCollection"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Run Cells"
       }
     },
     "/runs/{run_id}/exclusions": {

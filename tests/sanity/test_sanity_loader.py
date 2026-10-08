@@ -95,7 +95,7 @@ def _grid_frame() -> gpd.GeoDataFrame:
 
 def _wind_generators_frame() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(
-        {"name": ["Farm A", "Farm B"]},
+        {config.REQUIRED_WIND_GENERATOR_ATTR: ["Farm A", "Farm B"]},
         geometry=[Point(150.02, -29.98), Point(151.02, -29.98)],
         crs="EPSG:4326",
     )
@@ -320,7 +320,10 @@ class TestAbsentRequiredColumn:
         shortlist = _write_geojson(tmp_path / "sl.geojson", _shortlist_frame())
         good = _make_inputs(tmp_path, shortlist_path=shortlist)
         bad = tmp_path / "wind_bad.geojson"
-        _write_geojson(bad, _wind_generators_frame().drop(columns=["name"]))
+        _write_geojson(
+            bad,
+            _wind_generators_frame().drop(columns=[config.REQUIRED_WIND_GENERATOR_ATTR]),
+        )
         inputs = SanityInputs(
             scored_path=good.scored_path,
             shortlist_path=good.shortlist_path,

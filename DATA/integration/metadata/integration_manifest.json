@@ -4,8 +4,8 @@
       "output_file": "DATA/integration/optmining_integrated-features_2026_nsw.gpkg",
       "csv_file": "DATA/integration/optmining_integrated-features_2026_nsw.csv",
       "stage": "integration",
-      "generated_utc": "2026-09-03T05:09:16+00:00",
-      "git_commit": "2e2c6375949d926579916cd12d140d6bda2f23d8",
+      "generated_utc": "2026-10-07T05:03:05+00:00",
+      "git_commit": "403817a4e5a11a5d2236710a42a42046d44cc60a-dirty",
       "rows": 47311,
       "columns": [
         "cell_id",
@@ -39,10 +39,10 @@
         "confidence_score",
         "confidence_notes"
       ],
-      "sha256_gpkg": "b7cd3d261abfdedd613301e0e2fdd07e3381178deb8ce8aff506a066117a1e61",
-      "sha256_csv": "263d3d13efa9b221bf079358de5f20601b77cd90b0c3a6ffca4552437c6dd355",
-      "bytes_gpkg": 32821248,
-      "bytes_csv": 23132200,
+      "sha256_gpkg": "4062224a2b96adace37f5166feb0fb7b7dbd9251e9433ed5028659347d2a1c80",
+      "sha256_csv": "4dce43f84ab7cb93ceef21835cda56589d3f6d8d8daa1d1bd061eb5fb1b22b3c",
+      "bytes_gpkg": 23347200,
+      "bytes_csv": 14943812,
       "inputs": [
         {
           "name": "grid",
@@ -59,7 +59,7 @@
           "layer": "wind_features",
           "rows": 47311,
           "crs": "EPSG:4326",
-          "sha256": "ff735ce010f90ff99d308ea32e6c375d3003133225f4168417c36b7bb42e88d6",
+          "sha256": "33e5b4bcb10ec9d698fc41e8cd3116b10c3925424f1dbaf21d958a0332fa5a2f",
           "bytes": 13803520
         },
         {
@@ -68,8 +68,8 @@
           "layer": "geographic_features",
           "rows": 47311,
           "crs": "EPSG:4326",
-          "sha256": "9501883e2cf871d87fb68aa6f483de1a80711ed603b8f0a3a8a828a7e7fcf175",
-          "bytes": 13049856
+          "sha256": "af9db24669bdaf6d45154987d133d7c03a7b01833c920d601b93fa3057c04031",
+          "bytes": 14888960
         },
         {
           "name": "infrastructure",
@@ -95,8 +95,8 @@
           "layer": "optmining_exclusions_2024_nsw.gpkg",
           "rows": 47311,
           "crs": "EPSG:4326",
-          "sha256": "c5caa822647024c4b0bb62ad78735b41b0e72aa314e7e288a162233928a771ca",
-          "bytes": 19959808
+          "sha256": "e1bebde00500c3969239ad8b33e64e6a5e7f5660bdb32c04362de60f7ef3e172",
+          "bytes": 16560128
         }
       ],
       "confidence_weights": {

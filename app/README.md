@@ -80,7 +80,10 @@ If `.env.local` already exists, retain your settings and verify that
 The initial page load requests the S2-02 data-quality status and starts the
 packaged `wind_led` scenario. Returned ranks, scores, exclusions and site detail
 are displayed unchanged; the browser contains no scoring, normalisation,
-ranking or exclusion implementation.
+ranking or exclusion implementation. The interactive-map region (S3-03a) now
+renders the currently-loaded Run's cells over the env-driven basemap — eligible
+and excluded cells styled only from the served `eligible`/`suitability_score`
+properties, with no decision math in the UI.
 
 ### Regenerate the typed client
 
@@ -140,6 +143,7 @@ below are the `${VAR:-default}` values wired in
 | Variable                   | Consumer            | Default                  | Purpose                                                                                     |
 | -------------------------- | ------------------- | ------------------------ | ------------------------------------------------------------------------------------------- |
 | `NEXT_PUBLIC_API_BASE_URL` | Frontend (browser)  | `http://localhost:8000`  | The URL the **browser** uses to reach the API. Inlined at Next.js build time. See [`web/.env.example`](web/.env.example). |
+| `NEXT_PUBLIC_BASEMAP_TILE_URL` | Frontend (browser) | `https://tile.openstreetmap.org/{z}/{x}/{y}.png` | XYZ raster tile URL for the interactive-map basemap (context only). Public OSM tiles are MVP/dev-only and **must** be overridden for deployed/non-trivial usage per the OSM tile policy. See [`web/.env.example`](web/.env.example). |
 | `CORS_ALLOW_ORIGINS`       | Backend (FastAPI)   | `http://localhost:3000`  | Comma-separated list of allowed CORS origins (the web app's origin). Parsed by `api/settings.py`. |
 | `API_HOST_PORT`            | Compose             | `8000`                   | Host port the API is published on.                                                          |
 | `WEB_HOST_PORT`            | Compose             | `3000`                   | Host port the web app is published on.                                                      |

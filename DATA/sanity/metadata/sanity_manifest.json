@@ -1,0 +1,54 @@
+{
+  "derived_products": [
+    {
+      "report_file": "outputs/sprint1_validation_report.md",
+      "sidecar_file": "DATA/sanity/optmining_validation-results_2026_nsw.json",
+      "stage": "sanity",
+      "product_type": "derived",
+      "run_timestamp": "2026-10-07T05:03:24+00:00",
+      "generated_utc": "2026-10-07T05:03:25+00:00",
+      "pipeline_version": "403817a4e5a11a5d2236710a42a42046d44cc60a-dirty",
+      "sha256_report": "de7d8de4054d78983dbb9051e0fa5c2ec7cedbdb41681a11472994067b4e5e71",
+      "bytes_report": 11963,
+      "inputs": [
+        {
+          "name": "shortlist",
+          "path": "DATA/shortlist/sprint1_shortlist_20261007T050319.geojson",
+          "layer": null,
+          "sha256": "0572e0aafa5a003563f6c9d0482eef2ca5836c82d3f402f8ee1a98c9955dd26f",
+          "bytes": 5895
+        },
+        {
+          "name": "scored_table",
+          "path": "DATA/scoring/optmining_suitability-score_2026_nsw.gpkg",
+          "layer": "suitability_score",
+          "sha256": "188eacb59aa3ba4f74353788231c1f71e91482a31a020c0233ffcc545f55fea0",
+          "bytes": 15712256
+        },
+        {
+          "name": "integrated_feature_table",
+          "path": "DATA/integration/optmining_integrated-features_2026_nsw.gpkg",
+          "layer": "integrated_features",
+          "sha256": "4062224a2b96adace37f5166feb0fb7b7dbd9251e9433ed5028659347d2a1c80",
+          "bytes": 23347200
+        },
+        {
+          "name": "wind_generators",
+          "path": "DATA/infrastructure/generators/ga_wind_generators_2026_nsw.geojson",
+          "layer": null,
+          "sha256": "ee63e1b966d9aabbc944152f3a5dff373926ed515302b9c1ff46aa67b3c9fdb0",
+          "bytes": 14526
+        },
+        {
+          "name": "analysis_grid",
+          "path": "DATA/grid/nsw_analysis_grid.gpkg",
+          "layer": "nsw_grid",
+          "sha256": "7c7e6433d061f0029331b4e19460abb664535bf21c7ca50fb8fa4511fa90052b",
+          "bytes": 13803520
+        }
+      ],
+      "sha256_sidecar": "fb9953807ba79f058f7b7ad0071ea8a710f03750ff4d604ac78c2e4297407579",
+      "bytes_sidecar": 17197
+    }
+  ]
+}

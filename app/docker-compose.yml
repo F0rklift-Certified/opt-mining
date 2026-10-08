@@ -53,8 +53,14 @@ services:
       dockerfile: Dockerfile
       args:
         # NEXT_PUBLIC_* is inlined at BUILD time by Next.js; supply the
-        # browser-facing API URL as a build ARG (the web Dockerfile declares it).
+        # browser-facing values as build ARGs (the web Dockerfile declares them).
         - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+        # XYZ raster tile URL for the S3-03a interactive-map basemap (map
+        # context only — the decision content is the API-served cell layer). The
+        # default is the public OpenStreetMap raster tiles so the map reads as
+        # Australia out of the box; MVP/dev-only, override for any deployment
+        # (OSM's tile policy restricts bulk/app use — see app/web/.env.example).
+        - NEXT_PUBLIC_BASEMAP_TILE_URL=${NEXT_PUBLIC_BASEMAP_TILE_URL:-https://tile.openstreetmap.org/{z}/{x}/{y}.png}
     environment:
       # Also expose at runtime for any server-side read, and wire the in-network
       # service-name URL through env (never a literal here) so S3-01b inherits it.

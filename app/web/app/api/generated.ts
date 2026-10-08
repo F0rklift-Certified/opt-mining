@@ -48,6 +48,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/runs/{run_id}/cells": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Run Cells
+         * @description `get_run_cells` — the Run's cells as a GeoJSON FeatureCollection.
+         *
+         *     `run_id` is passed straight through; the operation projects the Scored_Table
+         *     into one Point Feature per cell, carrying each centroid in EPSG:4326
+         *     verbatim. It reuses the centralised `_STATUS_FOR_FAULT` map (missing Run ->
+         *     404, missing/unreadable output or missing centroid column -> 503), so no
+         *     mapping change is needed. This layer never reprojects or re-scores.
+         */
+        get: operations["read_run_cells_runs__run_id__cells_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/runs/{run_id}/exclusions": {
         parameters: {
             query?: never;
@@ -136,6 +162,71 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * CellCollection
+         * @description A Run's cells as a GeoJSON FeatureCollection (CONTRACT.md §5, §4.7).
+         *
+         *     One Point Feature per Scored_Table cell (eligible and excluded alike),
+         *     carrying each cell's EPSG:4326 centroid verbatim. The set of `eligible`
+         *     Features equals the set `get_ranked_results` returns for the Run (§7 P1).
+         */
+        CellCollection: {
+            /** Features */
+            features?: components["schemas"]["CellFeature"][];
+            /** Run Id */
+            run_id: string;
+            /**
+             * Type
+             * @constant
+             */
+            type: "FeatureCollection";
+        };
+        /**
+         * CellFeature
+         * @description One analysis cell as a GeoJSON Point Feature (CONTRACT.md §5, §4.7).
+         */
+        CellFeature: {
+            geometry: components["schemas"]["CellGeometry"];
+            properties: components["schemas"]["CellProperties"];
+            /**
+             * Type
+             * @constant
+             */
+            type: "Feature";
+        };
+        /**
+         * CellGeometry
+         * @description A cell centroid's GeoJSON Point geometry (CONTRACT.md §5, §4.7).
+         *
+         *     `coordinates` are ``[centroid_lon, centroid_lat]`` in EPSG:4326, carried
+         *     through verbatim from the Scored_Table — no reprojection (CONTRACT.md §1).
+         */
+        CellGeometry: {
+            /** Coordinates */
+            coordinates: number[];
+            /**
+             * Type
+             * @constant
+             */
+            type: "Point";
+        };
+        /**
+         * CellProperties
+         * @description A map cell's non-geometric properties (CONTRACT.md §5, §4.7).
+         *
+         *     `eligible` is the same predicate `get_ranked_results` uses (score AND rank
+         *     both non-null); `suitability_score` / `rank` are null for an excluded cell.
+         */
+        CellProperties: {
+            /** Cell Id */
+            cell_id: string;
+            /** Eligible */
+            eligible: boolean;
+            /** Rank */
+            rank?: number | null;
+            /** Suitability Score */
+            suitability_score?: number | null;
+        };
         /**
          * Criterion
          * @description One scored criterion inside a `Weights` configuration (CONTRACT.md §5).
@@ -302,9 +393,13 @@ export interface components {
              */
             eligible: boolean;
             /** Explanation */
-            explanation?: Record<string, unknown>;
+            explanation?: {
+                [key: string]: unknown;
+            };
             /** Features */
-            features?: Record<string, unknown>;
+            features?: {
+                [key: string]: unknown;
+            };
             /** Rank */
             rank?: number | null;
             /** Suitability Score */
@@ -379,6 +474,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunHandle"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_run_cells_runs__run_id__cells_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CellCollection"];
                 };
             };
             /** @description Validation Error */

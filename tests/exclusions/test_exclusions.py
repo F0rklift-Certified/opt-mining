@@ -12,9 +12,9 @@ Covers:
    small synthetic in-memory-sized raster.
 5. read_grid_cells halting conditions (missing file, no cell_id, duplicate
    cell_id).
-6. An end-to-end synthetic-data run of apply.run() exercising every default
-   rule, the non-exclusionary data_flags mechanism, and validate()'s
-   no-silent-passes checks.
+6. An end-to-end synthetic-data run of apply.run() over synthetic joined
+   feature tables (geographic + wind, keyed on cell_id) exercising every
+   default rule and validate()'s no-silent-passes checks.
 """
 
 from __future__ import annotations
@@ -165,7 +165,15 @@ class TestPackagedDefaultRulesFile:
     def test_loads(self):
         rules = rules_mod.load_rules(excl_config.DEFAULT_RULES_PATH)
         names = {r["name"] for r in rules}
-        assert names == {"protected_area", "missing_wind_data", "excessive_slope", "urban_area"}
+        assert names == {
+            "protected_area",
+            "missing_wind_data",
+            "excessive_slope",
+            "urban_area",
+            "offshore_or_marine",
+            "missing_slope_data",
+            "missing_demand_data",
+        }
 
     def test_slope_threshold_matches_project_default(self):
         rules = rules_mod.load_rules(excl_config.DEFAULT_RULES_PATH)
@@ -232,6 +240,8 @@ def _clean_fields(**overrides):
         "slope_deg": 5.0,
         "urban_area": False,
         "wind_speed_100m_ms": 8.0,
+        "on_land": True,
+        "demand_proxy": 100.0,
     }
     fields.update(overrides)
     return fields
@@ -285,6 +295,43 @@ class TestEachRuleIndependently:
         assert reason == "Urban area"
         assert triggered == ["urban_area"]
 
+    def test_offshore_or_marine_rule_alone(self, default_rules):
+        """on_land == False excludes a cell whose centre is offshore/marine."""
+        fields = _clean_fields(on_land=False)
+        eligible, reason, triggered = rules_mod.evaluate_cell(fields, default_rules)
+        assert eligible is False
+        assert reason == "Offshore or marine (not on land)"
+        assert triggered == ["offshore_or_marine"]
+
+    def test_missing_slope_data_rule_alone(self, default_rules):
+        """A null slope excludes via missing_slope_data (never silently passes)."""
+        fields = _clean_fields(slope_deg=None)
+        eligible, reason, triggered = rules_mod.evaluate_cell(fields, default_rules)
+        assert eligible is False
+        assert reason == "Missing slope data"
+        assert triggered == ["missing_slope_data"]
+
+    def test_missing_slope_data_matches_nan_too(self, default_rules):
+        fields = _clean_fields(slope_deg=float("nan"))
+        eligible, _reason, triggered = rules_mod.evaluate_cell(fields, default_rules)
+        assert eligible is False
+        assert triggered == ["missing_slope_data"]
+
+    def test_missing_demand_data_rule_alone(self, default_rules):
+        """A null demand_proxy excludes via missing_demand_data (demand_proxy is a
+        scored criterion, so a null must exclude rather than silently pass)."""
+        fields = _clean_fields(demand_proxy=None)
+        eligible, reason, triggered = rules_mod.evaluate_cell(fields, default_rules)
+        assert eligible is False
+        assert reason == "Missing demand data"
+        assert triggered == ["missing_demand_data"]
+
+    def test_missing_demand_data_matches_nan_too(self, default_rules):
+        fields = _clean_fields(demand_proxy=float("nan"))
+        eligible, _reason, triggered = rules_mod.evaluate_cell(fields, default_rules)
+        assert eligible is False
+        assert triggered == ["missing_demand_data"]
+
     def test_multiple_reasons_are_joined_and_all_rules_fire_independently(self, default_rules):
         """Rules are evaluated independently — a cell can fail more than one."""
         fields = _clean_fields(
@@ -299,8 +346,10 @@ class TestEachRuleIndependently:
     def test_unmapped_field_never_crashes(self, default_rules):
         """A cell missing a field the rules reference degrades to 'not triggered', not a crash."""
         eligible, _reason, triggered = rules_mod.evaluate_cell({}, default_rules)
-        assert eligible is False  # missing_wind_data triggers: field absent -> None -> is_null
-        assert triggered == ["missing_wind_data"]
+        assert eligible is False
+        # Absent fields read as None -> only the is_null rules fire (never a
+        # numeric/equality rule): wind, slope and demand are all absent here.
+        assert triggered == ["missing_wind_data", "missing_slope_data", "missing_demand_data"]
 
 
 class TestEvaluateCellDetailed:
@@ -490,8 +539,6 @@ class TestReadGridCells:
 def _make_cell(lon, lat, cell_id, half=0.025):
     return {
         "cell_id": cell_id,
-        "centroid_lon": lon,
-        "centroid_lat": lat,
         "geometry": box(lon - half, lat - half, lon + half, lat + half),
     }
 
@@ -499,91 +546,93 @@ def _make_cell(lon, lat, cell_id, half=0.025):
 @pytest.fixture
 def synthetic_pipeline(tmp_path, monkeypatch):
     """
-    Five synthetic cells, one clean and one per default rule, plus the raw
-    sources needed to compute their fields — wired up via monkeypatched
+    Seven synthetic cells, one clean and one per default rule, wired up as the
+    JOINED per-cell feature tables the migrated stage now reads — a synthetic
+    geographic feature table, a synthetic wind feature table and a synthetic
+    demand-proxy feature table, all keyed on cell_id — via monkeypatched
     pipeline.exclusions.config paths so apply.run() exercises the real
-    code end to end without touching the real DATA/ tree.
+    read_feature_tables + join path end to end without touching the real
+    DATA/ tree.
+
+    Post-migration there is no raw-source sampling and no urban coverage
+    window: every field is read straight from the three feature tables, so
+    each cell's field values are set directly here.
     """
-    # --- cells ---
-    cells = [
-        _make_cell(150.95, -30.00, "CELL_CLEAN"),
-        _make_cell(151.00, -30.00, "CELL_PROTECTED"),
-        _make_cell(151.05, -30.00, "CELL_STEEP"),
-        _make_cell(151.10, -30.00, "CELL_URBAN"),
-        _make_cell(151.90, -30.00, "CELL_NO_DATA"),  # outside every raster/urban-coverage window
+    # --- cells (one clean, one per rule) ---
+    specs = [
+        # cell_id,         lon,     lat,  slope, land_use, protected, name, urban, on_land, wind, demand
+        ("CELL_CLEAN",     150.95, -30.0, 5.0,  "Grazing", False, "",             False, True,  8.0,  100.0),
+        ("CELL_PROTECTED", 151.00, -30.0, 5.0,  "Grazing", True,  "Test Reserve", False, True,  8.0,  100.0),
+        ("CELL_STEEP",     151.05, -30.0, 20.0, "Grazing", False, "",             False, True,  8.0,  100.0),
+        ("CELL_URBAN",     151.10, -30.0, 5.0,  "Urban",   False, "",             True,  True,  8.0,  100.0),
+        ("CELL_OFFSHORE",  153.40, -30.0, 5.0,  "Grazing", False, "",             False, False, 8.0,  100.0),
+        ("CELL_NO_WIND",   151.90, -30.0, 5.0,  "Grazing", False, "",             False, True,  None, 100.0),
+        ("CELL_NO_DEMAND", 149.00, -35.4, 5.0,  "Grazing", False, "",             False, True,  8.0,  None),
     ]
-    grid = gpd.GeoDataFrame(cells, crs="EPSG:4326")
+
+    grid = gpd.GeoDataFrame(
+        [_make_cell(lon, lat, cid) for cid, lon, lat, *_ in specs],
+        crs="EPSG:4326",
+    )
     grid_path = tmp_path / "grid.gpkg"
     grid.to_file(grid_path, driver="GPKG")
 
-    # --- CAPAD protected areas: one polygon over CELL_PROTECTED ---
-    capad_fc = {
-        "type": "FeatureCollection",
-        "features": [{
-            "type": "Feature",
-            "properties": {"NAME": "Test Reserve"},
-            "geometry": json.loads(gpd.GeoSeries([box(150.98, -30.02, 151.02, -29.98)]).to_json())["features"][0]["geometry"],
-        }],
-    }
-    capad_path = tmp_path / "capad.geojson"
-    capad_path.write_text(json.dumps(capad_fc))
-
-    # --- ABS urban centres: one polygon over CELL_URBAN; dataset extent
-    # covers CELL_CLEAN..CELL_URBAN but NOT CELL_NO_DATA (tests data_flags) ---
-    urban_gdf = gpd.GeoDataFrame(
-        {"ucl_name_2021": ["Test Town"]},
-        geometry=[box(151.08, -30.02, 151.12, -29.98)],
+    # --- synthetic geographic feature table (geographic_features layer) ---
+    geo_rows = [
+        {
+            "cell_id": cid,
+            "slope_deg": slope,
+            "land_use": land_use,
+            "protected_area": protected,
+            "protected_area_name": name,
+            "urban_area": urban,
+            "on_land": on_land,
+        }
+        for cid, lon, lat, slope, land_use, protected, name, urban, on_land, wind, demand in specs
+    ]
+    geo_gdf = gpd.GeoDataFrame(
+        geo_rows,
+        geometry=[grid.geometry.iloc[i] for i in range(len(geo_rows))],
         crs="EPSG:4326",
     )
-    # Pad the dataset's total_bounds out to cover the first four cells only.
-    urban_gdf = gpd.GeoDataFrame(
-        {"ucl_name_2021": ["Test Town", None]},
-        geometry=[box(151.08, -30.02, 151.12, -29.98), box(150.90, -30.05, 150.91, -30.04)],
+    geo_path = tmp_path / "geographic_features.gpkg"
+    geo_gdf.to_file(geo_path, driver="GPKG", layer="geographic_features")
+
+    # --- synthetic wind feature table (wind_features layer) ---
+    wind_rows = [
+        {"cell_id": cid, "wind_speed_100m": wind}
+        for cid, lon, lat, slope, land_use, protected, name, urban, on_land, wind, demand in specs
+    ]
+    wind_gdf = gpd.GeoDataFrame(
+        wind_rows,
+        geometry=[grid.geometry.iloc[i] for i in range(len(wind_rows))],
         crs="EPSG:4326",
     )
-    urban_path = tmp_path / "urban.geojson"
-    urban_gdf.to_file(urban_path, driver="GeoJSON")
+    wind_path = tmp_path / "wind_features.gpkg"
+    wind_gdf.to_file(wind_path, driver="GPKG", layer="wind_features")
 
-    # --- slope raster: 5 deg everywhere in coverage, 20 deg patch over CELL_STEEP ---
-    from rasterio.transform import from_bounds as transform_from_bounds
-
-    raster_bounds = (150.90, -30.05, 151.15, -29.95)
-    shape = (40, 100)  # rows, cols
-    slope_data = np.full(shape, 5.0, dtype="float32")
-    wind_data = np.full(shape, 8.0, dtype="float32")
-    transform = transform_from_bounds(*raster_bounds, shape[1], shape[0])
-
-    # Burn a high-slope patch fully covering CELL_STEEP's cell polygon
-    # (151.025, -30.025)-(151.075, -29.975), with margin so every pixel in
-    # that cell's window is inside the patch, not just a majority.
-    from rasterio.features import rasterize
-    steep_patch = rasterize(
-        [(box(151.00, -30.05, 151.10, -29.95), 1)],
-        out_shape=shape, transform=transform, fill=0, dtype="uint8",
-    ).astype(bool)
-    slope_data[steep_patch] = 20.0
-
-    slope_path = tmp_path / "slope.tif"
-    with rasterio.open(
-        slope_path, "w", driver="GTiff", height=shape[0], width=shape[1], count=1,
-        dtype="float32", crs="EPSG:4326", transform=transform, nodata=-9999.0,
-    ) as dst:
-        dst.write(slope_data, 1)
-
-    wind_path = tmp_path / "wind.tif"
-    with rasterio.open(
-        wind_path, "w", driver="GTiff", height=shape[0], width=shape[1], count=1,
-        dtype="float32", crs="EPSG:4326", transform=transform, nodata=float("nan"),
-    ) as dst:
-        dst.write(wind_data, 1)
+    # --- synthetic demand-proxy feature table (demand_proxy layer) ---
+    demand_rows = [
+        {"cell_id": cid, "demand_proxy": demand}
+        for cid, lon, lat, slope, land_use, protected, name, urban, on_land, wind, demand in specs
+    ]
+    demand_gdf = gpd.GeoDataFrame(
+        demand_rows,
+        geometry=[grid.geometry.iloc[i] for i in range(len(demand_rows))],
+        crs="EPSG:4326",
+    )
+    demand_path = tmp_path / "demand_proxy.gpkg"
+    demand_gdf.to_file(demand_path, driver="GPKG", layer="demand_proxy")
 
     # --- wire up config ---
     monkeypatch.setattr(excl_config, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(excl_config, "GRID_PATH", grid_path)
-    monkeypatch.setattr(excl_config, "CAPAD_PATH", capad_path)
-    monkeypatch.setattr(excl_config, "URBAN_PATH", urban_path)
-    monkeypatch.setattr(excl_config, "SLOPE_RASTER_PATH", slope_path)
-    monkeypatch.setattr(excl_config, "WIND_SPEED_RASTER_PATH", wind_path)
+    monkeypatch.setattr(excl_config, "GEOGRAPHIC_FEATURE_PATH", geo_path)
+    monkeypatch.setattr(excl_config, "GEOGRAPHIC_FEATURE_LAYER", "geographic_features")
+    monkeypatch.setattr(excl_config, "WIND_FEATURE_PATH", wind_path)
+    monkeypatch.setattr(excl_config, "WIND_FEATURE_LAYER", "wind_features")
+    monkeypatch.setattr(excl_config, "DEMAND_FEATURE_PATH", demand_path)
+    monkeypatch.setattr(excl_config, "DEMAND_FEATURE_LAYER", "demand_proxy")
     monkeypatch.setattr(excl_config, "EXCLUSIONS_DIR", tmp_path / "out")
     monkeypatch.setattr(excl_config, "EXCLUSIONS_META_DIR", tmp_path / "out" / "metadata")
 
@@ -596,7 +645,7 @@ class TestApplyEndToEnd:
 
         result = run(verbose=False)
 
-        assert result["n_cells"] == 5
+        assert result["n_cells"] == 7
         assert result["validation"]["passed"] == result["validation"]["total"]
 
         table = gpd.read_file(result["eligibility_table"]).set_index("cell_id")
@@ -622,15 +671,26 @@ class TestApplyEndToEnd:
         assert table.loc["CELL_URBAN", "eligible"] == False  # noqa: E712
         assert "Urban area" in table.loc["CELL_URBAN", "exclusion_reason"]
 
-        assert table.loc["CELL_NO_DATA", "eligible"] == False  # noqa: E712
-        assert "Missing wind data" in table.loc["CELL_NO_DATA", "exclusion_reason"]
-        # Soft flag, not a second exclusion: outside the urban dataset's own coverage.
-        assert table.loc["CELL_NO_DATA", "data_flags"] is not None
-        assert "Urban-centre data unavailable" in table.loc["CELL_NO_DATA", "data_flags"]
+        # on_land == False -> offshore_or_marine (a real geographic rule-out).
+        assert table.loc["CELL_OFFSHORE", "eligible"] == False  # noqa: E712
+        assert "Offshore or marine" in table.loc["CELL_OFFSHORE", "exclusion_reason"]
+        assert "offshore_or_marine" in table.loc["CELL_OFFSHORE", "triggered_rules"]
 
-        # Cells inside urban-dataset coverage that simply don't overlap urban
-        # must NOT carry the coverage flag.
-        assert pd.isna(table.loc["CELL_CLEAN", "data_flags"])
+        assert table.loc["CELL_NO_WIND", "eligible"] == False  # noqa: E712
+        assert "Missing wind data" in table.loc["CELL_NO_WIND", "exclusion_reason"]
+
+        # Null demand_proxy -> missing_demand_data (demand_proxy is a scored
+        # criterion, so a null must exclude the cell, not let it be scored).
+        assert table.loc["CELL_NO_DEMAND", "eligible"] == False  # noqa: E712
+        assert "Missing demand data" in table.loc["CELL_NO_DEMAND", "exclusion_reason"]
+        assert "missing_demand_data" in table.loc["CELL_NO_DEMAND", "triggered_rules"]
+
+        # data_flags no longer carries the New-England urban coverage-window
+        # note (removed in the feature-table migration): urban_area is now
+        # statewide-definite from the joined geographic feature table. The
+        # column stays in OUTPUT_COLUMNS but is null for every cell unless the
+        # geographic builder later carries a soft note.
+        assert table["data_flags"].isna().all()
 
     def test_report_is_written_and_readable(self, synthetic_pipeline):
         from pipeline.exclusions.apply import run
@@ -638,7 +698,7 @@ class TestApplyEndToEnd:
         result = run(verbose=False)
         report_text = Path(result["report"]).read_text()
         assert "Exclusion layer summary" in report_text
-        assert "Total cells: **5**" in report_text
+        assert "Total cells: **7**" in report_text
         assert "protected_area" in report_text
         # The report documents the machine+human paired reason schema.
         assert "Exclusion reason schema" in report_text
@@ -749,6 +809,48 @@ class TestValidateStructuredReasons:
         result = validate(table_path, grid_path)
         struct = next(c for c in result["checks"] if "exclusion_reasons pairs consistent" in c["name"])
         assert struct["passed"] is False
+
+    def test_new_rule_codes_validate_clean(self, tmp_path):
+        """
+        The new codes (missing_slope_data, offshore_or_marine,
+        missing_demand_data) flow through the same evaluate_cell_detailed
+        path, so a cell excluded by any must pass validate()'s
+        exclusion_reasons↔triggered_rules consistency check unchanged
+        (confirms validate() needs no edit for the extended vocabulary).
+        """
+        from pipeline.exclusions.apply import validate
+
+        rows = [
+            {
+                "cell_id": "A", "eligible": False,
+                "exclusion_reason": "Missing slope data",
+                "triggered_rules": "missing_slope_data",
+                "exclusion_reasons": json.dumps(
+                    [{"code": "missing_slope_data", "text": "Missing slope data"}]
+                ),
+            },
+            {
+                "cell_id": "B", "eligible": False,
+                "exclusion_reason": "Offshore or marine (not on land)",
+                "triggered_rules": "offshore_or_marine",
+                "exclusion_reasons": json.dumps(
+                    [{"code": "offshore_or_marine", "text": "Offshore or marine (not on land)"}]
+                ),
+            },
+            {
+                "cell_id": "C", "eligible": False,
+                "exclusion_reason": "Missing demand data",
+                "triggered_rules": "missing_demand_data",
+                "exclusion_reasons": json.dumps(
+                    [{"code": "missing_demand_data", "text": "Missing demand data"}]
+                ),
+            },
+        ]
+        table_path, grid_path = self._write_pair(tmp_path, rows)
+        result = validate(table_path, grid_path)
+        struct = next(c for c in result["checks"] if "exclusion_reasons pairs consistent" in c["name"])
+        assert struct["passed"] is True
+        assert [c for c in result["checks"] if not c["passed"]] == []
 
 
 # ---------------------------------------------------------------------------

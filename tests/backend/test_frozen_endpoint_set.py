@@ -1,19 +1,20 @@
 """
 Property-based test for the Backend_App's route table — the declared endpoint
-set is EXACTLY the six frozen S2-08 operations (Property 1).
+set is EXACTLY the seven frozen S2-08 operations (Property 1).
 
 # Feature: s3-01a-application-shell-scaffold, Property 1: Endpoint set matches
-# exactly the six frozen operations
+# exactly the seven frozen operations
 
 **Property 1.** For ALL routes declared by the Backend_App, each declared
-``(method, path)`` pair is one of the six frozen S2-08 operations, and all six
-are present. The mapping is bidirectional — no extra operation endpoint is
+``(method, path)`` pair is one of the seven frozen S2-08 operations, and all
+seven are present. The mapping is bidirectional — no extra operation endpoint is
 exposed, and none is missing:
 
     POST /runs
     GET  /runs/{run_id}/results
     GET  /runs/{run_id}/sites/{cell_id}
     GET  /runs/{run_id}/exclusions
+    GET  /runs/{run_id}/cells
     POST /scenario-comparison
     GET  /data-quality
 
@@ -80,16 +81,19 @@ def _load_app():
     return module
 
 
-# --- The six frozen S2-08 operations (CONTRACT.md §2, Requirement 2.3) --------
+# --- The seven frozen S2-08 operations (CONTRACT.md §2, Requirement 2.3) ------
 #
 # Written verbatim from the contract, NOT derived from the app under test, so the
-# test genuinely pins the route table to the frozen surface.
+# test genuinely pins the route table to the frozen surface. The seventh,
+# `get_run_cells` (GET /runs/{run_id}/cells), was added by S3-03a under the
+# CONTRACT.md v1.1 change-control.
 FROZEN_ENDPOINTS: frozenset[tuple[str, str]] = frozenset(
     {
         ("POST", "/runs"),
         ("GET", "/runs/{run_id}/results"),
         ("GET", "/runs/{run_id}/sites/{cell_id}"),
         ("GET", "/runs/{run_id}/exclusions"),
+        ("GET", "/runs/{run_id}/cells"),
         ("POST", "/scenario-comparison"),
         ("GET", "/data-quality"),
     }
@@ -128,42 +132,42 @@ DECLARED_ENDPOINTS: set[tuple[str, str]] = _declared_endpoints()
 @settings(max_examples=150, deadline=None)
 @given(data=st.data())
 def test_property_1_every_declared_route_is_a_frozen_operation(data):
-    """Each declared ``(method, path)`` pair is one of the six frozen operations.
+    """Each declared ``(method, path)`` pair is one of the seven frozen operations.
 
     Samples individual declared routes generatively; ANY extra route in the
     schema is caught as a non-member on the example that draws it (Property 1,
-    "for all declared routes, each is one of the six" — Requirement 2.2, 2.3).
+    "for all declared routes, each is one of the seven" — Requirement 2.2, 2.3).
     """
     # Feature: s3-01a-application-shell-scaffold, Property 1: Endpoint set matches
-    # exactly the six frozen operations
+    # exactly the seven frozen operations
     assert DECLARED_ENDPOINTS, "the app declared no OpenAPI operations at all"
     endpoint = data.draw(st.sampled_from(sorted(DECLARED_ENDPOINTS)))
     assert endpoint in FROZEN_ENDPOINTS, (
-        f"declared route {endpoint[0]} {endpoint[1]} is not one of the six frozen "
+        f"declared route {endpoint[0]} {endpoint[1]} is not one of the seven frozen "
         f"S2-08 operations — the API must expose EXACTLY the frozen contract "
         f"(Requirement 2.3); frozen set: {sorted(FROZEN_ENDPOINTS)}"
     )
 
 
-def test_declared_endpoint_set_equals_the_six_frozen_operations_exactly():
+def test_declared_endpoint_set_equals_the_seven_frozen_operations_exactly():
     """The declared set equals the frozen set exactly — none extra, none missing.
 
     A single bidirectional set-equality: catches an extra route (superset) and a
     missing route (subset) at once (Property 1, Requirement 2.2, 2.3).
     """
     # Feature: s3-01a-application-shell-scaffold, Property 1: Endpoint set matches
-    # exactly the six frozen operations
+    # exactly the seven frozen operations
     declared = DECLARED_ENDPOINTS
     extra = declared - FROZEN_ENDPOINTS
     missing = FROZEN_ENDPOINTS - declared
     assert declared == FROZEN_ENDPOINTS, (
-        "the declared endpoint set must equal EXACTLY the six frozen S2-08 "
+        "the declared endpoint set must equal EXACTLY the seven frozen S2-08 "
         "operations (Requirement 2.2, 2.3).\n"
         f"  extra (declared but not frozen): {sorted(extra)}\n"
         f"  missing (frozen but not declared): {sorted(missing)}"
     )
-    # Belt-and-braces: the frozen set is exactly six operations.
-    assert len(declared) == 6, f"expected exactly 6 operations, got {len(declared)}"
+    # Belt-and-braces: the frozen set is exactly seven operations.
+    assert len(declared) == 7, f"expected exactly 7 operations, got {len(declared)}"
 
 
 if __name__ == "__main__":  # pragma: no cover
