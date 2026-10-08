@@ -18,6 +18,28 @@ this package's own copy) and are evaluated generically by `rules.py`.
 Adding, removing, reordering or retuning a rule (e.g. changing the slope
 threshold) is a YAML edit — `rules.py` never changes for that.
 
+Exclusion reason schema (machine + human readable)
+--------------------------------------------------
+Every excluded cell retains its reason(s) in three consistent forms, all
+derived from a single rule evaluation (`rules.evaluate_cell_detailed`) so
+they can never drift:
+
+    exclusion_reason   human-readable text, reasons joined with ", "
+    triggered_rules    machine-readable rule-name codes, same delimiter
+    exclusion_reasons  JSON list of {"code": rule_name, "text": reason}
+                       pairs (null when eligible) — the paired form the
+                       S2-06b explanation engine and S3-05 site-detail view
+                       consume directly.
+
+The `code` values are the FROZEN exclusion reason-code vocabulary: the rule
+`name` values in `exclusion_rules.yaml`. That vocabulary is the authoritative
+machine-readable contract, governed as frozen decision F16 in the
+Decision-Engine Specification (`Sprint-2-Tasks/decision_engine_specification.md`
+§6.5); adding or renaming a code follows that document's §6.2 change-control
+process and must be applied in every recording location it lists. S2-06b's
+`exclusion_reasons` explanation schema consumes this vocabulary unchanged —
+coordinate any code change with that task (and S3-05).
+
 Modules:
     rules.py         — pure rule-engine: load_rules(), evaluate_cell()
     raster_stats.py  — reusable cell-centre-mask zonal-mean helper

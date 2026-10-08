@@ -1,0 +1,45 @@
+{
+  "derived_features": [
+    {
+      "output_file": "DATA/explanation/optmining_site-explanations_2026_nsw.json",
+      "csv_file": "DATA/explanation/optmining_site-explanations_2026_nsw.csv",
+      "stage": "explanation",
+      "product_type": "derived",
+      "generated_utc": "2026-09-14T01:54:35+00:00",
+      "git_commit": "96ab911c2fff93617f33ffefb6db3875c43af97e-dirty",
+      "records": 47311,
+      "sha256_json": "7107f89ca235e005cd5bd372cedb1f34d2d4b538256e7316d8d4431b66c82865",
+      "sha256_csv": "738e30ad156b301cb35b54781a3b79df3c5bdf81163ddd4f06c2908832ceb229",
+      "bytes_json": 25266101,
+      "bytes_csv": 15286789,
+      "inputs": [
+        {
+          "name": "scored_table",
+          "path": "DATA/scoring/optmining_suitability-score_2026_nsw.gpkg",
+          "layer": "suitability_score",
+          "sha256": "e2f348f652a31fc6b1b1acc1b070adcbfadd468dc37f8644e6859fe5735dd773"
+        },
+        {
+          "name": "integrated_feature_table",
+          "path": "DATA/integration/optmining_integrated-features_2026_nsw.gpkg"
+        }
+      ],
+      "templates_config": {
+        "path": "pipeline/explanation/explanation_templates.yaml",
+        "templates_config_id": "1b80567cab9b68bb06de1aba4bed257c1e08d16223ebcee0c8a5ecef432bc2ba",
+        "version": "1.1"
+      },
+      "weights_config": {
+        "path": "pipeline/scoring/scoring_weights.yaml",
+        "weights_config_id": "d20abaef361f2a1c4c7bf251e8d6dadf189a0111526ea7d245d898db04b13f7f",
+        "version": "1.0"
+      },
+      "counts": {
+        "n_eligible_cells": 1233,
+        "n_excluded_cells": 46078,
+        "n_explained": 47311,
+        "n_excluded_explained": 46078
+      }
+    }
+  ]
+}

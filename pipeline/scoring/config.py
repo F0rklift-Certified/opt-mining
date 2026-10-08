@@ -33,6 +33,11 @@ INTEGRATED_LAYER = _integration_config.OUTPUT_LAYER  # "integrated_features"
 # --- Input: the criteria weights (user input, overridable with --scoring-weights) ---
 DEFAULT_WEIGHTS_PATH = Path(__file__).resolve().parent / "scoring_weights.yaml"
 
+# --- Input: the named weighting scenarios (S2-07 presets; user input) ---
+# A scenario is a named weight set, validated by the same parser as the
+# default weights. Presets are data, not code — see scenarios.py.
+DEFAULT_SCENARIOS_PATH = Path(__file__).resolve().parent / "scenarios.yaml"
+
 # --- Output locations ---
 SCORING_DIR = PROJECT_ROOT / "DATA" / "scoring"
 SCORING_META_DIR = SCORING_DIR / "metadata"

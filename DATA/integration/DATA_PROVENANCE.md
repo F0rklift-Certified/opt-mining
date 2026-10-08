@@ -19,3 +19,23 @@
 - **Generated (UTC):** 2026-09-03T05:09:16+00:00
 - **Git commit:** `2e2c6375949d926579916cd12d140d6bda2f23d8`
 <!-- END integration.merge derived layer (generated) -->
+
+## Derived metadata — Input-contract gate (S2-02)
+
+These two JSON artefacts are written by the `validate` stage (`pipeline/validate.py`),
+not by `integration.merge`, and are therefore recorded outside the generated block
+above. They live alongside `metadata/integration_manifest.json` under
+`DATA/integration/metadata/` and follow the same file-naming and metadata convention.
+Both are written atomically (`pipeline/common/geo.atomic_write_json`) and are
+regenerable — the frozen dataset itself is treated as strictly read-only.
+
+- **File:** `DATA/integration/metadata/integrated_baseline_manifest.json` (Baseline_Manifest, JSON)
+- **Derived from:** the frozen S1-08 integrated table `DATA/integration/optmining_integrated-features_2026_nsw.gpkg` (layer `integrated_features`)
+- **Method:** `pipeline.validate.freeze_baseline` — records the frozen reference (path relative to project root, layer, vintage `2026`, SHA-256, byte count, human-readable size, storage CRS `EPSG:4326`, computation CRS `EPSG:3577`, UTC freeze timestamp); read-only on the dataset.
+- **Regenerable:** yes — `python -m pipeline --only validate` (write mode records/overwrites the baseline reference).
+
+- **File:** `DATA/integration/metadata/integrated_input_validation.json` (Validation_Result, JSON)
+- **Sibling report:** `DATA/integration/metadata/integrated_input_validation.md` (Validation_Report, `banner()`-stamped)
+- **Derived from:** the frozen S1-08 integrated table `DATA/integration/optmining_integrated-features_2026_nsw.gpkg` (layer `integrated_features`) and the input-contract check battery
+- **Method:** `pipeline.validate.run` → `pipeline.validate._run_integrated_input_checks` — emits the Baseline_Manifest record, the list of `{name, expected, observed, passed}` Check_Records, and the `all_passed` verdict; a pure reporter that never mutates the dataset.
+- **Regenerable:** yes — `python -m pipeline --only validate`.

@@ -55,6 +55,14 @@ python -m pipeline --only integration --confidence-weights path/to/my_weights.ya
 python -m pipeline --only scoring
 python -m pipeline --only scoring --scoring-weights path/to/my_weights.yaml
 
+# Site explanations (S2-06a + S2-06b — requires the S1-10 Scored_Table and the
+# S1-08 integrated table to exist already; emits a deterministic,
+# template/rule-based explanation of every cell: eligible cells (factors +
+# weaknesses) and excluded cells (F16 exclusion reasons), each with proxy and
+# data-quality caveats. No LLM. Reuses --scoring-weights.)
+python -m pipeline --only explanation
+python -m pipeline --only explanation --explanation-templates path/to/my_templates.yaml
+
 # Ranked shortlist (S1-11 — requires the S1-10 Scored_Table and the grid to
 # exist already; selects the top-N eligible cells by their existing rank)
 python -m pipeline --only shortlist
@@ -146,6 +154,19 @@ pipeline/
 │   ├── report.py           # Method report, validation report, derived-product provenance
 │   ├── validate.py         # No-silent-passes checks over the scored table
 │   └── run.py              # Stage entry point: run(verbose=False, ...) -> dict
+├── explanation/
+│   ├── __init__.py
+│   ├── config.py           # Paths/columns/vintage composed from scoring+integration+exclusions config
+│   ├── explanation_templates.yaml  # S2-06a/b phrases, bands, headline, proxy caveats, data-quality — USER INPUT
+│   ├── templates.py        # Templates loader + validator (fails before any write)
+│   ├── bands.py            # Qualitative band from a normalised value (boolean/constant aware)
+│   ├── caveats.py          # Stage (S2-06b): PURE proxy + data-quality caveat builders
+│   ├── engine.py           # Stage (S2-06a/b): PURE explain_cell + explain_excluded_cell
+│   ├── load.py             # Reads Scored_Table + integrated table; norms + F16 reasons + confidence
+│   ├── write.py            # Explanation_Table (JSON+CSV) + schema-doc writers (atomic)
+│   ├── report.py           # Method report, validation report, derived-product provenance
+│   ├── validate.py         # No-silent-passes checks over the explanations (eligible + excluded + caveats)
+│   └── run.py              # Stage entry point: run(verbose=False, ...) -> dict
 ├── demand/
 │   ├── __init__.py
 │   ├── __main__.py          # Demand-specific CLI
@@ -180,7 +201,8 @@ wind.probe → wind.download → wind.inspect → wind.validate → wind.analyse
 → demand.feature (per-cell demand proxy)
 → exclusions (S1-07 exclusion layer — eligibility per cell)
 → integration (S1-08 Integrated Feature Table — joins every feature layer + exclusions by cell_id; S1-09 appends the composite data confidence)
-→ scoring (S1-10 baseline suitability model — weighted MCDA over the integrated table; scores, ranks and explains every eligible cell)
+→ scoring (S1-10 baseline suitability model — weighted MCDA over the integrated table; scores and ranks every eligible cell, retaining per-criterion contributions)
+→ explanation (S2-06a + S2-06b deterministic site explanations — a human-readable, template/rule-based explanation of every cell: eligible cells' factors + weaknesses and excluded cells' F16 exclusion reasons, each with proxy and data-quality caveats; no LLM)
 → shortlist (S1-11 preliminary ranked shortlist — selects the top-N eligible cells by their existing S1-10 rank; the Sprint 1 headline output)
 → validate (cross-domain integration checks)
 → sanity (S1-12 plausibility sanity check — TERMINAL; validates the pipeline outputs against known reality, distinct from the structural `validate` step above)
@@ -219,6 +241,17 @@ score     = SUM_i contrib_i                          -> [0, 1]
 - **Explainability:** every criterion's additive contribution to every score is written to the table as `contrib_{feature}`, and the contributions are verified to sum back to the score on every run. `rank` 1 is the best cell; ties break by ascending `cell_id`.
 - **Confidence** is carried through from the S1-09 composite flag unchanged, never recomputed or fabricated. The optional confidence discount (`--confidence-discount`) multiplies both the score and its contributions by the cell's factor, so they stay reconcilable.
 - **Not circular:** `wind_speed` is an input criterion only, never a prediction target.
+
+The authoritative decision design behind this stage — the exact scored criteria and their directions, the scoring formula and its weight-normalisation rule, the normalisation/outlier/missing-value policies, and the default weights (documented as assumptions with a rationale each) — is frozen in the **[Decision-Engine Specification](../Sprint-2-Tasks/decision_engine_specification.md)** (`Sprint-2-Tasks/decision_engine_specification.md`, the Client Checkpoint A artefact). That specification reconciles against `pipeline/scoring/scoring_weights.yaml` and `pipeline/scoring/`, and any change to a frozen scoring decision must be applied across the specification, the weights YAML and the data specification (§4.7) under the data-specification §8 change-control process.
+
+Note: `explanation` (S2-06a + S2-06b) runs after `scoring` and before `shortlist` because the S1-10 Scored_Table is its input. It is a **deterministic, template/rule-based** explanation engine — **no language model** — that turns the per-criterion contributions into a human-readable narrative for every cell, eligible and excluded:
+
+- **Eligible cells: positive factors and weaknesses.** For each eligible cell it names the criteria contributing the most to the score as positive factors (ranked by the persisted `contrib_{feature}`, never recomputed) and the criteria the cell scores poorly on as weaknesses, in screening-level language ("higher-ranked candidate under the selected assumptions", never "best site").
+- **Excluded cells: exclusion reasons (S2-06b).** For each excluded cell it states the machine- and human-readable exclusion reason(s) as `{code, text}` pairs (the F16 vocabulary, Decision-Engine Spec §6.5). The integrated table carries the two delimited F16 forms (`triggered_rules` codes + `exclusion_reason` texts), so the pairs are **reconstructed** from those — the frozen S1-08 baseline is not mutated — and eligibility is never recomputed.
+- **Proxy and data-quality caveats on every record (S2-06b, AC7).** Any proxy variable the cell used is called out as a proxy (the demand feature is a spatial proxy, never presented as measured local demand); the S1-09 composite confidence level is surfaced on every record, with reduced-confidence reasons appended when present.
+- **Qualitative bands from the values.** A coarse band ("top decile" / "strong" / "moderate" / "limited") is appended to each eligible factor. Because the Scored_Table does not persist the normalised intermediates, they are recomputed from the integrated table using the **same** scoring normaliser (`pipeline/scoring/normalise.py`) with the same weights — there is no second normaliser — and a reconciliation guard asserts the recomputed contributions reproduce the persisted ones before anything is written.
+- **Phrasing is data.** The phrases, band thresholds, proxy markers/caveats and data-quality templates load at runtime from `pipeline/explanation/explanation_templates.yaml` (or `--explanation-templates PATH`); no phrase literal appears in `pipeline/explanation/`. The criteria weights are reused from `--scoring-weights` and must match the ones the Scored_Table was produced from.
+- **Deterministic.** The same Scored_Table, integrated table and templates always produce byte-identical explanations. The Explanation_Structure — eligible (`cell_id`, `eligible`, `headline`, `positive_factors`, `weaknesses`) and excluded (`cell_id`, `eligible`, `exclusion_reasons`), both carrying `proxy_caveats` + `data_quality_notes` — is the **frozen contract** S2-08 `get_site_detail` / S3-05 consume; it is documented in `DATA/explanation/metadata/explanation_schema.md`.
 
 Note: `shortlist` (S1-11) runs after `scoring` and before `validate` because the S1-10 Scored_Table is its sole score input. It is a **filtering and formatting** stage, not a modelling stage — it performs no re-scoring and no re-ranking:
 
@@ -369,7 +402,8 @@ DATA/
 ├── integration/            # Integrated NSW Feature Table (S1-08) with data confidence (S1-09) + Task 5 analysis
 ├── scoring/                # Baseline suitability score, rank and per-criterion contributions (S1-10)
 ├── shortlist/              # Preliminary ranked shortlist — top-N eligible cells (CSV + GeoJSON) + summary (S1-11)
-└── sanity/                 # S1-12 sanity-check Results_Sidecar + provenance (the report itself is written to outputs/)
+├── sanity/                 # S1-12 sanity-check Results_Sidecar + provenance (the report itself is written to outputs/)
+└── service/                # S2-08 Decision_Service per-Run materialisations (runs/{run_id}/), created on demand by run_analysis
 ```
 
 The S1-12 sanity check writes its human-readable Validation_Report outside the `DATA/` tree, to `outputs/sprint1_validation_report.md`.
@@ -489,7 +523,10 @@ Infrastructure data is pre-downloaded, so the `download` stage is a presence che
 | `metadata/confidence_method.md` | integration | S1-09 methodology: formula, per-feature weights with resolution and limitation factors and their data-spec bases, per-layer flag factors, soft flags, thresholds, what is deliberately not an input, config SHA-256 |
 | `metadata/confidence_summary.md` | integration | S1-09 data-quality summary: counts and shares per level, score histogram, distinct score profiles, ranked reasons (all cells and eligible cells), eligibility cross-tab, lattice neighbour agreement, 1°×1° blocks, bounding boxes |
 | `metadata/integration_manifest.json` | integration | `derived_features` record: output hashes and sizes, git commit, the six inputs with SHA-256 |
-| `DATA_PROVENANCE.md` | integration | Generated derived-layer block (BEGIN/END markers) beneath the handwritten header |
+| `metadata/integrated_baseline_manifest.json` | validate | S2-02 Baseline_Manifest: the frozen-baseline reference to this integrated table — path (relative to the project root), layer, version/vintage, SHA-256, byte count, storage/computation CRS and UTC timestamp; the input-contract gate re-hashes the table against this record to detect drift (read-only; the table is never rewritten) |
+| `metadata/integrated_input_validation.json` | validate | S2-02 Validation_Result: the machine-readable input-contract result — the Baseline_Manifest record, every `{name, expected, observed, passed}` Check_Record, the check/passed counts and the `all_passed` verdict; S2-05 scoring and the S2-08 service read this sidecar and gate on `all_passed` without re-running validation |
+| `metadata/integrated_input_validation.md` | validate | S2-02 Validation_Report (banner-stamped): the human-readable expected/observed/result table for the input-contract checks, phrased in preliminary-screening language |
+| `DATA_PROVENANCE.md` | integration | Generated derived-layer block (BEGIN/END markers) beneath the handwritten header; also carries S2-02 Provenance_Records for the Baseline_Manifest and Validation_Result (validate) |
 | `integration_analysis.md` | — | Task 5 cross-domain analysis (Sprint 0, `pipeline.integration.analyse`) |
 
 **Scope note:** the table carries the per-layer flags (`wind_confidence`, `demand_confidence`, `infra_confidence`, `geo_confidence`), an objective `n_missing_features` count (nulls among the ten scored feature columns) and, from S1-09, the composite `data_confidence` / `confidence_score` / `confidence_notes`. The composite is a weighted sum over the ten scored features of availability × resolution factor × known-limitation factor × upstream-flag factor, normalised by the weight sum, with thresholds high ≥ 0.8 and medium ≥ 0.5 (`pipeline/integration/confidence_weights.yaml`; formula and bases in `metadata/confidence_method.md`). On the committed data the distribution is high 1,600 / medium 45,711 / low 0 with five distinct scores: the 1,600 New-England-REZ-window cells (which include every eligible cell) score 0.830 and the rest of the state 0.633–0.699, because the geographic rasters and the connection-point distance are the missing evidence while the heavily weighted wind and GA distances are present statewide. The maximum attainable score under the defaults is 0.870. Confidence never excludes a cell; excluded cells are retained with `eligible = False`. The WARN cross-layer checks compare S1-07's own raster recomputation with the geographic and wind layers; on the committed data they report the known divergence that S1-07 samples the New-England-REZ wind clip while `wind.features` covers all of NSW (45,711 cells where only one side is null), plus 73 boundary cells whose means differ by more than 0.01 m/s.
@@ -546,6 +583,31 @@ The `sanity` stage is the **terminal** stage and a preliminary-screening plausib
 
 **Scope note:** the `sanity` stage reads all inputs **read-only** — it never re-scores, re-ranks, re-weights or otherwise adjusts the model to make a check pass. It locates wind farms and landmarks to their grid cells by a point-in-polygon join performed in EPSG:3577 (the transform logged in the report), computes percentile/distribution statistics over the eligible cell population only, and records surprising results honestly as anomalies or Sprint 2 issues rather than suppressing them. Spot_Check_Cells count (`--sanity-spot-cells`, default 8, range 5–10) and the Wind_Generators path (`--wind-generators`) are runtime values, not frozen decisions (Q1–Q7). This is a plausibility screen at the ~5 km (0.05 degree) resolution — **not** a formal accuracy assessment and **not** a site approval.
 
+### Decision_Service (`DATA/service/`) — S2-08
+
+The Decision_Service is **not a pipeline stage** — it is the thin read-and-serve HTTP layer (`pipeline/service/`) that exposes the decision engine to the Sprint 3 web application. It is realised as a **FastAPI app** (`pipeline/service/app.py`) that maps the six transport-agnostic Service_Operations onto HTTP endpoints and publishes the OpenAPI schema the Sprint 3 typed client is generated from. The app is a thin transport shell: it imports the operation functions unchanged and holds **no** scoring, normalisation, ranking or exclusion logic (that all lives in S2-03..S2-07). Its human-readable contract is [`pipeline/service/CONTRACT.md`](service/CONTRACT.md) — **frozen** at the Sprint 2/Sprint 3 boundary; the OpenAPI schema is the authoritative machine-readable form.
+
+Run it with an ASGI server (e.g. `uvicorn pipeline.service.app:app`); the endpoints and published surfaces are:
+
+| Published surface / endpoint | Operation | Description |
+|------|------|-------------|
+| `GET /openapi.json`, `GET /docs`, `GET /redoc` | — | The frozen OpenAPI schema (machine-readable contract) and browsable API docs (Requirement 6.1, 6.4) |
+| `POST /runs` | `run_analysis` | Drive the S2-05 scoring engine under explicit weights or a named scenario; returns a `RunHandle`. Invalid weights / unknown scenario → 422, no Run (Requirement 4.4) |
+| `GET /runs/{run_id}/results` | `get_ranked_results` | Ranked rows over the Run's fixed Scored_Table, with optional `top_n` / `min_score` Display_Filters (pure selection, never re-scores) |
+| `GET /runs/{run_id}/sites/{cell_id}` | `get_site_detail` | One cell's features, contributions, score, rank, eligibility and the S2-06 explanation; same score/rank as the ranked results (Property P1). Unknown cell → 404 |
+| `GET /runs/{run_id}/exclusions` | `get_exclusions` | The Run's excluded cells with machine- and human-readable reasons from the Eligibility_Table |
+| `POST /scenario-comparison` | `compare_scenarios` | Per-cell rank comparison of two named scenarios; each scenario's ranks come from the engine, reused (Property P5) |
+| `GET /data-quality` | `get_data_quality` | The S2-02 Data_Quality_Status for a UI banner; a missing status fails honestly with 503 |
+
+Materialised outputs write under `DATA/service/`:
+
+| Path | Producer | Description |
+|------|------|-------------|
+| `runs/{run_id}/optmining_suitability-score_2026_nsw.gpkg` (+ `.csv`) | `run_analysis` | The per-Run Scored_Table the engine materialised for that weights/scenario (layer `suitability_score`), written atomically. The `run_id` is content-addressed on the resolved weights, so identical requests reuse the same Run rather than proliferating materialisations |
+| `runs/{run_id}/run.json` | `run_analysis` | Run manifest / provenance: the `weights_id`, scenario (if any), the criteria scored, the integrated-input path + SHA-256, the cell count and the UTC timestamp |
+
+**Scope note:** the service is deliberately thin — it reads materialised engine outputs and serves them, applying only pure display-level selection (top-N, minimum-score). This is the structural guarantee behind combined-sprint AC4: the Web_Application can only call this service, so it has no code path by which to recompute a score, a rank or an eligibility decision. Empty-but-valid results (a top-N over the eligible count, an all-excluding threshold) are returned as empty sets with a `200`, never as an error; a missing Run / `cell_id` / engine output fails honestly (404 / 404 / 503) rather than fabricating a result.
+
 ## Data Sources
 
 | Domain | Source | Licence |
@@ -587,6 +649,7 @@ Validation is structured in two tiers:
 
 **Cross-domain integration** (`pipeline.validate`):
 
+- **S2-02 input-contract gate (runs first).** `_run_integrated_input_checks()` runs the twelve-check input-contract battery over the frozen S1-08 integrated table **before** the wind, scoring and shortlist cross-checks below, because the input contract gates them. It first freezes/verifies the baseline (`freeze_baseline()`), then checks the baseline hash, required and scored columns, `cell_id` non-null/unique, coordinate/geometry/CRS validity, per-scored-column sanity ranges, missing-value counts and the eligibility field (boolean, consistent with `exclusion_reason`, at least one eligible cell). It reads the schema from `pipeline/integration/` (`OUTPUT_COLUMNS`/`SCORED_FEATURE_COLUMNS`/`COLUMN_UNITS`/`BOOL_COLUMNS`) rather than re-typing it, and it is read-only on the frozen table (never reprojects or rewrites it). It emits the Baseline_Manifest (`DATA/integration/metadata/integrated_baseline_manifest.json`), the machine-readable Validation_Result (`integrated_input_validation.json`) and the banner-stamped Validation_Report (`integrated_input_validation.md`). `run()` stays a pure reporter — it never raises on a data-quality failure — and returns a single `all_passed` verdict. This gate is a **preliminary-screening precondition**: `all_passed` (plus at least one eligible cell) is the consumer contract that S2-05 scoring and the S2-08 service gate on without re-running validation; it gates preliminary screening and never asserts a "best site".
 - Wind farms are on land (NE + ABS mask agreement)
 - Wind farms are outside protected areas (CAPAD)
 - Wind farms have acceptable slope (< 15°)
@@ -600,6 +663,7 @@ Validation stages produce Markdown reports in the relevant `metadata/` directory
 - `DATA/geographic/metadata/landmask_assessment.md`
 - `DATA/wind-resource/metadata/validation_wind_farms.md`
 - `DATA/wind-resource/metadata/crosscheck_prototype.md`
+- `DATA/integration/metadata/integrated_input_validation.md` (S2-02 input-contract gate; the machine-readable sibling is `integrated_input_validation.json`)
 
 ### Design Principles
 
@@ -647,3 +711,5 @@ These questions arose from the Task 5 integration analysis. They were resolved b
 | 5 | Operational or total demand? | **Operational demand** — grid-served load, the load new generation must serve (excludes behind-the-meter PV). |
 | 6 | Hard exclusion threshold for protected areas? | **Binary** — any CAPAD intersection excludes the cell. |
 | 7 | Infrastructure distance hard exclusion? | **No hard exclusion for V1** — continuous distance penalty only; remote cells rank low naturally. |
+
+**S2-02 change-control note.** The Sprint 2 input-contract gate (S2-02) *reads* these frozen decisions and the frozen S1-08 schema — it does not change any of them. It adopts the S1-08 integrated table as the frozen baseline input and validates it read-only; it never mutates the dataset, re-types the schema, or alters a Q1–Q7 parameter. Accordingly, **no frozen-decision change under the data-specification §8 change-control process is required for this release**, and no new input-contract reference is added to `DATA/data-specification/sprint1_data_specification.md`. If, and only if, reconciliation later surfaces a genuine mismatch between the frozen decisions/schema and the integrated table, that would be logged as a Sprint 1 bug and taken through the §8 process — never patched by silently rewriting the baseline.
