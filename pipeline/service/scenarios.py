@@ -1,135 +1,142 @@
 """
 `compare_scenarios` — the scenario-comparison Service_Operation (S2-08,
-CONTRACT.md §4.5, Requirement 1.5).
+CONTRACT.md §4.5).
 
-Runs two named Scenarios over the engine's feature table and returns a per-cell
-ranking comparison as a ``ScenarioComparison`` (the service model). It holds NO
-comparison or diff arithmetic: it resolves the two Scenario keys through the
-ENGINE's own scenario parser (`pipeline/scoring/scenarios.py::load_scenarios`),
-delegates the whole comparison to the ENGINE
-(`pipeline.scoring.scenarios.compare_scenarios`), and only MAPS the engine's
-result onto the frozen service shape (CONTRACT.md §1, §7-P3, Requirement 2.4,
-8.2). There is no second scenario comparator to drift from the engine's.
+Compares two named Scenarios and returns a per-cell rank comparison
+(Requirement 1.5). Each scenario's ranks are produced via the **S2-05 engine**,
+NOT a second scorer (Property P5, Requirement 4.3): this module materialises
+each Scenario as its own Run through `run_analysis` (which drives the S2-05
+scoring stage unchanged and reuses the Run store, idempotent by content) and
+reads the two rankings back through `get_ranked_results` — the same fixed
+Scored_Table projection every other read operation uses. There is no scoring,
+normalisation or ranking arithmetic here; the only computation is the display
+convenience `rank_delta = rank_a - rank_b`, a difference of two engine ranks.
 
-WHY A SEPARATE SERVICE MODEL. The engine's `ScenarioComparison`
-(`pipeline.scoring.scenarios`) carries only cells ranked in BOTH runs — so every
-rank is non-null — plus the additive score fields (`score_a`, `score_b`,
-`score_delta`). The frozen S2-08 shape (CONTRACT.md §5) drops those additive
-score fields and admits a cell ranked in only one scenario (each of `rank_a`,
-`rank_b`, `rank_delta` is nullable). This module maps the engine rows onto that
-service shape; the mapping neither renames a §5 field nor computes a value the
-engine did not (the ranks and the delta are carried through as the engine set
-them).
+Because both Runs score the SAME eligible population under the SAME criteria and
+directions, their eligible-population normalisation bounds are identical, so a
+rank change between the two columns is attributable PURELY to the weight
+difference (CONTRACT.md §3, §4.5) — which is what makes the two Scenarios
+comparable.
 
-The transport-free `compare_scenarios(scenario_a, scenario_b)` here is the
-operation the FastAPI `POST /scenario-comparison` endpoint (a later task) maps a
-``ScenarioComparisonRequest`` onto — parsing two scenario keys and serialising
-the returned ``ScenarioComparison``, with no decision logic of its own.
+FAIL HONESTLY. An unknown Scenario is rejected by the ENGINE's own parser
+(`run_analysis` -> `resolve_weights` -> `ScoringConfigError`), naming the fault
+and creating no Run (Requirement 4.4). This module adds no duplicate scenario
+validator; it relies on the same one `run_analysis` already uses.
 """
 
 from __future__ import annotations
 
-from ..scoring.load import load_integrated
-from ..scoring.scenarios import compare_scenarios as _engine_compare_scenarios
-from ..scoring.scenarios import load_scenarios
-from ..scoring.weights import ScoringConfigError
-from . import config
 from .models import ScenarioComparison, ScenarioComparisonRow
+from .results import get_ranked_results
+from .run_analysis import run_analysis
 
 
 def compare_scenarios(
     scenario_a: str,
     scenario_b: str,
+    *,
+    verbose: bool = False,
 ) -> ScenarioComparison:
     """
-    Compare two named Scenarios' rankings and return a ``ScenarioComparison``
-    (CONTRACT.md §4.5, Requirement 1.5, 2.3, 2.4, 8.2).
+    Compare two named Scenarios, returning a per-cell rank comparison
+    (CONTRACT.md §4.5, Requirement 1.5, 4.3).
 
-    Resolves both Scenario keys through the engine's own parser
-    (`load_scenarios`), loads the engine's feature table, and DELEGATES the
-    entire comparison to `pipeline.scoring.scenarios.compare_scenarios` — the
-    two Scenarios are scored against ONE shared set of normalisation bounds so a
-    rank change is attributable purely to the change in weighting (the S2-07
-    consistency guarantee). This operation performs NO scoring, normalisation,
-    ranking or diff arithmetic itself; it only maps the engine's result onto the
-    frozen service model (Requirement 2.4, 8.2).
-
-    The service model drops the engine's additive score fields (`score_a`,
-    `score_b`, `score_delta`) and types each rank as nullable (CONTRACT.md §5);
-    the engine returns only cells ranked in BOTH runs, so in practice every
-    mapped rank is non-null and `rank_delta` is present, carried through as the
-    engine computed it.
+    Each scenario is materialised as its own S2-05 Run via ``run_analysis`` and
+    its ranks are read back via ``get_ranked_results`` — the ENGINE, reused, not
+    a second scorer (Property P5). The two Runs share the same criteria,
+    directions and eligible-population normalisation bounds, so a rank change is
+    attributable purely to the weight difference.
 
     Parameters
     ----------
     scenario_a :
-        The first Scenario key from the packaged ``scenarios.yaml`` (e.g.
-        ``"wind_led"``).
+        A named Scenario key from the packaged ``scenarios.yaml`` (e.g.
+        ``"wind_led"``). Its ranks populate ``rank_a``.
     scenario_b :
-        The second Scenario key (e.g. ``"grid_led"``).
+        A named Scenario key. Its ranks populate ``rank_b``.
+    verbose :
+        Print a one-line note as each scenario's Run materialises.
 
     Returns
     -------
     ScenarioComparison
-        ``labels {a, b}`` plus one ``ScenarioComparisonRow`` per compared cell,
-        in the engine's row order (scenario A's rank order). Empty ``rows`` when
-        the two Scenarios share no ranked cell (an empty-but-valid result, not
-        an error).
+        ``labels = {"a": scenario_a, "b": scenario_b}`` and one
+        ``ScenarioComparisonRow`` per cell eligible/ranked under at least one of
+        the two Scenarios. Each row carries the cell's rank under each Scenario
+        (``None`` where the cell is not ranked under that Scenario) and
+        ``rank_delta = rank_a - rank_b`` when both are present, ``None``
+        otherwise (CONTRACT.md §5). Rows are ordered by ascending ``rank_a``,
+        with cells ranked only under ``scenario_b`` following in ascending
+        ``rank_b`` order.
 
     Raises
     ------
     ScoringConfigError
-        A ``ValueError`` subclass — when either Scenario key is unknown, or when
-        the two Scenarios are not comparable (they score different criteria
-        sets). The engine parser and comparator are the single validators; no
-        comparison is produced in these cases.
-    EngineOutputError
-        The engine's integrated feature table is missing or unreadable — the
-        error names the missing input rather than fabricating a result.
+        Either Scenario is unknown — raised by the engine's own parser via
+        ``run_analysis``, naming the fault and creating no Run (Requirement
+        4.4). No duplicate validator lives here.
+    RunNotFoundError, EngineOutputError
+        Propagated from ``get_ranked_results`` if a materialised Run or its
+        Scored_Table is missing/unreadable (Requirement 7.1, 7.3).
     """
-    scenarios = load_scenarios(config.DEFAULT_SCENARIOS_PATH)
+    # Materialise each Scenario as its own S2-05 Run (idempotent by content) and
+    # read its ranks back through the fixed-table projection. THE ENGINE, REUSED.
+    handle_a = run_analysis(scenario=scenario_a, verbose=verbose)
+    handle_b = run_analysis(scenario=scenario_b, verbose=verbose)
 
-    resolved_a = _resolve_scenario(scenario_a, scenarios)
-    resolved_b = _resolve_scenario(scenario_b, scenarios)
+    ranks_a = {row.cell_id: row.rank for row in get_ranked_results(handle_a)}
+    ranks_b = {row.cell_id: row.rank for row in get_ranked_results(handle_b)}
 
-    # Load + validate the feature table with the ENGINE's own loader (the same
-    # loader run_analysis uses); the two Scenarios share the same criteria set,
-    # so scenario A's criteria are a representative spec for the load.
-    features = load_integrated(config.INTEGRATED_PATH, resolved_a.weights.criteria)
+    rows = _build_comparison_rows(ranks_a, ranks_b)
 
-    # DELEGATE the whole comparison to the engine — no diff arithmetic here.
-    engine_result = _engine_compare_scenarios(features, resolved_a, resolved_b)
+    return ScenarioComparison(
+        labels={"a": scenario_a, "b": scenario_b},
+        rows=rows,
+    )
 
-    # MAP the engine result onto the frozen service shape: keep the labels,
-    # project each engine row to a ScenarioComparisonRow, and drop the additive
-    # score fields the §5 shape does not carry. The ranks and rank_delta are
-    # carried through exactly as the engine set them (nullable in the service
-    # model, non-null in practice for a both-runs row).
-    rows = [
-        ScenarioComparisonRow(
-            cell_id=str(row.cell_id),
-            rank_a=row.rank_a,
-            rank_b=row.rank_b,
-            rank_delta=row.rank_delta,
+
+def _build_comparison_rows(
+    ranks_a: dict[str, int],
+    ranks_b: dict[str, int],
+) -> list[ScenarioComparisonRow]:
+    """
+    Join the two per-scenario rank maps into per-cell comparison rows.
+
+    A cell appears once, keyed by ``cell_id``, if it is ranked under at least
+    one Scenario. ``rank_delta`` is ``rank_a - rank_b`` only when BOTH ranks are
+    present, else ``None`` (CONTRACT.md §5) — the sole arithmetic in the
+    operation, a difference of two engine ranks (never a re-ranking).
+
+    Ordering: cells ranked under ``scenario_a`` come first in ascending
+    ``rank_a`` order (the ``scenario_a`` ranking), then cells ranked only under
+    ``scenario_b`` in ascending ``rank_b`` order — a deterministic, readable
+    order for the comparison table with no reliance on dict insertion order.
+    """
+    rows: list[ScenarioComparisonRow] = []
+
+    # Cells ranked under scenario_a, in ascending rank_a order.
+    for cell_id in sorted(ranks_a, key=lambda c: ranks_a[c]):
+        rank_a = ranks_a[cell_id]
+        rank_b = ranks_b.get(cell_id)
+        rows.append(
+            ScenarioComparisonRow(
+                cell_id=cell_id,
+                rank_a=rank_a,
+                rank_b=rank_b,
+                rank_delta=(rank_a - rank_b) if rank_b is not None else None,
+            )
         )
-        for row in engine_result.rows
-    ]
 
-    return ScenarioComparison(labels=dict(engine_result.labels), rows=rows)
-
-
-def _resolve_scenario(name: str, scenarios: dict):
-    """
-    Resolve a Scenario key to its validated ``Scenario`` via the engine parser.
-
-    Raises ``ScoringConfigError`` naming the unknown key (and listing the known
-    ones) rather than silently comparing against a missing Scenario — the same
-    unknown-scenario fault ``run_analysis`` raises, so both operations reject an
-    unknown scenario identically.
-    """
-    if name not in scenarios:
-        known = ", ".join(sorted(scenarios)) or "(none)"
-        raise ScoringConfigError(
-            f"unknown scenario {name!r}; known scenarios: {known}"
+    # Cells ranked only under scenario_b (no rank_a), in ascending rank_b order.
+    only_b = [cell_id for cell_id in ranks_b if cell_id not in ranks_a]
+    for cell_id in sorted(only_b, key=lambda c: ranks_b[c]):
+        rows.append(
+            ScenarioComparisonRow(
+                cell_id=cell_id,
+                rank_a=None,
+                rank_b=ranks_b[cell_id],
+                rank_delta=None,
+            )
         )
-    return scenarios[name]
+
+    return rows
