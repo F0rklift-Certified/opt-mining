@@ -18,6 +18,10 @@
 # Kiro
 .kiro/
 
+# Agent task artefacts (local workflow run reports, task state). Machine-local
+# and regenerable; never committed.
+.agents/
+
 # Environment
 .env
 .env.*
