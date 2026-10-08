@@ -42,6 +42,13 @@ const addLayerSpy = jest.fn();
  */
 let layerHandlers: Record<string, (event: unknown) => void> = {};
 let canvasCursor = "";
+/**
+ * Records the last `setData` payload per source id so tests can assert the
+ * persistent `cell-selected` box and the transient `cell-hover` box
+ * independently (both route through the shared `setDataSpy` too). Keyed by the
+ * source id passed to `getSource`.
+ */
+let lastSetDataBySource: Record<string, unknown> = {};
 
 jest.mock("maplibre-gl", () => {
   class MockMap {
@@ -65,8 +72,13 @@ jest.mock("maplibre-gl", () => {
     addLayer(layer: { id: string }) {
       addLayerSpy(layer.id);
     }
-    getSource() {
-      return { setData: (...args: unknown[]) => setDataSpy(...args) };
+    getSource(id: string) {
+      return {
+        setData: (...args: unknown[]) => {
+          lastSetDataBySource[id] = args[0];
+          setDataSpy(...args);
+        },
+      };
     }
     getCanvas() {
       return {
@@ -171,6 +183,7 @@ beforeEach(() => {
   addLayerSpy.mockClear();
   layerHandlers = {};
   canvasCursor = "";
+  lastSetDataBySource = {};
 });
 
 describe("CellMap (S3-03a map rendering)", () => {
@@ -461,21 +474,45 @@ describe("CellMap click-to-inspect (S3-03b)", () => {
     expect(canvasCursor).toBe("");
   });
 
-  it("adds the selection source and outline layer on load", async () => {
+  it("adds the selected and hover highlight sources and outline layers on load", async () => {
     const getRunCells = jest.fn().mockResolvedValue(featureCollection("run-1"));
     render(<CellMap runId="run-1" service={serviceWithCells(getRunCells)} />);
     await waitFor(() => expect(setDataSpy).toHaveBeenCalled());
 
-    expect(addSourceSpy).toHaveBeenCalledWith("cell-selection");
-    expect(addLayerSpy).toHaveBeenCalledWith("cell-selection-outline");
+    expect(addSourceSpy).toHaveBeenCalledWith("cell-selected");
+    expect(addLayerSpy).toHaveBeenCalledWith("cell-selected-outline");
+    expect(addSourceSpy).toHaveBeenCalledWith("cell-hover");
+    expect(addLayerSpy).toHaveBeenCalledWith("cell-hover-outline");
   });
 
-  it("draws a square around the hovered cell's point on mousemove", async () => {
+  const d = 0.0225; // SELECTION_HALF_DEG — half-width of the highlight square
+
+  /** The expected closed square ring centred on [lng, lat], inset by d. */
+  function expectedRing(lng: number, lat: number): number[][] {
+    return [
+      [lng - d, lat - d],
+      [lng + d, lat - d],
+      [lng + d, lat + d],
+      [lng - d, lat + d],
+      [lng - d, lat - d],
+    ];
+  }
+
+  /** The square ring last applied to a given highlight source, or null. */
+  function ringForSource(sourceId: string): number[][] | null {
+    const fc = lastSetDataBySource[sourceId] as
+      | GeoJSON.FeatureCollection
+      | undefined;
+    const feature = fc?.features[0];
+    if (!feature || feature.geometry.type !== "Polygon") return null;
+    return (feature.geometry as GeoJSON.Polygon).coordinates[0] ?? null;
+  }
+
+  it("draws the transient hover box around the hovered cell on mousemove", async () => {
     const getRunCells = jest.fn().mockResolvedValue(featureCollection("run-1"));
     render(<CellMap runId="run-1" service={serviceWithCells(getRunCells)} />);
     await waitFor(() => expect(setDataSpy).toHaveBeenCalled());
 
-    const d = 0.0225; // SELECTION_HALF_DEG — half-width of the highlight square
     const lng = 151.2;
     const lat = -30.1;
     fireLayerEvent("mousemove", "cells-eligible", [
@@ -490,30 +527,30 @@ describe("CellMap click-to-inspect (S3-03b)", () => {
       },
     ]);
 
-    // The last setData call targets the selection source with a closed square
-    // ring centred on the hovered point and inset by d on every side.
-    const applied = setDataSpy.mock.calls.at(-1)?.[0] as GeoJSON.FeatureCollection;
-    expect(applied.type).toBe("FeatureCollection");
-    expect(applied.features).toHaveLength(1);
-    const feature = applied.features[0];
-    expect(feature?.geometry.type).toBe("Polygon");
-    const ring = (feature?.geometry as GeoJSON.Polygon).coordinates[0];
-    expect(ring).toEqual([
-      [lng - d, lat - d],
-      [lng + d, lat - d],
-      [lng + d, lat + d],
-      [lng - d, lat + d],
-      [lng - d, lat - d],
-    ]);
+    // The hover box is drawn; the persistent selected box is untouched (empty).
+    expect(ringForSource("cell-hover")).toEqual(expectedRing(lng, lat));
+    expect(
+      (lastSetDataBySource["cell-selected"] as GeoJSON.FeatureCollection)
+        .features,
+    ).toHaveLength(0);
   });
 
-  it("clears the highlight square when the pointer leaves the cell layer", async () => {
+  it("pins the persistent selected box on the clicked cell and keeps it through hover", async () => {
     const getRunCells = jest.fn().mockResolvedValue(featureCollection("run-1"));
-    render(<CellMap runId="run-1" service={serviceWithCells(getRunCells)} />);
+    const onSelectCell = jest.fn();
+    render(
+      <CellMap
+        runId="run-1"
+        service={serviceWithCells(getRunCells)}
+        onSelectCell={onSelectCell}
+      />,
+    );
     await waitFor(() => expect(setDataSpy).toHaveBeenCalled());
 
-    // Hover to draw a square, then leave: the last setData empties the source.
-    fireLayerEvent("mousemove", "cells-eligible", [
+    const selLng = 151.2;
+    const selLat = -30.1;
+    // Click cell A: the selected box is pinned there and the inspect callback fires.
+    fireLayerEvent("click", "cells-eligible", [
       {
         properties: {
           cell_id: "S30.100_E151.200",
@@ -521,25 +558,80 @@ describe("CellMap click-to-inspect (S3-03b)", () => {
           suitability_score: 0.9,
           rank: 1,
         },
-        geometry: { type: "Point", coordinates: [151.2, -30.1] },
+        geometry: { type: "Point", coordinates: [selLng, selLat] },
+      },
+    ]);
+    expect(onSelectCell).toHaveBeenCalledTimes(1);
+    expect(ringForSource("cell-selected")).toEqual(expectedRing(selLng, selLat));
+
+    // Now hover a DIFFERENT cell B: the hover box moves there, but the pinned
+    // selected box stays on A.
+    const hovLng = 150.3;
+    const hovLat = -33.7;
+    fireLayerEvent("mousemove", "cells-eligible", [
+      {
+        properties: {
+          cell_id: "other",
+          eligible: true,
+          suitability_score: 0.5,
+          rank: 2,
+        },
+        geometry: { type: "Point", coordinates: [hovLng, hovLat] },
+      },
+    ]);
+    expect(ringForSource("cell-hover")).toEqual(expectedRing(hovLng, hovLat));
+    expect(ringForSource("cell-selected")).toEqual(expectedRing(selLng, selLat));
+  });
+
+  it("clears only the hover box on mouseleave; the pinned selected box persists", async () => {
+    const getRunCells = jest.fn().mockResolvedValue(featureCollection("run-1"));
+    render(<CellMap runId="run-1" service={serviceWithCells(getRunCells)} />);
+    await waitFor(() => expect(setDataSpy).toHaveBeenCalled());
+
+    const selLng = 151.2;
+    const selLat = -30.1;
+    fireLayerEvent("click", "cells-eligible", [
+      {
+        properties: {
+          cell_id: "S30.100_E151.200",
+          eligible: true,
+          suitability_score: 0.9,
+          rank: 1,
+        },
+        geometry: { type: "Point", coordinates: [selLng, selLat] },
+      },
+    ]);
+    fireLayerEvent("mousemove", "cells-eligible", [
+      {
+        properties: { cell_id: "other", eligible: true, suitability_score: 0.5, rank: 2 },
+        geometry: { type: "Point", coordinates: [150.3, -33.7] },
       },
     ]);
     fireLayerEvent("mouseleave", "cells-eligible");
 
-    const applied = setDataSpy.mock.calls.at(-1)?.[0] as GeoJSON.FeatureCollection;
-    expect(applied.type).toBe("FeatureCollection");
-    expect(applied.features).toHaveLength(0);
+    // Hover box emptied; selected box still pinned on the clicked cell.
+    expect(
+      (lastSetDataBySource["cell-hover"] as GeoJSON.FeatureCollection).features,
+    ).toHaveLength(0);
+    expect(ringForSource("cell-selected")).toEqual(expectedRing(selLng, selLat));
   });
 
-  it("does not draw a square when the hovered feature has no point geometry", async () => {
+  it("does not move a box when the event feature has no point geometry", async () => {
     const getRunCells = jest.fn().mockResolvedValue(featureCollection("run-1"));
-    render(<CellMap runId="run-1" service={serviceWithCells(getRunCells)} />);
+    const onSelectCell = jest.fn();
+    render(
+      <CellMap
+        runId="run-1"
+        service={serviceWithCells(getRunCells)}
+        onSelectCell={onSelectCell}
+      />,
+    );
     await waitFor(() => expect(setDataSpy).toHaveBeenCalled());
 
     setDataSpy.mockClear();
-    // A hovered feature with no geometry draws no square: setData is not called
-    // for the selection source.
-    fireLayerEvent("mousemove", "cells-eligible", [
+    // Click with no geometry: the inspect callback still fires, but the pinned
+    // box is not moved (no setData to either highlight source).
+    fireLayerEvent("click", "cells-eligible", [
       {
         properties: {
           cell_id: "S30.100_E151.200",
@@ -549,7 +641,13 @@ describe("CellMap click-to-inspect (S3-03b)", () => {
         },
       },
     ]);
-
+    expect(onSelectCell).toHaveBeenCalledTimes(1);
+    // Hover with no geometry: no hover box drawn either.
+    fireLayerEvent("mousemove", "cells-eligible", [
+      {
+        properties: { cell_id: "other", eligible: true, suitability_score: 0.5, rank: 2 },
+      },
+    ]);
     expect(setDataSpy).not.toHaveBeenCalled();
   });
 });

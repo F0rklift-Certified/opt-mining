@@ -57,18 +57,25 @@ const EXCLUDED_ENV_LAYER_ID = "cells-excluded-env";
 const ELIGIBLE_LAYER_ID = "cells-eligible";
 
 /**
- * The selection-highlight source and its outline layer (S3-03b): a single
- * square drawn around the cell currently under the pointer. The source holds
- * either an empty FeatureCollection (nothing hovered) or one square-ring
- * Polygon built around the hovered cell's point; the `line` layer traces it so
- * the square reads as an outline, not a fill. Drawn ABOVE every cell layer so
- * the highlight is never hidden behind a cell.
+ * The two highlight sources and their outline layers (S3-03b). Each source
+ * holds either an empty FeatureCollection or one square-ring Polygon built
+ * around a cell's point, traced by a `line` layer so the square reads as an
+ * outline, not a fill. Both are drawn ABOVE every cell layer so a highlight is
+ * never hidden behind a cell.
+ *
+ *   - SELECTED: set on CLICK and PERSISTS — the black box stays on the cell you
+ *     selected until you click another cell (or the run changes). Drawn on top.
+ *   - HOVER: follows the pointer on `mousemove` and is cleared on `mouseleave`,
+ *     so it is only a transient affordance under the cursor. Drawn beneath the
+ *     selected box so the persistent selection always reads clearly.
  */
-const SELECTION_SOURCE_ID = "cell-selection";
-const SELECTION_LAYER_ID = "cell-selection-outline";
+const SELECTED_SOURCE_ID = "cell-selected";
+const SELECTED_LAYER_ID = "cell-selected-outline";
+const HOVER_SOURCE_ID = "cell-hover";
+const HOVER_LAYER_ID = "cell-hover-outline";
 
 /**
- * Half-width (in degrees) of the selection square around the clicked point. The
+ * Half-width (in degrees) of the highlight square around a cell's point. The
  * analysis grid is ~5 km, i.e. roughly 0.045° of latitude; half of that frames
  * one cell snugly without overlapping its neighbours. A fixed geographic size
  * (not pixel-based) so the square tracks the cell as the map zooms. A geometric
@@ -77,10 +84,10 @@ const SELECTION_LAYER_ID = "cell-selection-outline";
 const SELECTION_HALF_DEG = 0.0225;
 
 /**
- * Build the selection source data from the hovered cell's point, or an empty
- * FeatureCollection when nothing is hovered. The square is a closed ring
- * centred on `[lng, lat]`, inset by {@link SELECTION_HALF_DEG} on each side. A
- * pure geometric read of coordinates already in memory — no decision math, no
+ * Build a highlight source's data from a cell's point, or an empty
+ * FeatureCollection when there is no point. The square is a closed ring centred
+ * on `[lng, lat]`, inset by {@link SELECTION_HALF_DEG} on each side. A pure
+ * geometric read of coordinates already in memory — no decision math, no
  * network call. Returns a NEW object each call (never mutates shared state).
  */
 function selectionSquareData(
@@ -112,18 +119,34 @@ function selectionSquareData(
 }
 
 /**
- * The selection-highlight outline layer (top-most): a bright line tracing the
- * square around the selected cell. Drawn above every cell layer so the
- * highlight is always visible.
+ * The persistent SELECTED-cell outline (top-most): a solid black box tracing
+ * the square around the clicked cell. Stays until another cell is clicked.
  */
-function selectionLayer(): maplibregl.LineLayerSpecification {
+function selectedLayer(): maplibregl.LineLayerSpecification {
   return {
-    id: SELECTION_LAYER_ID,
+    id: SELECTED_LAYER_ID,
     type: "line",
-    source: SELECTION_SOURCE_ID,
+    source: SELECTED_SOURCE_ID,
     paint: {
       "line-color": "#111827",
-      "line-width": 2,
+      "line-width": 2.5,
+    },
+  };
+}
+
+/**
+ * The transient HOVER outline: a thinner, lighter box around the cell under the
+ * pointer, drawn beneath the selected box so the persistent selection wins.
+ */
+function hoverLayer(): maplibregl.LineLayerSpecification {
+  return {
+    id: HOVER_LAYER_ID,
+    type: "line",
+    source: HOVER_SOURCE_ID,
+    paint: {
+      "line-color": "#374151",
+      "line-width": 1.5,
+      "line-dasharray": [2, 1],
     },
   };
 }
@@ -574,10 +597,14 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
   // the mount effect depending on it — keeping the S3-03a lifecycle untouched.
   const onSelectCellRef = useRef<CellMapProps["onSelectCell"]>(onSelectCell);
   onSelectCellRef.current = onSelectCell;
-  // Paints/clears the selection square from the click handler. Set in the load
-  // handler once the selection source exists; a stable ref so the mount-only
-  // effect never depends on it. `null` point clears the highlight.
-  const setSelectionSquareRef = useRef<(point: [number, number] | null) => void>(
+  // Paints/clears the PERSISTENT selected-cell square from the click handler.
+  // Set in the load handler once the source exists; a stable ref so the
+  // mount-only effect never depends on it. `null` clears the box.
+  const setSelectedSquareRef = useRef<(point: [number, number] | null) => void>(
+    () => {},
+  );
+  // Paints/clears the TRANSIENT hover square from the mousemove/leave handlers.
+  const setHoverSquareRef = useRef<(point: [number, number] | null) => void>(
     () => {},
   );
   const [mapReady, setMapReady] = useState(false);
@@ -619,17 +646,28 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
       map.addLayer(excludedNoDataLayer());
       map.addLayer(excludedEnvLayer());
       map.addLayer(eligibleLayer());
-      // The selection-highlight source + its outline layer go on top of every
-      // cell layer so the square around the clicked cell is never obscured.
-      map.addSource(SELECTION_SOURCE_ID, {
+      // The two highlight sources + their outline layers go on top of every
+      // cell layer so neither box is obscured. The hover box is added first so
+      // the persistent selected box draws above it.
+      map.addSource(HOVER_SOURCE_ID, {
         type: "geojson",
         data: selectionSquareData(null),
       });
-      map.addLayer(selectionLayer());
-      // Expose a setter the click handler uses to paint/clear the square. The
-      // selection source exists from here on, so this never races the layer.
-      setSelectionSquareRef.current = (point: [number, number] | null) => {
-        (map.getSource(SELECTION_SOURCE_ID) as GeoJSONSource | undefined)?.setData(
+      map.addLayer(hoverLayer());
+      map.addSource(SELECTED_SOURCE_ID, {
+        type: "geojson",
+        data: selectionSquareData(null),
+      });
+      map.addLayer(selectedLayer());
+      // Expose setters the handlers use to paint/clear each box. The sources
+      // exist from here on, so these never race their layers.
+      setSelectedSquareRef.current = (point: [number, number] | null) => {
+        (map.getSource(SELECTED_SOURCE_ID) as GeoJSONSource | undefined)?.setData(
+          selectionSquareData(point),
+        );
+      };
+      setHoverSquareRef.current = (point: [number, number] | null) => {
+        (map.getSource(HOVER_SOURCE_ID) as GeoJSONSource | undefined)?.setData(
           selectionSquareData(point),
         );
       };
@@ -637,15 +675,27 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
       // layers so any cell — eligible or excluded — surfaces a selection. The
       // handler reads the clicked feature's own `properties` (already in
       // memory) and invokes the current `onSelectCell`; no network call, no
-      // decision math.
+      // decision math. The CLICK also pins the persistent black box onto the
+      // clicked cell, where it STAYS until another cell is clicked.
       //
-      // The highlight square follows the pointer: `mousemove` over a cell draws
-      // the square around whichever cell is under the cursor, and `mouseleave`
-      // clears it. `mouseenter` also sets the pointer cursor over cells.
+      // The HOVER box follows the pointer: `mousemove` over a cell draws it
+      // around whichever cell is under the cursor, and `mouseleave` clears it —
+      // the pinned selected box is untouched by hover. `mouseenter` also sets
+      // the pointer cursor over cells.
       for (const layerId of CELL_LAYER_IDS) {
         map.on("click", layerId, (event: maplibregl.MapLayerMouseEvent) => {
-          const properties = event.features?.[0]?.properties;
+          const feature = event.features?.[0];
+          const properties = feature?.properties;
           if (!properties) return;
+          // Pin the persistent box onto the clicked cell's own point.
+          const geometry = feature?.geometry;
+          if (geometry?.type === "Point") {
+            const lng = geometry.coordinates[0];
+            const lat = geometry.coordinates[1];
+            if (lng !== undefined && lat !== undefined) {
+              setSelectedSquareRef.current([lng, lat]);
+            }
+          }
           onSelectCellRef.current?.(
             selectionFromProperties(
               properties as Parameters<typeof selectionFromProperties>[0],
@@ -653,13 +703,13 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
           );
         });
         map.on("mousemove", layerId, (event: maplibregl.MapLayerMouseEvent) => {
-          // Draw the highlight square around the hovered cell's own point.
+          // Draw the transient hover box around the hovered cell's own point.
           const geometry = event.features?.[0]?.geometry;
           if (geometry?.type !== "Point") return;
           const lng = geometry.coordinates[0];
           const lat = geometry.coordinates[1];
           if (lng !== undefined && lat !== undefined) {
-            setSelectionSquareRef.current([lng, lat]);
+            setHoverSquareRef.current([lng, lat]);
           }
         });
         map.on("mouseenter", layerId, () => {
@@ -667,8 +717,8 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
         });
         map.on("mouseleave", layerId, () => {
           map.getCanvas().style.cursor = "";
-          // Clear the highlight when the pointer leaves the cell layer.
-          setSelectionSquareRef.current(null);
+          // Clear only the hover box; the pinned selected box persists.
+          setHoverSquareRef.current(null);
         });
       }
       setMapReady(true);
@@ -715,9 +765,10 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
     const myId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
-    // A new run supersedes any prior selection: clear the highlight square so a
+    // A new run supersedes any prior selection: clear both highlight boxes so a
     // stale square never lingers over a cell that belongs to the previous run.
-    setSelectionSquareRef.current(null);
+    setSelectedSquareRef.current(null);
+    setHoverSquareRef.current(null);
 
     // `requestIdRef` is the single staleness guard (design §5.3): a response is
     // dropped iff a newer run has superseded it. The effect does not use a
