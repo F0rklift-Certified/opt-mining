@@ -119,6 +119,39 @@ function selectionSquareData(
 }
 
 /**
+ * Find the cell centre whose highlight square CONTAINS the cursor `[lng, lat]`,
+ * or null when the cursor is inside no cell's square. "Inside the square" means
+ * within {@link SELECTION_HALF_DEG} of a centre on BOTH axes — the same box the
+ * outline draws — so the hover box appears whenever the pointer is anywhere in
+ * a cell's footprint, not only over its small circle. When squares of adjacent
+ * centres overlap the cursor, the nearest centre (by Chebyshev distance) wins,
+ * so exactly one cell is highlighted. A pure geometric read of coordinates
+ * already in memory — no decision math; a plain `for` loop (never `.reduce`).
+ */
+function cellSquareContaining(
+  lng: number,
+  lat: number,
+  centers: [number, number][],
+): [number, number] | null {
+  const d = SELECTION_HALF_DEG;
+  let best: [number, number] | null = null;
+  let bestDist = Infinity;
+  for (let i = 0; i < centers.length; i++) {
+    const center = centers[i];
+    if (!center) continue;
+    const dx = Math.abs(lng - center[0]);
+    const dy = Math.abs(lat - center[1]);
+    if (dx > d || dy > d) continue; // cursor outside this cell's square
+    const dist = Math.max(dx, dy);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = center;
+    }
+  }
+  return best;
+}
+
+/**
  * The persistent SELECTED-cell outline (top-most): a solid black box tracing
  * the square around the clicked cell. Stays until another cell is clicked.
  */
@@ -351,6 +384,25 @@ function clipToNsw(collection: CellCollection): CellCollection {
     return pointInNsw(lng, lat);
   });
   return { ...collection, features };
+}
+
+/**
+ * Extract the `[lng, lat]` centre of every Point feature in a cell collection.
+ * Used to seed the hover test (which cell's square contains the cursor) off the
+ * same clipped data the map draws. A pure coordinate read — no decision math; a
+ * plain `for` loop, never `.reduce`/`.sort`.
+ */
+function cellCenters(collection: CellCollection): [number, number][] {
+  const centers: [number, number][] = [];
+  const features = collection.features ?? [];
+  for (let i = 0; i < features.length; i++) {
+    const geometry = features[i]?.geometry;
+    if (geometry?.type !== "Point") continue;
+    const lng = geometry.coordinates[0];
+    const lat = geometry.coordinates[1];
+    if (lng !== undefined && lat !== undefined) centers.push([lng, lat]);
+  }
+  return centers;
 }
 
 /**
@@ -607,6 +659,12 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
   const setHoverSquareRef = useRef<(point: [number, number] | null) => void>(
     () => {},
   );
+  // The current run's cell centre points, kept so the map-wide mousemove can
+  // test whether the cursor is INSIDE a cell's square (not just over its
+  // circle) and draw the hover box there. Refreshed whenever cell data is
+  // applied; emptied on run change. A ref so the mount-only handler reads the
+  // latest centres without the effect depending on them.
+  const cellCentersRef = useRef<[number, number][]>([]);
   const [mapReady, setMapReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -677,11 +735,6 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
       // memory) and invokes the current `onSelectCell`; no network call, no
       // decision math. The CLICK also pins the persistent black box onto the
       // clicked cell, where it STAYS until another cell is clicked.
-      //
-      // The HOVER box follows the pointer: `mousemove` over a cell draws it
-      // around whichever cell is under the cursor, and `mouseleave` clears it —
-      // the pinned selected box is untouched by hover. `mouseenter` also sets
-      // the pointer cursor over cells.
       for (const layerId of CELL_LAYER_IDS) {
         map.on("click", layerId, (event: maplibregl.MapLayerMouseEvent) => {
           const feature = event.features?.[0];
@@ -702,31 +755,37 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
             ),
           );
         });
-        map.on("mousemove", layerId, (event: maplibregl.MapLayerMouseEvent) => {
-          // Draw the transient hover box around the hovered cell's own point.
-          const geometry = event.features?.[0]?.geometry;
-          if (geometry?.type !== "Point") return;
-          const lng = geometry.coordinates[0];
-          const lat = geometry.coordinates[1];
-          if (lng !== undefined && lat !== undefined) {
-            setHoverSquareRef.current([lng, lat]);
-          }
-        });
-        map.on("mouseenter", layerId, () => {
-          map.getCanvas().style.cursor = "pointer";
-        });
-        map.on("mouseleave", layerId, () => {
-          map.getCanvas().style.cursor = "";
-          // Clear only the hover box; the pinned selected box persists.
-          setHoverSquareRef.current(null);
-        });
       }
+
+      // The HOVER box follows the pointer based on the SQUARE footprint, not
+      // the small circle: a map-wide `mousemove` snaps the cursor to the cell
+      // whose square contains it (via `cellSquareContaining`) and draws the box
+      // there, so the box appears whenever the pointer is anywhere inside a
+      // cell's square — not only directly over its dot. When the cursor is
+      // inside no cell's square the box clears. The pointer cursor mirrors the
+      // same test. The pinned selected box is untouched by hover.
+      map.on("mousemove", (event: maplibregl.MapMouseEvent) => {
+        const center = cellSquareContaining(
+          event.lngLat.lng,
+          event.lngLat.lat,
+          cellCentersRef.current,
+        );
+        setHoverSquareRef.current(center);
+        map.getCanvas().style.cursor = center ? "pointer" : "";
+      });
+      // Clear the hover box when the pointer leaves the map canvas entirely.
+      map.on("mouseout", () => {
+        setHoverSquareRef.current(null);
+        map.getCanvas().style.cursor = "";
+      });
       setMapReady(true);
       const pending = pendingDataRef.current;
       if (pending) {
         (map.getSource(SOURCE_ID) as GeoJSONSource | undefined)?.setData(
           pending as unknown as GeoJSON.FeatureCollection,
         );
+        // Seed the hover-containment test off the replayed cells.
+        cellCentersRef.current = cellCenters(pending);
         pendingDataRef.current = null;
       }
     });
@@ -756,6 +815,8 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
       const pending = pendingDataRef.current;
       if (mapReady && source && pending) {
         source.setData(pending as unknown as GeoJSON.FeatureCollection);
+        // Seed the hover-containment test off the replayed cells.
+        cellCentersRef.current = cellCenters(pending);
         pendingDataRef.current = null;
       }
       return;
@@ -765,10 +826,12 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
     const myId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
-    // A new run supersedes any prior selection: clear both highlight boxes so a
-    // stale square never lingers over a cell that belongs to the previous run.
+    // A new run supersedes any prior selection: clear both highlight boxes and
+    // the hover-containment centres so a stale square never lingers over a cell
+    // that belongs to the previous run.
     setSelectedSquareRef.current(null);
     setHoverSquareRef.current(null);
+    cellCentersRef.current = [];
 
     // `requestIdRef` is the single staleness guard (design §5.3): a response is
     // dropped iff a newer run has superseded it. The effect does not use a
@@ -800,6 +863,8 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
         const source = map?.getSource(SOURCE_ID) as GeoJSONSource | undefined;
         if (source) {
           source.setData(collection as unknown as GeoJSON.FeatureCollection);
+          // Seed the hover-containment test off the just-drawn cells.
+          cellCentersRef.current = cellCenters(collection);
           pendingDataRef.current = null;
         } else {
           pendingDataRef.current = collection;
