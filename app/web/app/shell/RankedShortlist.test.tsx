@@ -9,6 +9,12 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 
 import type { RankedRow } from "../api/decision-service";
 import RankedShortlist from "./RankedShortlist";
+import { PRELIMINARY_DISCLAIMER, serializeShortlistCsv } from "./shortlistExport";
+
+jest.mock("./shortlistExport", () => {
+  const actual = jest.requireActual("./shortlistExport");
+  return { ...actual, serializeShortlistCsv: jest.fn(actual.serializeShortlistCsv) };
+});
 
 const ROWS: RankedRow[] = [
   {
@@ -123,8 +129,11 @@ describe("RankedShortlist", () => {
       <RankedShortlist rows={ROWS} selectedCellId="S35.000_E149.000" onSelect={jest.fn()} />,
     );
 
-    for (const button of screen.getAllByRole("button")) {
-      expect(button).toHaveAttribute("aria-pressed", "false");
+    for (const row of ROWS) {
+      expect(screen.getByRole("button", { name: row.cell_id })).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
     }
   });
 
@@ -133,5 +142,47 @@ describe("RankedShortlist", () => {
 
     expect(screen.getByText("No eligible cells were returned.")).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  describe("export control (S3-07)", () => {
+    it("offers an Export CSV button when rows exist, none for an empty shortlist", () => {
+      const { rerender } = render(
+        <RankedShortlist rows={ROWS} selectedCellId={null} onSelect={jest.fn()} />,
+      );
+      expect(screen.getByRole("button", { name: "Export CSV" })).toBeEnabled();
+
+      rerender(<RankedShortlist rows={[]} selectedCellId={null} onSelect={jest.fn()} />);
+      expect(screen.queryByRole("button", { name: "Export CSV" })).not.toBeInTheDocument();
+    });
+
+    it("serialises the current rows to a CSV download without recomputing", () => {
+      const serialize = serializeShortlistCsv as jest.MockedFunction<
+        typeof serializeShortlistCsv
+      >;
+      serialize.mockClear();
+      const createObjectURL = jest.spyOn(URL, "createObjectURL").mockReturnValue("blob:test");
+      const revokeObjectURL = jest
+        .spyOn(URL, "revokeObjectURL")
+        .mockImplementation(() => undefined);
+      try {
+        render(<RankedShortlist rows={ROWS} selectedCellId={null} onSelect={jest.fn()} />);
+
+        fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+
+        // The control serialises the exact rows in UI state (no recomputation).
+        expect(serialize).toHaveBeenCalledTimes(1);
+        expect(serialize).toHaveBeenCalledWith(ROWS, PRELIMINARY_DISCLAIMER);
+
+        // The download is built from a text/csv Blob and the URL is revoked.
+        expect(createObjectURL).toHaveBeenCalledTimes(1);
+        const blob = createObjectURL.mock.calls[0]![0] as Blob;
+        expect(blob).toBeInstanceOf(Blob);
+        expect(blob.type).toContain("text/csv");
+        expect(revokeObjectURL).toHaveBeenCalledWith("blob:test");
+      } finally {
+        createObjectURL.mockRestore();
+        revokeObjectURL.mockRestore();
+      }
+    });
   });
 });

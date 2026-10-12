@@ -6,10 +6,18 @@
  * already broken by the engine — and every rank, score and component value is
  * shown exactly as served. Selecting a row reports the site through the shared
  * selection contract, so the map (S3-03b) and site detail (S3-05) follow it.
+ *
+ * S3-07 adds an "Export CSV" action: it serialises the rows already in state
+ * via `serializeShortlistCsv` and triggers a browser download. It performs no
+ * recomputation and no new engine/API call, so the file is exactly what the
+ * table shows. The Blob download makes this a client component.
  */
+"use client";
+
 import { useId } from "react";
 
 import type { RankedRow } from "../api/decision-service";
+import { PRELIMINARY_DISCLAIMER, serializeShortlistCsv } from "./shortlistExport";
 import type { SelectSite } from "./siteSelection";
 
 export interface RankedShortlistProps {
@@ -43,6 +51,23 @@ function formatValue(value: number | undefined): string {
   return value === undefined ? "—" : value.toFixed(3);
 }
 
+/** Serialise the current rows and trigger a client-side CSV download. */
+function downloadShortlistCsv(rows: RankedRow[]): void {
+  const csv = serializeShortlistCsv(rows, PRELIMINARY_DISCLAIMER);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "shortlist.csv";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export default function RankedShortlist({
   rows,
   selectedCellId,
@@ -55,10 +80,19 @@ export default function RankedShortlist({
 
   return (
     <div className="om-shortlist">
-      <p className="om-shortlist__note" id={noteId}>
-        Engine rank order. Component columns show each criterion&apos;s
-        contribution to the suitability score.
-      </p>
+      <div className="om-shortlist__header">
+        <p className="om-shortlist__note" id={noteId}>
+          Engine rank order. Component columns show each criterion&apos;s
+          contribution to the suitability score.
+        </p>
+        <button
+          type="button"
+          className="om-shortlist__export"
+          onClick={() => downloadShortlistCsv(rows)}
+        >
+          Export CSV
+        </button>
+      </div>
       <div className="om-results__scroll">
         <table className="om-results" aria-describedby={noteId}>
           <thead>

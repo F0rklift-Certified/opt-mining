@@ -241,8 +241,19 @@ body {
   gap: 0.4rem;
 }
 
+.om-shortlist__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
 .om-shortlist__note {
   font-size: 0.8rem;
+}
+
+.om-shortlist__export {
+  flex-shrink: 0;
 }
 
 .om-results__scroll {
