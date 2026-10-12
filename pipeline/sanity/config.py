@@ -93,6 +93,13 @@ GRID_LAYER = _shortlist_config.GRID_LAYER  # "nsw_grid"
 # ---------------------------------------------------------------------------
 
 REQUIRED_SCORE_COLUMNS = ("cell_id", "suitability_score", "rank")
+# NOTE on ordering: several checks read this tuple POSITIONALLY — Check 2 binds
+# ``[0]`` (cell_id) and ``[5]`` (eligible); Check 3 binds ``[1..4]`` (wind_speed
+# / slope_deg / dist_transmission_km / protected_area). ``rez_name`` is therefore
+# appended at the TAIL (index 6) so none of those indices shift onto the wrong
+# column. ``inside_rez`` is deliberately NOT required: an integrated file lacking
+# only ``inside_rez`` degrades the REZ outcome honestly (an optional guarded join
+# in ``run._enrich_eligible``) rather than failing the whole stage.
 REQUIRED_INTEGRATED_COLUMNS = (
     "cell_id",
     "wind_speed",
@@ -100,6 +107,7 @@ REQUIRED_INTEGRATED_COLUMNS = (
     "dist_transmission_km",
     "protected_area",
     "eligible",
+    "rez_name",
 )
 REQUIRED_GRID_COLUMNS = ("cell_id", "centroid_lat", "centroid_lon", "geometry")
 
@@ -182,6 +190,39 @@ POOR_SCORE_PERCENTILE = 25.0
 # observed fraction; never used to adjust the model.
 CLUSTER_EPSILON = 0.02
 CLUSTER_FRACTION_THRESHOLD = 0.5
+
+# ---------------------------------------------------------------------------
+# S3-08 — top-ranked band (Check 1) and REZ plausibility bar (Check 4)
+# ---------------------------------------------------------------------------
+
+# The top-ranked band Check 1 expresses the known-wind-farm comparison against:
+# a known farm whose containing cell has an engine rank <= TOP_RANKED_BAND_N is
+# "in the top-ranked band" the app's shortlist surfaces. Composed from the
+# shortlist stage's DEFAULT_TOP_N (= 20) so it tracks the shortlist band the
+# stage already aligns to, never re-typed as a literal. This band threshold
+# applies ONLY to Check 1; Check 4's REZ outcome uses its own decile top_cells
+# frame (design §4.3) so the two "top" definitions never cross-contaminate.
+TOP_RANKED_BAND_N = _shortlist_config.DEFAULT_TOP_N  # 20
+
+# A stated plausibility bar (NOT a tuning target) for Check 4's REZ outcome: a
+# meaningful share of the top-scoring cells is EXPECTED inside a REZ, because
+# inside_rez is a positively-weighted scored criterion — but NOT all, because
+# wind resource and transmission proximity can outweigh REZ membership. The
+# proportion of top cells with inside_rez == True is reported against this bar;
+# the model is never adjusted to meet it.
+TOP_RANKED_REZ_MIN_FRACTION = 0.25
+
+# The single source of the FR2 "model not trained to reproduce these locations"
+# caveat (S3-08). Carried as a first-class sidecar field so every consumer
+# surfaces it; a strong overlap between top-ranked areas and the known
+# wind/REZ references is corroboration, not a fitted target.
+MODEL_NOT_TRAINED_CAVEAT = (
+    "This model is NOT trained or fitted to reproduce known wind-farm or REZ "
+    "locations. A strong overlap between the top-ranked areas and these "
+    "references is corroboration that the screening is plausible, not evidence "
+    "of a fitted target; divergences are expected and are investigated, not "
+    "tuned away."
+)
 
 # ---------------------------------------------------------------------------
 # Output locations (Requirement 7, 10)

@@ -5,15 +5,15 @@
       "sidecar_file": "DATA/sanity/optmining_validation-results_2026_nsw.json",
       "stage": "sanity",
       "product_type": "derived",
-      "run_timestamp": "2026-10-07T05:03:24+00:00",
-      "generated_utc": "2026-10-07T05:03:25+00:00",
-      "pipeline_version": "403817a4e5a11a5d2236710a42a42046d44cc60a-dirty",
-      "sha256_report": "de7d8de4054d78983dbb9051e0fa5c2ec7cedbdb41681a11472994067b4e5e71",
-      "bytes_report": 11963,
+      "run_timestamp": "2026-10-12T11:05:16+00:00",
+      "generated_utc": "2026-10-12T11:05:17+00:00",
+      "pipeline_version": "ba456c7b48d12fa8c94f25316408293a69af7daa-dirty",
+      "sha256_report": "dfabbadfd9409806b8f562326376af4544c8ac91d7279b1cecd6be92099a434a",
+      "bytes_report": 12882,
       "inputs": [
         {
           "name": "shortlist",
-          "path": "DATA/shortlist/sprint1_shortlist_20261007T050319.geojson",
+          "path": "DATA/shortlist/sprint1_shortlist_20261007.geojson",
           "layer": null,
           "sha256": "0572e0aafa5a003563f6c9d0482eef2ca5836c82d3f402f8ee1a98c9955dd26f",
           "bytes": 5895
@@ -22,7 +22,7 @@
           "name": "scored_table",
           "path": "DATA/scoring/optmining_suitability-score_2026_nsw.gpkg",
           "layer": "suitability_score",
-          "sha256": "188eacb59aa3ba4f74353788231c1f71e91482a31a020c0233ffcc545f55fea0",
+          "sha256": "182d0a9a158ff65e223ccaec1355c27fd7cddb67cf3d6b02e1367c5d6d44277d",
           "bytes": 15712256
         },
         {
@@ -47,8 +47,8 @@
           "bytes": 13803520
         }
       ],
-      "sha256_sidecar": "fb9953807ba79f058f7b7ad0071ea8a710f03750ff4d604ac78c2e4297407579",
-      "bytes_sidecar": 17197
+      "sha256_sidecar": "dd4b33ccabc05060b422ab343e47fec12d49c1d336e650aef79d41d86247dae0",
+      "bytes_sidecar": 18390
     }
   ]
 }

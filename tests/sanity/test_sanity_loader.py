@@ -71,6 +71,10 @@ def _integrated_frame() -> gpd.GeoDataFrame:
             "dist_transmission_km": [5.0, 10.0, 15.0],
             "protected_area": [False, False, True],
             "eligible": [True, True, False],
+            # S3-08: rez_name is now a required integrated column (index 6);
+            # inside_rez is an optional guarded join exercised by Check 4.
+            "rez_name": ["REZ A", None, None],
+            "inside_rez": [True, False, False],
         },
         geometry=[Point(150 + i, -30) for i in range(3)],
         crs="EPSG:4326",

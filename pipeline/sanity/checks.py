@@ -232,7 +232,7 @@ class WindFarmRow:
     report's Notes column.
     """
 
-    wind_farm: str  # farm name (REQUIRED_WIND_GENERATOR_ATTR)
+    wind_farm: str  # farm name (REQUIRED_WIND_GENERATOR_ATTR == "feature_name")
     cell_id: object | None  # Containing_Cell id, or None if out-of-grid (2.7)
     score: float | None  # cell suitability_score, or None if excluded (2.6)
     rank: object | None  # cell rank, or None if excluded/out-of-grid
@@ -265,6 +265,54 @@ class WindFarmCheckResult:
     expectation: str
     anomalies: list[CheckAnomaly] = field(default_factory=list)
     transform_log: list[CrsTransform] = field(default_factory=list)
+    # S3-08 additive top-ranked-band framing (design §4.2). ``n_in_top_band`` is
+    # the count of located farm cells with a non-null engine rank <=
+    # ``top_band_n`` (a null-rank/excluded farm is NEVER counted in band);
+    # ``top_band_n`` is the resolved band N recorded so it reaches the
+    # sidecar/panel for the "rank <= N" label. Defaults keep existing
+    # construction sites working.
+    n_in_top_band: int = 0
+    top_band_n: int = config.TOP_RANKED_BAND_N
+
+    @property
+    def top_band_outcome(self) -> CheckOutcome:
+        """
+        The Check 1 top-ranked-band headline as a :class:`CheckOutcome` (S3-08).
+
+        Expresses the known-wind-farm comparison against the TOP-RANKED band
+        (rank <= ``top_band_n``) the app's shortlist surfaces — the question the
+        ticket asks ("compare the top-ranked areas against the references"),
+        distinct from the Upper_Quartile percentile the existing ``outcome``
+        reports. ``passed`` is derived ON DEMAND from the already-recorded
+        figures: a strict majority of the known farms land in the top-ranked
+        band (``n_in_top_band > n_known_farms / 2``), so no pass is recorded
+        without an observed count (11.1). With no known farms the observed count
+        is recorded (0 of 0) and the outcome does NOT pass. The ranks are the
+        engine's, read from the Scored_Table — no re-ranking is performed.
+        """
+        passed = (
+            self.n_known_farms > 0
+            and self.n_in_top_band > self.n_known_farms / 2.0
+        )
+        proportion = (
+            self.n_in_top_band / self.n_known_farms if self.n_known_farms else 0.0
+        )
+        observed = (
+            f"{self.n_in_top_band} of {self.n_known_farms} known wind farms "
+            f"within the top-ranked band (rank <= {self.top_band_n}) "
+            f"(proportion {proportion:.3f})"
+        )
+        expected = (
+            f"Most operational wind farms are expected to fall within the "
+            f"top-ranked band (rank <= {self.top_band_n}) of the Eligible_Cell "
+            f"population."
+        )
+        return CheckOutcome(
+            expected=expected,
+            observed=observed,
+            passed=passed,
+            label="Known-wind-farm top-ranked band",
+        )
 
     @property
     def outcome(self) -> CheckOutcome:
@@ -314,6 +362,7 @@ def check_known_wind_farms(
     scored: pd.DataFrame,
     containment_crs: str,
     transform_log: list[CrsTransform],
+    top_band_n: int = config.TOP_RANKED_BAND_N,
 ) -> WindFarmCheckResult:
     """
     Check 1 — locate each Known_Wind_Farm to its cell and report its score.
@@ -353,6 +402,10 @@ def check_known_wind_farms(
         containment_crs: the single explicit containment CRS (EPSG:3577).
         transform_log: mutable list the containment transforms are appended to;
             rendered verbatim in the report's transform-log line.
+        top_band_n: the top-ranked band threshold (rank <= ``top_band_n``) the
+            additive ``top_band_outcome`` is expressed against (design §4.2);
+            defaults to ``config.TOP_RANKED_BAND_N``. The ranks are the engine's,
+            read from the Scored_Table — no re-ranking is performed.
 
     Returns:
         A :class:`WindFarmCheckResult`.
@@ -386,6 +439,10 @@ def check_known_wind_farms(
     rows: list[WindFarmRow] = []
     anomalies: list[CheckAnomaly] = []
     n_upper_quartile = 0
+    # S3-08: how many located farm cells fall in the top-ranked band (rank <=
+    # top_band_n). A null-rank / excluded / out-of-grid farm is NEVER counted —
+    # only a non-null engine rank at or above the band threshold is in band.
+    n_in_top_band = 0
 
     for farm_name, cell_id in zip(farm_names, located_cell_ids):
         display_name = "(unnamed)" if farm_name is None or (
@@ -555,12 +612,20 @@ def check_known_wind_farms(
         else:
             note = f"Percentile {percentile:.1f} (mid-range)."
 
+        # S3-08: an eligible farm cell with a non-null engine rank <=
+        # top_band_n is in the top-ranked band. Only this normal path reaches a
+        # non-null rank; the out-of-grid / absent / excluded cases above all
+        # carry a null rank and are never counted in band.
+        row_rank = None if rank_is_null else raw_rank
+        if row_rank is not None and not pd.isna(row_rank) and float(row_rank) <= top_band_n:
+            n_in_top_band += 1
+
         rows.append(
             WindFarmRow(
                 wind_farm=display_name,
                 cell_id=cell_id,
                 score=score,
-                rank=None if rank_is_null else raw_rank,
+                rank=row_rank,
                 percentile=percentile,
                 in_upper_quartile=in_uq,
                 notes=note,
@@ -578,6 +643,8 @@ def check_known_wind_farms(
         expectation=_UPPER_QUARTILE_EXPECTATION,
         anomalies=anomalies,
         transform_log=transform_log,
+        n_in_top_band=n_in_top_band,
+        top_band_n=top_band_n,
     )
 
 
@@ -1376,11 +1443,18 @@ CORR_METHOD_PEARSON = "pearson"
 TOP_CELLS_FRACTION = 0.10
 TOP_CELLS_MIN = 5
 
-# Candidate column names a REZ label may travel under, checked in order. The
-# grid/integrated frames do not currently carry a REZ column, so this is
-# handled gracefully: absent -> reported as "not available", never fabricated
-# (5.3).
+# Candidate column names a REZ label may travel under, checked in order. As of
+# S3-08 the eligible frame is enriched with the integrated ``rez_name`` /
+# ``inside_rez`` columns (run._enrich_eligible), so ``rez_name`` is normally
+# present; an absent column still degrades honestly -> reported as "not
+# joined", never fabricated (5.3, design §4.3).
 _REZ_COLUMN_CANDIDATES = ("rez", "rez_name", "rez_id", "REZ")
+
+# The integrated boolean "cell is inside a Renewable Energy Zone" column the
+# S3-08 REZ outcome counts over the top cells (design §4.3). Joined onto the
+# eligible frame by run._enrich_eligible; absent -> the REZ outcome records an
+# honest passed=False / observed "REZ column not joined".
+_INSIDE_REZ = "inside_rez"
 
 # The documented positive sign expectation for the wind-vs-score correlation
 # (5.4). wind_speed is a positively-weighted input criterion, so a higher wind
@@ -1438,6 +1512,66 @@ class DistributionCheckResult:
     n_eligible: int = 0
     anomalies: list[CheckAnomaly] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    # S3-08 additive REZ reference outcome (design §4.3). Computed over the SAME
+    # decile ``top_cells`` frame as ``rez_represented`` (NOT TOP_RANKED_BAND_N),
+    # so the label list, ``n_top_inside_rez`` and the proportion can never
+    # contradict each other. ``rez_column_joined`` records whether the join
+    # succeeded, so the three REZ states (column not joined / joined-but-empty /
+    # some-inside) stay distinguishable. Defaults keep existing construction
+    # sites working.
+    n_top_inside_rez: int = 0
+    top_n_considered: int = 0
+    rez_column_joined: bool = False
+
+    @property
+    def rez_outcome(self) -> CheckOutcome:
+        """
+        The Check 4 REZ-reference headline as a :class:`CheckOutcome` (S3-08).
+
+        Reports the proportion of the decile top cells inside a REZ
+        (``inside_rez == True``) against the stated plausibility bar
+        ``config.TOP_RANKED_REZ_MIN_FRACTION``. Three distinct states, never a
+        silent pass (design §4.3):
+
+          1. REZ column NOT joined — ``rez_column_joined`` is False:
+             ``observed`` reads "REZ column not joined" and ``passed`` is False
+             (an honest failure, never a pass).
+          2. Joined, no top cell inside a REZ — ``observed`` reads "0 of N top
+             cells inside a REZ" and ``passed`` is derived against the bar.
+          3. Joined, some inside — the real proportion is reported.
+
+        ``passed`` is derived ON DEMAND from the recorded figures; a pass always
+        carries an observed value (11.1).
+        """
+        n = self.top_n_considered
+        if not self.rez_column_joined:
+            return CheckOutcome(
+                expected=(
+                    f"a meaningful share (>= "
+                    f"{config.TOP_RANKED_REZ_MIN_FRACTION:g}) of the top-scoring "
+                    f"cells is expected inside a REZ (inside_rez is a "
+                    f"positively-weighted criterion)"
+                ),
+                observed="REZ column not joined",
+                passed=False,
+                label="REZ representation among top cells",
+            )
+        proportion = (self.n_top_inside_rez / n) if n else 0.0
+        passed = n > 0 and proportion >= config.TOP_RANKED_REZ_MIN_FRACTION
+        observed = (
+            f"{self.n_top_inside_rez} of {n} top cells inside a REZ "
+            f"(proportion {proportion:.3f})"
+        )
+        return CheckOutcome(
+            expected=(
+                f"a meaningful share (>= {config.TOP_RANKED_REZ_MIN_FRACTION:g}) "
+                f"of the top-scoring cells is expected inside a REZ (inside_rez "
+                f"is a positively-weighted criterion), but NOT necessarily all"
+            ),
+            observed=observed,
+            passed=passed,
+            label="REZ representation among top cells",
+        )
 
     @property
     def cluster_outcome(self) -> CheckOutcome:
@@ -1734,21 +1868,57 @@ def check_distribution(
             "joined from the Analysis_Grid."
         )
 
+    # REZ representation among the SAME decile top_cells (design §4.3). The REZ
+    # outcome needs the ``inside_rez`` boolean; the label list needs ``rez_name``
+    # (via _find_rez_column). The join is considered "joined" when EITHER column
+    # is present on the top_cells frame, so an integrated file carrying one but
+    # not the other still reports an honest result rather than the not-joined
+    # failure. All three figures (rez_represented, n_top_inside_rez, the
+    # proportion) are computed over this one top_cells frame so they cannot
+    # contradict each other.
     rez_column = _find_rez_column(top_cells)
-    if rez_column is not None:
-        rez_represented = sorted(
-            {
-                str(v)
-                for v in top_cells[rez_column].tolist()
-                if v is not None and not (isinstance(v, float) and np.isnan(v))
-            }
+    inside_rez_present = _INSIDE_REZ in top_cells.columns
+    rez_column_joined = rez_column is not None or inside_rez_present
+    top_n_considered = int(len(top_cells))
+
+    if inside_rez_present:
+        n_top_inside_rez = int(
+            top_cells[_INSIDE_REZ].fillna(False).astype(bool).sum()
         )
     else:
+        n_top_inside_rez = 0
+
+    if not rez_column_joined:
+        # State 1 — REZ column not joined: an honest failure, never a pass.
         rez_represented = []
         notes.append(
-            "REZs represented among the top cells not available: no REZ column "
-            "is present on the eligible/grid frame."
+            "REZ column not joined: neither rez_name nor inside_rez was joined "
+            "onto the eligible frame, so the REZ reference outcome fails honestly."
         )
+    else:
+        if rez_column is not None:
+            rez_represented = sorted(
+                {
+                    str(v)
+                    for v in top_cells[rez_column].tolist()
+                    if v is not None and not (isinstance(v, float) and np.isnan(v))
+                }
+            )
+        else:
+            rez_represented = []
+        if not rez_represented and n_top_inside_rez == 0:
+            # State 2 — joined, but no top cell is inside a REZ (a valid real
+            # empty result; worded distinctly from the not-joined state 1).
+            notes.append(
+                f"No top cell is inside a REZ: 0 of {top_n_considered} top-scoring "
+                f"cells have inside_rez == True."
+            )
+        else:
+            # State 3 — joined, some top cells inside a REZ.
+            notes.append(
+                f"{n_top_inside_rez} of {top_n_considered} top-scoring cells are "
+                f"inside a REZ."
+            )
 
     # --- 4. Wind-versus-score correlation (5.4) — reported, NOT enforced ---
     corr_sign_expected_positive = True
@@ -1817,4 +1987,7 @@ def check_distribution(
         n_eligible=n_eligible,
         anomalies=anomalies,
         notes=notes,
+        n_top_inside_rez=n_top_inside_rez,
+        top_n_considered=top_n_considered,
+        rez_column_joined=rez_column_joined,
     )

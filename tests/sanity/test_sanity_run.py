@@ -115,6 +115,11 @@ def _integrated_frame() -> gpd.GeoDataFrame:
             "dist_transmission_km": [5.0 + i for i in range(_N_CELLS)],
             "protected_area": [False] * _N_CELLS,
             "eligible": [True] * _N_CELLS,
+            # S3-08: rez_name is now a required integrated column; inside_rez
+            # (optional guarded join) marks the top-scoring cells inside a REZ
+            # so Check 4's REZ outcome is exercised end-to-end.
+            "rez_name": [f"REZ {i}" if i % 2 == 0 else None for i in range(_N_CELLS)],
+            "inside_rez": [i % 2 == 0 for i in range(_N_CELLS)],
         },
         geometry=[_cell_polygon(i) for i in range(_N_CELLS)],
         crs="EPSG:4326",

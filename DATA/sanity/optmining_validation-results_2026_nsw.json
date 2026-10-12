@@ -4,12 +4,13 @@
   "description": "Machine-readable results of the S1-12 preliminary-screening plausibility sanity check. Derived product; not custodial source data.",
   "analysis_resolution": "~5 km (0.05 degree) analysis grid cell",
   "preliminary_disclaimer": "This report is a preliminary-screening plausibility sanity check. It asks whether the pipeline's outputs make sense against known reality; it is NOT a formal accuracy assessment and NOT a site approval. Surprising results are documented honestly for investigation, and the model is never adjusted to make a check pass.",
+  "caveat": "This model is NOT trained or fitted to reproduce known wind-farm or REZ locations. A strong overlap between the top-ranked areas and these references is corroboration that the screening is plausible, not evidence of a fitted target; divergences are expected and are investigated, not tuned away.",
   "run_metadata": {
-    "run_timestamp": "2026-10-07T05:03:24+00:00",
-    "pipeline_version": "403817a4e5a11a5d2236710a42a42046d44cc60a-dirty",
+    "run_timestamp": "2026-10-12T11:05:16+00:00",
+    "pipeline_version": "ba456c7b48d12fa8c94f25316408293a69af7daa-dirty",
     "n_cells": 47311,
     "n_eligible": 32525,
-    "resolved_shortlist_path": "DATA/shortlist/sprint1_shortlist_20261007T050319.geojson"
+    "resolved_shortlist_path": "DATA/shortlist/sprint1_shortlist_20261007.geojson"
   },
   "checks": {
     "known_wind_farm_comparison": {
@@ -23,6 +24,14 @@
         "observed": "13 of 16 known wind farms in the Upper_Quartile (proportion 0.812)",
         "passed": true
       },
+      "top_band_outcome": {
+        "label": "Known-wind-farm top-ranked band",
+        "expected": "Most operational wind farms are expected to fall within the top-ranked band (rank <= 20) of the Eligible_Cell population.",
+        "observed": "1 of 16 known wind farms within the top-ranked band (rank <= 20) (proportion 0.062)",
+        "passed": false
+      },
+      "n_in_top_band": 1,
+      "top_band_n": 20,
       "table": [
         {
           "wind_farm": "Cullerin Range Wind Farm",
@@ -379,7 +388,19 @@
         141.03625000000002,
         153.03625000000002
       ],
-      "rez_represented": [],
+      "rez_represented": [
+        "Central-West Orana REZ",
+        "Hunter-Central Coast REZ",
+        "New England REZ"
+      ],
+      "rez_outcome": {
+        "label": "REZ representation among top cells",
+        "expected": "a meaningful share (>= 0.25) of the top-scoring cells is expected inside a REZ (inside_rez is a positively-weighted criterion), but NOT necessarily all",
+        "observed": "1187 of 3253 top cells inside a REZ (proportion 0.365)",
+        "passed": true
+      },
+      "n_top_inside_rez": 1187,
+      "top_n_considered": 3253,
       "wind_score_corr": 0.3878214008591571,
       "corr_method": "spearman",
       "corr_sign_expected_positive": true,
@@ -393,7 +414,7 @@
       "expectation": "Higher wind resource is expected to correspond to a higher suitability_score (wind_speed is a positively-weighted input criterion), so the wind-versus-score correlation is expected to be POSITIVE.",
       "n_eligible": 32525,
       "notes": [
-        "REZs represented among the top cells not available: no REZ column is present on the eligible/grid frame."
+        "1187 of 3253 top-scoring cells are inside a REZ."
       ]
     }
   },
