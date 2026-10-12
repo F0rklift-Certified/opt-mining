@@ -231,3 +231,63 @@ def test_consolidated_doc_links_key_provenance_files(tech_ref_text: str):
 def test_consolidated_doc_links_demand_proxy_method(tech_ref_text: str):
     # The proxy framing must be traceable to its method report.
     assert "DATA/electricity-demand/demand_feature_method.md" in tech_ref_text
+
+
+# --------------------------------------------------------------------------- #
+# S3-10 widening — the new docs/release/*.md surfaces are held to the SAME     #
+# screening-language and demand-proxy guard once they exist.                   #
+#                                                                              #
+# S3-10 (FEAT-003) adds release-package docs under docs/release/. They are      #
+# subject to the identical AC12 framing: "preliminary screening"/"screening-   #
+# level" present, every "best site"/"best place" negated, and the demand layer #
+# framed as a proxy (never measured/actual). To keep this suite GREEN before   #
+# FEAT-003 lands the docs — and to assert for real once they do — each release #
+# doc that does NOT yet exist is SKIPPED with a clear reason rather than        #
+# failing. The pre-existing assertions on the fixed S3-09 surfaces above stay   #
+# intact and unconditional.                                                     #
+# --------------------------------------------------------------------------- #
+
+RELEASE_DIR = PROJECT_ROOT / "docs" / "release"
+
+# The release docs that must pass the screening/proxy guard once authored. Each
+# is a prose surface (README / limitations) that makes screening-level claims
+# and references the demand proxy; the pure-JSON evidence files (readiness.json,
+# rehearsal.json) and the command log (verification.md) are not prose-guarded
+# here.
+RELEASE_PROSE_DOCS = ("README.md", "limitations.md")
+
+
+def _release_doc_text_or_skip(filename: str) -> str:
+    """Return the release doc's text, or ``pytest.skip`` if it does not yet exist.
+
+    Lets the suite stay green before FEAT-003 lands docs/release/*.md while
+    asserting for real once a given doc is present.
+    """
+    path = RELEASE_DIR / filename
+    if not path.exists():
+        pytest.skip(
+            f"docs/release/{filename} does not exist yet (authored by S3-10 "
+            "FEAT-003); the release-doc guard applies once it lands"
+        )
+    return path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("filename", RELEASE_PROSE_DOCS)
+def test_release_doc_uses_screening_language(filename: str):
+    text = _release_doc_text_or_skip(filename)
+    lowered = text.lower()
+    assert ("preliminary screening" in lowered) or ("screening-level" in lowered), (
+        f"docs/release/{filename} must state the screening-level framing"
+    )
+
+
+@pytest.mark.parametrize("filename", RELEASE_PROSE_DOCS)
+def test_release_doc_best_site_only_negated(filename: str):
+    text = _release_doc_text_or_skip(filename)
+    _assert_best_site_is_only_negated(text, f"docs/release/{filename}")
+
+
+@pytest.mark.parametrize("filename", RELEASE_PROSE_DOCS)
+def test_release_doc_frames_demand_as_proxy(filename: str):
+    text = _release_doc_text_or_skip(filename)
+    _assert_demand_is_framed_as_proxy(text, f"docs/release/{filename}")
