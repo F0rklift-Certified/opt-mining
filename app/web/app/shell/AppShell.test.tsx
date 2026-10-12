@@ -15,8 +15,10 @@
  */
 import { render, screen, within } from "@testing-library/react";
 
+import type { Criterion } from "../api/decision-service";
+import { BASELINE_CRITERIA } from "./AnalysisControls";
 import RootLayout from "../layout";
-import AppShell from "./AppShell";
+import AppShell, { criteriaEqual } from "./AppShell";
 
 describe("AppShell — fixed shell regions (R3.1–3.4)", () => {
   const REGION_LABELS = [
@@ -113,5 +115,34 @@ describe("RootLayout — fixed NSW region, no selector (R1.2)", () => {
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
     // Belt-and-braces: no raw <select> element in the rendered shell either.
     expect(document.querySelector("select")).toBeNull();
+  });
+});
+
+describe("criteriaEqual — baseline-vs-scenario equality helper (S3-08)", () => {
+  /** A fresh deep copy so a test never mutates the shared frozen baseline. */
+  function cloneBaseline(): Criterion[] {
+    return BASELINE_CRITERIA.map((criterion) => ({ ...criterion }));
+  }
+
+  it("treats a field-by-field equal criteria set as equal", () => {
+    expect(criteriaEqual(cloneBaseline(), BASELINE_CRITERIA)).toBe(true);
+  });
+
+  it("is not equal when any weight changes", () => {
+    const edited = cloneBaseline();
+    edited[0] = { ...edited[0]!, weight: edited[0]!.weight + 0.1 };
+    expect(criteriaEqual(edited, BASELINE_CRITERIA)).toBe(false);
+  });
+
+  it("is not equal when a direction changes", () => {
+    const edited = cloneBaseline();
+    edited[0] = {
+      ...edited[0]!,
+      direction:
+        edited[0]!.direction === "higher_is_better"
+          ? "lower_is_better"
+          : "higher_is_better",
+    };
+    expect(criteriaEqual(edited, BASELINE_CRITERIA)).toBe(false);
   });
 });

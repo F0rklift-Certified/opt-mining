@@ -2,14 +2,24 @@
 
 This directory holds the MVP web stack for the Opt-Mining decision tool:
 
-- **`api/`** — the FastAPI **Backend_App**. It exposes the six frozen S2-08
+- **`api/`** — the FastAPI **Backend_App**. It exposes the frozen S2-08
   `Decision_Service` operations over HTTP and publishes an auto-generated
   OpenAPI schema. It **delegates every operation to `pipeline.service`** and
   holds no decision logic of its own (combined-sprint AC4 / `CONTRACT.md` §1).
+  S3-08 adds the eighth operation, **`GET /sanity-check`** (contract v1.2),
+  which projects the S1-12 sanity Results_Sidecar verbatim (the model-not-trained
+  caveat, the four checks' expected-vs-observed outcomes incl. the top-ranked-band
+  and REZ outcomes, the known-wind-farm table, the contradictions list and the
+  single-run lineage) and reuses the existing `EngineOutputError → HTTP 503`
+  fault mapping when the sidecar is missing or unreadable.
 - **`web/`** — the Next.js/React **Frontend_App**. A thin, decision-free client
   generated from the FastAPI OpenAPI contract. It renders service-returned run,
-  ranking, exclusion and site-detail values in the four fixed shell regions and
-  shows the S2-02 data-quality status. The region is fixed to **NSW**.
+  ranking, exclusion and site-detail values in the fixed shell regions and
+  shows the S2-02 data-quality status. S3-08 adds a **sanity-check / validation**
+  region whose `SanityCheckPanel` renders `GET /sanity-check` verbatim — the
+  always-on caveat, the lineage line, an explicit PASS/FAIL per check, the
+  known-wind-farm table and the full contradictions list — plus a
+  baseline-vs-scenario disclosure. The region is fixed to **NSW**.
 - **`docker-compose.yml`** — the **Compose_Stack** that builds and starts both
   apps with a single command.
 
@@ -77,13 +87,20 @@ npm run dev        # -> next dev  (http://localhost:3000)
 If `.env.local` already exists, retain your settings and verify that
 `NEXT_PUBLIC_API_BASE_URL` points to the running backend.
 
-The initial page load requests the S2-02 data-quality status and starts the
-packaged `wind_led` scenario. Returned ranks, scores, exclusions and site detail
-are displayed unchanged; the browser contains no scoring, normalisation,
-ranking or exclusion implementation. The interactive-map region (S3-03a) now
-renders the currently-loaded Run's cells over the env-driven basemap — eligible
-and excluded cells styled only from the served `eligible`/`suitability_score`
-properties, with no decision math in the UI.
+The initial page load requests the S2-02 data-quality status, fetches the S1-12
+sanity-check result **once on mount** (independent of the active Run — the
+sidecar is baseline-fixed, so a re-run or scenario change never refetches it),
+and starts the packaged `wind_led` scenario. Returned ranks, scores, exclusions
+and site detail are displayed unchanged; the browser contains no scoring,
+normalisation, ranking or exclusion implementation. The interactive-map region
+(S3-03a) now renders the currently-loaded Run's cells over the env-driven
+basemap — eligible and excluded cells styled only from the served
+`eligible`/`suitability_score` properties, with no decision math in the UI. The
+sanity-check region's baseline-vs-scenario disclosure asserts the sanity figures
+reflect the same engine output as the map and shortlist only when the active
+single-run selection is the unmodified baseline (the default option id *and*
+untouched baseline weights); any preset scenario or an edited baseline weight
+shows a warning strip instead.
 
 ### Regenerate the typed client
 

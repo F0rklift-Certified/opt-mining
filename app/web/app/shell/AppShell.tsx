@@ -76,7 +76,7 @@ function errorMessage(error: unknown): string {
  * baseline-vs-scenario disclosure, AC8). This is a UI equality, NOT decision
  * arithmetic — it compares weights, it never scores anything.
  */
-function criteriaEqual(a: Criterion[], b: Criterion[]): boolean {
+export function criteriaEqual(a: Criterion[], b: Criterion[]): boolean {
   if (a.length !== b.length) return false;
   return a.every((criterion, index) => {
     const other = b[index];

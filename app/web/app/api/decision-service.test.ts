@@ -10,7 +10,7 @@ function json(body: unknown, status = 200): Response {
 }
 
 describe("generated-contract decision service client", () => {
-  it("wraps all six frozen operations with their HTTP paths and methods", async () => {
+  it("wraps the frozen operations with their HTTP paths and methods", async () => {
     const requests: Request[] = [];
     const fakeFetch: typeof globalThis.fetch = async (input, init) => {
       const request = input instanceof Request ? input : new Request(input, init);
@@ -40,6 +40,18 @@ describe("generated-contract decision service client", () => {
       if (request.method === "GET" && url.pathname === "/data-quality") {
         return json({ passed: true, checks: [] });
       }
+      if (request.method === "GET" && url.pathname === "/sanity-check") {
+        return json({
+          caveat: "The model is not trained to reproduce known locations.",
+          preliminary_disclaimer: "Screening-level result.",
+          run_metadata: null,
+          checks: [],
+          contradictions: [],
+          wind_farms: [],
+          top_band_n: 20,
+          exclusion_assertions: [],
+        });
+      }
       return json({ detail: "unexpected request" }, 500);
     };
 
@@ -54,9 +66,10 @@ describe("generated-contract decision service client", () => {
     await service.getExclusions(run.run_id);
     await service.compareScenarios({ scenario_a: "wind_led", scenario_b: "grid_led" });
     await service.getDataQuality();
+    const sanity = await service.getSanityCheck();
 
     expect(requests.map((request) => request.method)).toEqual([
-      "POST", "GET", "GET", "GET", "POST", "GET",
+      "POST", "GET", "GET", "GET", "POST", "GET", "GET",
     ]);
     expect(requests.map((request) => new URL(request.url).pathname)).toEqual([
       "/runs",
@@ -65,7 +78,13 @@ describe("generated-contract decision service client", () => {
       "/runs/run-1/exclusions",
       "/scenario-comparison",
       "/data-quality",
+      "/sanity-check",
     ]);
+    // getSanityCheck returns the service payload verbatim (no UI transform).
+    expect(sanity.top_band_n).toBe(20);
+    expect(sanity.caveat).toBe(
+      "The model is not trained to reproduce known locations.",
+    );
     expect(new URL(requests[1]!.url).searchParams.get("top_n")).toBe("10");
     expect(new URL(requests[1]!.url).searchParams.get("min_score")).toBe("0.5");
     await expect(requests[0]!.json()).resolves.toEqual({ scenario: "wind_led" });
@@ -78,6 +97,18 @@ describe("generated-contract decision service client", () => {
     });
 
     await expect(service.getDataQuality()).rejects.toMatchObject({
+      name: "DecisionServiceError",
+      status: 503,
+    });
+  });
+
+  it("rejects a non-2xx /sanity-check with a DecisionServiceError", async () => {
+    const service = createDecisionServiceClient({
+      baseUrl: "https://decision.example.test",
+      fetch: async () => json({ detail: "missing sanity sidecar" }, 503),
+    });
+
+    await expect(service.getSanityCheck()).rejects.toMatchObject({
       name: "DecisionServiceError",
       status: 503,
     });

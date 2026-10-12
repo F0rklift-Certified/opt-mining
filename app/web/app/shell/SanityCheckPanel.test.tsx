@@ -126,6 +126,59 @@ describe("SanityCheckPanel", () => {
     expect(screen.getByText(/Sapphire wind farm fell on excluded land/)).toBeInTheDocument();
   });
 
+  it("renders a failing check alongside its investigated contradictions", () => {
+    const failing: SanityCheck = {
+      ...PASSING_SANITY,
+      checks: [
+        {
+          name: "Known-wind-farm top-ranked band",
+          expected: "≥ 50% of farms in band",
+          observed: "20% in band",
+          passed: false,
+        },
+        {
+          name: "REZ representation among top cells",
+          expected: "≥ 30% inside a REZ",
+          observed: "5% inside a REZ",
+          passed: false,
+        },
+      ],
+      contradictions: [
+        {
+          check: "Known wind farm comparison",
+          description: "Sapphire wind farm fell on excluded land.",
+          kind: "data_issue",
+          investigation_note: "Protected-area overlap flagged for Sprint-2 review.",
+        },
+        {
+          check: "Score distribution",
+          description: "Top decile under-represents declared REZs.",
+          kind: "distribution_anomaly",
+          investigation_note: "REZ layer join rate is lower than expected.",
+        },
+      ],
+    };
+    render(
+      <SanityCheckPanel sanity={failing} error={null} loading={false} isBaselineRun />,
+    );
+
+    // Both checks fail — two FAIL badges, no PASS badge.
+    expect(screen.getAllByText("FAIL")).toHaveLength(2);
+    expect(screen.queryByText("PASS")).not.toBeInTheDocument();
+
+    // The caveat is still present on a failing result.
+    expect(screen.getByRole("note")).toHaveTextContent(/not trained to reproduce/i);
+
+    // The FULL contradictions list renders, each with its source-check label
+    // and investigation note.
+    expect(screen.getByText("Known wind farm comparison")).toBeInTheDocument();
+    expect(screen.getByText("Score distribution")).toBeInTheDocument();
+    expect(screen.getByText(/Top decile under-represents declared REZs/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/REZ layer join rate is lower than expected/),
+    ).toBeInTheDocument();
+  });
+
   it("asserts single-lineage when the active run is the unmodified baseline", () => {
     render(
       <SanityCheckPanel sanity={PASSING_SANITY} error={null} loading={false} isBaselineRun />,

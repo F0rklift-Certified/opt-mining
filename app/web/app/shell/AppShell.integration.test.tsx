@@ -109,13 +109,27 @@ function serviceWithFlaggedDataset(): DecisionService {
       features: [],
     }),
     getSanityCheck: jest.fn().mockResolvedValue({
-      caveat: "",
-      preliminary_disclaimer: "",
-      run_metadata: null,
-      checks: [],
+      caveat:
+        "The model is not trained to reproduce the known wind/REZ locations.",
+      preliminary_disclaimer: "Screening-level result — not a siting decision.",
+      run_metadata: {
+        run_timestamp: "2026-10-12T09:30:00Z",
+        pipeline_version: "1.4.2",
+        resolved_shortlist_path: "DATA/shortlist/optmining_shortlist_2026_nsw.csv",
+        n_cells: 1000,
+        n_eligible: 420,
+      },
+      checks: [
+        {
+          name: "Known-wind-farm top-ranked band",
+          expected: "≥ 50% of farms in band",
+          observed: "60% in band",
+          passed: true,
+        },
+      ],
       contradictions: [],
       wind_farms: [],
-      top_band_n: 0,
+      top_band_n: 20,
       exclusion_assertions: [],
     }),
   };
@@ -325,6 +339,124 @@ describe("AppShell service integration", () => {
       // only the field the user touched, never re-derives the rest.
       expect(lastCall.weights.criteria.slice(1)).toEqual(BASELINE_CRITERIA.slice(1));
     });
+  });
+});
+
+describe("AppShell sanity-check panel (S3-08)", () => {
+  function sanityRegion(): HTMLElement {
+    return screen.getByRole("region", { name: "Sanity check / validation" });
+  }
+
+  it("fetches the sanity result once on mount and renders it in the sanity region", async () => {
+    const service = serviceWithFlaggedDataset();
+    render(<AppShell service={service} />);
+
+    await screen.findByText("run-wind-1");
+
+    const region = sanityRegion();
+    // The caveat and a served check render in the mounted panel.
+    await waitFor(() => {
+      expect(
+        within(region).getByText(/not trained to reproduce the known wind\/REZ/i),
+      ).toBeInTheDocument();
+    });
+    expect(within(region).getByText(/Known-wind-farm top-ranked band/)).toBeInTheDocument();
+    expect(within(region).getByText("PASS")).toBeInTheDocument();
+
+    // Fetched exactly once on mount, independent of the active Run (a re-run
+    // never refetches the baseline-fixed sidecar).
+    expect(service.getSanityCheck).toHaveBeenCalledTimes(1);
+  });
+
+  it("asserts same-engine-output on the unmodified baseline mount run", async () => {
+    const service = serviceWithFlaggedDataset();
+    render(<AppShell service={service} />);
+
+    await screen.findByText("run-wind-1");
+
+    const region = sanityRegion();
+    // The default mount run is the unmodified baseline -> single-lineage copy.
+    expect(
+      within(region).getByText(/same engine output as the map and shortlist/i),
+    ).toBeInTheDocument();
+    expect(
+      within(region).queryByText(/Sanity reflects the BASELINE run, not the current scenario/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("flips to the baseline-vs-scenario warning when a preset scenario is selected", async () => {
+    const service = serviceWithFlaggedDataset();
+    service.runAnalysis = jest.fn().mockImplementation(
+      async ({ scenario }: { scenario?: string | null }) => ({
+        run_id: scenario === "grid_led" ? "run-grid-1" : "run-wind-1",
+        weights_id: scenario ?? "wind_led",
+        scenario,
+      }),
+    );
+    render(<AppShell service={service} />);
+
+    await screen.findByText("run-wind-1");
+
+    // Select a named preset and re-run — the single-run selector is no longer
+    // the baseline, so the panel must warn that sanity reflects the baseline.
+    fireEvent.click(within(controlsRegion()).getByRole("radio", { name: "Grid-led" }));
+    fireEvent.click(screen.getByRole("button", { name: /run analysis/i }));
+
+    await screen.findByText("run-grid-1");
+
+    const region = sanityRegion();
+    expect(
+      within(region).getByText(/Sanity reflects the BASELINE run, not the current scenario/),
+    ).toBeInTheDocument();
+    expect(
+      within(region).queryByText(/same engine output as the map and shortlist/i),
+    ).not.toBeInTheDocument();
+    // The sidecar is fetched once; selecting a scenario does not refetch it.
+    expect(service.getSanityCheck).toHaveBeenCalledTimes(1);
+  });
+
+  it("flips to the warning when the baseline weights are edited (not just on a scenario)", async () => {
+    const service = serviceWithFlaggedDataset();
+    render(<AppShell service={service} />);
+
+    await screen.findByText("run-wind-1");
+
+    const region = sanityRegion();
+    // Still the unmodified baseline before any edit.
+    expect(
+      within(region).getByText(/same engine output as the map and shortlist/i),
+    ).toBeInTheDocument();
+
+    // Edit a baseline weight so baselineCriteria diverges from BASELINE_CRITERIA
+    // while the option id stays "baseline" — isBaselineRun must become false.
+    fireEvent.change(screen.getByLabelText("Wind speed weight"), {
+      target: { value: "0.5" },
+    });
+
+    await waitFor(() => {
+      expect(
+        within(sanityRegion()).getByText(
+          /Sanity reflects the BASELINE run, not the current scenario/,
+        ),
+      ).toBeInTheDocument();
+    });
+    expect(
+      within(sanityRegion()).queryByText(/same engine output as the map and shortlist/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the engine output visible when only the sanity endpoint fails", async () => {
+    const service = serviceWithFlaggedDataset();
+    service.getSanityCheck = jest
+      .fn()
+      .mockRejectedValue(new Error("sanity sidecar missing"));
+    render(<AppShell service={service} />);
+
+    expect(await screen.findByText("run-wind-1")).toBeInTheDocument();
+    const region = sanityRegion();
+    expect(within(region).getByRole("alert")).toHaveTextContent(
+      "Sanity-check result is unavailable. sanity sidecar missing",
+    );
   });
 });
 
