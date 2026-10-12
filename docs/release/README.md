@@ -43,13 +43,41 @@ rehearsal commands, non-default ports and observed versions are in
 ## Reviewable PR sequence (backend → web → docs)
 
 Per the guidance §5 "not one giant PR" rule, the combined sprint is presented as
-three review-ordered PRs:
+three review-ordered PRs. Each PR lists the evidence a reviewer runs to confirm
+it in isolation.
 
-1. **PR-1 — Backend decision components & service** (`pipeline/**`, `app/api/**`
-   and their tests). Merge first.
-2. **PR-2 — Web integration** (`app/web/**`, `app/docker-compose.yml`). Merge
-   second, on PR-1.
-3. **PR-3 — Validation, documentation & release candidate** (the e2e test, the
-   docs-consistency guard, this `docs/release/**` set, `app/rehearse_demo.py`,
-   `tests/backend/test_demo_rehearsal.py`). The tag is cut on this merge. Merge
-   last.
+1. **PR-1 — Backend decision components & service.**
+   Scope: `pipeline/**`, `app/api/**`, and the backend/service/integration/sanity
+   tests (already-committed ancestry on this branch). Merge first.
+   Evidence:
+   ```bash
+   pytest -v -m "not integration" tests/backend
+   pytest -v -m "not integration" --ignore=tests/backend
+   ```
+2. **PR-2 — Web integration.**
+   Scope: `app/web/**`, `app/docker-compose.yml`. Merge second, on PR-1.
+   Evidence (from `app/web`, plus the Compose smoke from `app/`):
+   ```bash
+   npm ci && npm test -- --runInBand && npm run typecheck && npm run build
+   # from app/: docker compose up --build -d && python app/smoke_test.py && docker compose down
+   ```
+3. **PR-3 — Validation, documentation & release candidate.**
+   Scope: `docs/**` (incl. this `docs/release/**` set), `app/rehearse_demo.py`,
+   `tests/backend/test_demo_rehearsal.py`, and the e2e + docs-consistency guards.
+   The annotated tag is cut on **this** merge commit. Merge last.
+   Evidence:
+   ```bash
+   pytest -v -m "not integration" --ignore=tests/backend  # collects the e2e test
+   pytest -v -m "not integration" tests/backend/test_s309_docs_consistency.py
+   pytest -v -m integration  tests/backend/test_demo_rehearsal.py  # against the live stack
+   ```
+
+The S3-10 authored work lands on `s3-10-final-demo` as three review-ordered
+commits in this backend→web→docs (Decision 2) shape — there is no new web source
+in S3-10, so PR-2's web gate re-runs the existing green suite:
+
+| Commit | Tier | Files |
+| --- | --- | --- |
+| `test(release): S3-10 rehearsal harness, gate, and widened docs guard` | backend/test | `app/rehearse_demo.py`, `tests/backend/test_demo_rehearsal.py`, `tests/backend/test_s309_docs_consistency.py` |
+| `test(release): capture FEAT-002 live rehearsal evidence` | backend/test | `app/api/Dockerfile`, `app/rehearse_demo.py`, `docs/release/rehearsal.json` |
+| `docs(release): author S3-10 release package and mark ticket` | docs | `docs/release/{README,demo-script,limitations,readiness,verification}`, `README.md`, `app/README.md`, the S3-10 ticket |
