@@ -26,6 +26,7 @@ import DataQualityBanner from "./DataQualityBanner";
 import PlaceholderRegion from "./PlaceholderRegion";
 import RankedShortlist from "./RankedShortlist";
 import ScenarioComparison, { CUSTOM_SIDE } from "./ScenarioComparison";
+import SiteDetailPanel from "./SiteDetailPanel";
 import type { SelectSite, SiteSelection } from "./siteSelection";
 
 /**
@@ -323,13 +324,7 @@ export default function AppShell({ service: injectedService }: AppShellProps = {
           body={selectedDetail?.error ? (
             <p className="om-service-error" role="alert">Site detail unavailable: {selectedDetail.error}</p>
           ) : engine && selectedDetail?.site ? (
-            <dl className="om-facts">
-              <div><dt>Site ID</dt><dd><code>{selectedDetail.site.cell_id}</code></dd></div>
-              <div><dt>Rank</dt><dd>{selectedDetail.site.rank}</dd></div>
-              <div><dt>Suitability</dt><dd>{selectedDetail.site.suitability_score?.toFixed(3) ?? "Not scored"}</dd></div>
-              <div><dt>Eligible</dt><dd>{selectedDetail.site.eligible ? "Yes" : "No"}</dd></div>
-              <div><dt>Excluded cells in run</dt><dd>{engine.exclusions.length.toLocaleString()}</dd></div>
-            </dl>
+            <SiteDetailPanel site={selectedDetail.site} />
           ) : selection ? (
             "Loading site detail…"
           ) : loadingText ?? "No site detail is available."}

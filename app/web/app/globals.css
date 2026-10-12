@@ -529,6 +529,43 @@ body {
 }
 
 /*
+ * Site detail & explanation (S3-05). A stacked read-out of the selected cell's
+ * header facts, verbatim S2-06 explanation sections, and the shared results
+ * tables for component scores and features. Function-first; it reuses .om-facts
+ * and .om-results so the detail region matches the shortlist exactly.
+ */
+.om-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.om-detail__headline {
+  margin: 0;
+  font-weight: 600;
+}
+
+.om-detail__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.om-detail__heading {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.om-detail__list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+/*
  * Fixed 2×2 grid: analysis controls (top-left), interactive map (top-right),
  * ranked results (bottom-left), site detail/explanation (bottom-right). On
  * narrow viewports the regions stack in a single column. `minmax(0, 1fr)`
