@@ -144,6 +144,122 @@ body {
   padding-left: 1.25rem;
 }
 
+/*
+ * Sanity-check / validation panel (S3-08). A pure view over GET /sanity-check:
+ * the always-on caveat, the lineage line, the baseline-vs-scenario disclosure,
+ * the per-check PASS/FAIL list, the known-wind-farm table and the
+ * contradictions list. Function-first, clarity-over-effects (Requirement 1.3).
+ */
+.om-sanity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.om-sanity--loading,
+.om-sanity--failed {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--om-border);
+  border-radius: 4px;
+}
+
+.om-sanity--failed {
+  background: var(--om-warning-bg);
+  border-color: var(--om-warning-border);
+}
+
+.om-sanity__caveat {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--om-warning-border);
+  border-radius: 4px;
+  background: var(--om-warning-bg);
+}
+
+.om-sanity__lineage-state {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--om-border);
+  border-radius: 4px;
+}
+
+.om-sanity__lineage-state--baseline {
+  background: var(--om-success-bg);
+  border-color: var(--om-success-border);
+}
+
+.om-sanity__lineage-state--scenario {
+  background: var(--om-warning-bg);
+  border-color: var(--om-warning-border);
+}
+
+.om-sanity__lineage {
+  margin: 0;
+  color: var(--om-muted);
+  font-size: 0.85rem;
+}
+
+.om-sanity__disclaimer {
+  margin: 0;
+  color: var(--om-muted);
+}
+
+.om-sanity__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.om-sanity__heading {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.om-sanity__checks,
+.om-sanity__contradictions {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.om-sanity__badge {
+  display: inline-block;
+  padding: 0 0.4rem;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.om-sanity__badge--pass {
+  background: var(--om-success-bg);
+  color: var(--om-success-border);
+  border: 1px solid var(--om-success-border);
+}
+
+.om-sanity__badge--fail {
+  background: var(--om-warning-bg);
+  color: var(--om-warning-border);
+  border: 1px solid var(--om-warning-border);
+}
+
+.om-sanity__check-label {
+  font-weight: 600;
+}
+
+.om-sanity__kind {
+  color: var(--om-muted);
+}
+
+.om-sanity__note {
+  color: var(--om-muted);
+}
+
 .om-controls {
   display: flex;
   flex-direction: column;

@@ -26,6 +26,8 @@ describe("AppShell — fixed shell regions (R3.1–3.4)", () => {
     "Site detail / explanation",
     // S3-06 adds the scenario-comparison region to the fixed shell.
     "Scenario comparison",
+    // S3-08 adds the sanity-check / validation region to the fixed shell.
+    "Sanity check / validation",
   ];
 
   it("renders all labelled regions as headings", () => {

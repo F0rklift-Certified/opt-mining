@@ -25,6 +25,8 @@ import CellMap from "./CellMap";
 import DataQualityBanner from "./DataQualityBanner";
 import PlaceholderRegion from "./PlaceholderRegion";
 import RankedShortlist from "./RankedShortlist";
+import type { SanityCheck } from "../api/decision-service";
+import SanityCheckPanel from "./SanityCheckPanel";
 import ScenarioComparison, { CUSTOM_SIDE } from "./ScenarioComparison";
 import SiteDetailPanel from "./SiteDetailPanel";
 import type { SelectSite, SiteSelection } from "./siteSelection";
@@ -67,6 +69,26 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unexpected service error.";
 }
 
+/**
+ * Pure field-by-field equality of two criteria sets — compares each criterion's
+ * `feature`, `weight` and `direction` in order. Used only to decide whether the
+ * editable Baseline is still the frozen `BASELINE_CRITERIA` (the sanity
+ * baseline-vs-scenario disclosure, AC8). This is a UI equality, NOT decision
+ * arithmetic — it compares weights, it never scores anything.
+ */
+function criteriaEqual(a: Criterion[], b: Criterion[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((criterion, index) => {
+    const other = b[index];
+    return (
+      other !== undefined &&
+      criterion.feature === other.feature &&
+      criterion.weight === other.weight &&
+      criterion.direction === other.direction
+    );
+  });
+}
+
 /** Build the `run_analysis` request for the given weighting option (S3-02). */
 function buildRunRequest(optionId: string, baselineCriteria: Criterion[]): RunRequest {
   const option = WEIGHTING_OPTIONS.find((candidate) => candidate.id === optionId);
@@ -84,8 +106,11 @@ export default function AppShell({ service: injectedService }: AppShellProps = {
   const [engineError, setEngineError] = useState<string | null>(null);
   const [quality, setQuality] = useState<DataQualityStatus | null>(null);
   const [qualityError, setQualityError] = useState<string | null>(null);
+  const [sanity, setSanity] = useState<SanityCheck | null>(null);
+  const [sanityError, setSanityError] = useState<string | null>(null);
   const [engineLoading, setEngineLoading] = useState(true);
   const [qualityLoading, setQualityLoading] = useState(true);
+  const [sanityLoading, setSanityLoading] = useState(true);
   // One selected site shared by the shortlist, the map and the detail view.
   const [selection, setSelection] = useState<SiteSelection | null>(null);
   const [detail, setDetail] = useState<SiteDetailView | null>(null);
@@ -162,8 +187,10 @@ export default function AppShell({ service: injectedService }: AppShellProps = {
         const message = errorMessage(error);
         setEngineError(message);
         setQualityError(message);
+        setSanityError(message);
         setEngineLoading(false);
         setQualityLoading(false);
+        setSanityLoading(false);
       }
       return () => { active = false; };
     }
@@ -181,7 +208,19 @@ export default function AppShell({ service: injectedService }: AppShellProps = {
       }
     }
 
+    async function loadSanity(): Promise<void> {
+      try {
+        const result = await api.getSanityCheck();
+        if (active) setSanity(result);
+      } catch (error) {
+        if (active) setSanityError(errorMessage(error));
+      } finally {
+        if (active) setSanityLoading(false);
+      }
+    }
+
     void loadQuality();
+    void loadSanity();
     void runWith(buildRunRequest(DEFAULT_OPTION_ID, BASELINE_CRITERIA));
     return () => { active = false; };
   }, [injectedService, runWith]);
@@ -260,6 +299,14 @@ export default function AppShell({ service: injectedService }: AppShellProps = {
 
   // Only show detail loaded for the current selection, never a previous one.
   const selectedDetail = detail?.selection === selection ? detail : null;
+
+  // The sanity sidecar is baseline-fixed; the panel asserts single-lineage only
+  // when the active single-run selection is the UNMODIFIED baseline — the
+  // option id alone is insufficient because the baseline is user-editable
+  // (Design §3, Finding 1). Tracks the single-run selector (optionId /
+  // baselineCriteria) ONLY — never the scenario-comparison pair.
+  const isBaselineRun =
+    optionId === DEFAULT_OPTION_ID && criteriaEqual(baselineCriteria, BASELINE_CRITERIA);
 
   const loadingText = engineLoading ? "Loading decision-service output…" : null;
   const failureText = engineError ? `Decision service unavailable: ${engineError}` : null;
@@ -352,6 +399,19 @@ export default function AppShell({ service: injectedService }: AppShellProps = {
               service={service}
               selectedCellIds={comparisonCellIds}
               onSelectedCellIdsChange={setComparisonCellIds}
+            />
+          }
+        />
+        <PlaceholderRegion
+          id="region-sanity-check"
+          label="Sanity check / validation"
+          ariaLabel="Sanity check / validation"
+          body={
+            <SanityCheckPanel
+              sanity={sanity}
+              error={sanityError}
+              loading={sanityLoading}
+              isBaselineRun={isBaselineRun}
             />
           }
         />
