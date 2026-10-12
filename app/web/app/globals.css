@@ -494,6 +494,28 @@ body {
   color: var(--om-muted);
 }
 
+/*
+ * Compact mini-map legend. Mirrors .om-map__legend but at a smaller scale to
+ * suit the picker; the swatches reuse the .om-map__swatch--* classes so their
+ * colours stay locked to the shared cell-layer paint.
+ */
+.om-cell-picker__legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.1rem 0.75rem;
+  font-size: 0.72rem;
+  color: var(--om-muted);
+}
+
+.om-cell-picker__legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
 .om-cell-picker__actions {
   display: flex;
   flex-wrap: wrap;

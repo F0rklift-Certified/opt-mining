@@ -22,7 +22,11 @@ import type { CellCollection, DecisionService } from "../api/decision-service";
 import CellPicker from "./CellPicker";
 
 const setDataSpy = jest.fn();
+const addSourceSpy = jest.fn();
+const addLayerSpy = jest.fn();
 let mapHandlers: Record<string, (event: unknown) => void> = {};
+/** Last `setData` payload per source id, so a test can read the picker's cell source. */
+let lastSetDataBySource: Record<string, unknown> = {};
 
 jest.mock("maplibre-gl", () => {
   class MockMap {
@@ -40,10 +44,19 @@ jest.mock("maplibre-gl", () => {
       }
     }
     addControl() {}
-    addSource() {}
-    addLayer() {}
-    getSource() {
-      return { setData: (...args: unknown[]) => setDataSpy(...args) };
+    addSource(id: string) {
+      addSourceSpy(id);
+    }
+    addLayer(layer: { id: string }) {
+      addLayerSpy(layer.id);
+    }
+    getSource(id: string) {
+      return {
+        setData: (...args: unknown[]) => {
+          lastSetDataBySource[id] = args[0];
+          setDataSpy(...args);
+        },
+      };
     }
     getCanvas() {
       return { style: { cursor: "" } };
@@ -87,6 +100,17 @@ function serviceWithCells(impl: DecisionService["getRunCells"]): DecisionService
   return { getRunCells: impl } as unknown as DecisionService;
 }
 
+/** A service implementing both getRunCells and getExclusions (parity path). */
+function serviceWithCellsAndExclusions(
+  cells: DecisionService["getRunCells"],
+  exclusions: DecisionService["getExclusions"],
+): DecisionService {
+  return {
+    getRunCells: cells,
+    getExclusions: exclusions,
+  } as unknown as DecisionService;
+}
+
 /** Fire a map-wide handler captured by event name with a lngLat point. */
 function fireMap(event: string, lng: number, lat: number): void {
   const handler = mapHandlers[event];
@@ -108,7 +132,10 @@ function drag(
 
 beforeEach(() => {
   setDataSpy.mockClear();
+  addSourceSpy.mockClear();
+  addLayerSpy.mockClear();
   mapHandlers = {};
+  lastSetDataBySource = {};
 });
 
 describe("CellPicker (S3-06 cell-selection mini-map)", () => {
@@ -238,5 +265,102 @@ describe("CellPicker (S3-06 cell-selection mini-map)", () => {
     const source = readFileSync(join(__dirname, "CellPicker.tsx"), "utf8");
     expect(source).not.toMatch(/\bfetch\s*\(/);
     expect(source).toContain("service.getRunCells");
+  });
+
+  it("adds the NSW boundary mask/border and the three shared cell layers for main-map parity", async () => {
+    const getRunCells = jest.fn().mockResolvedValue(collection("run-1"));
+    render(
+      <CellPicker
+        runId="run-1"
+        service={serviceWithCells(getRunCells)}
+        onApply={jest.fn()}
+        onClear={jest.fn()}
+        activeCount={0}
+      />,
+    );
+    await waitFor(() => expect(getRunCells).toHaveBeenCalled());
+
+    // NSW boundary source + outside-dimming mask + border, so the mini-map
+    // reads as the shape of NSW (same ids CellMap uses).
+    expect(addSourceSpy).toHaveBeenCalledWith("nsw-boundary");
+    expect(addLayerSpy).toHaveBeenCalledWith("nsw-mask");
+    expect(addLayerSpy).toHaveBeenCalledWith("nsw-border");
+    // The three engine-driven cell layers (same ids / visual language as the
+    // big map), replacing the old single flat layer.
+    expect(addLayerSpy).toHaveBeenCalledWith("cells-excluded-nodata");
+    expect(addLayerSpy).toHaveBeenCalledWith("cells-excluded-env");
+    expect(addLayerSpy).toHaveBeenCalledWith("cells-eligible");
+    // The drag-rectangle and selected overlays stay on top (own picker ids).
+    expect(addLayerSpy).toHaveBeenCalledWith("picker-selected-layer");
+    expect(addLayerSpy).toHaveBeenCalledWith("picker-rect-fill");
+    expect(addLayerSpy).toHaveBeenCalledWith("picker-rect-line");
+  });
+
+  it("requests exclusions best-effort and stamps exclusion_class on the drawn cells", async () => {
+    const getRunCells = jest.fn().mockResolvedValue(collection("run-1"));
+    // Mark the one eligible cell's neighbour as excluded is not needed; instead
+    // supply a run whose cells include an excluded one to classify.
+    const mixed: CellCollection = {
+      type: "FeatureCollection",
+      run_id: "run-1",
+      features: [
+        {
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [150.0, -32.0] },
+          properties: { cell_id: "eligible-1", eligible: true, suitability_score: 0.9, rank: 1 },
+        },
+        {
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [150.5, -31.5] },
+          properties: { cell_id: "nodata-1", eligible: false, suitability_score: null, rank: null },
+        },
+      ],
+    } as CellCollection;
+    const cellsFn = jest.fn().mockResolvedValue(mixed);
+    const getExclusions = jest.fn().mockResolvedValue([
+      { cell_id: "nodata-1", reason_codes: ["missing_wind_data"], reason_text: "Missing wind data" },
+    ]);
+    render(
+      <CellPicker
+        runId="run-1"
+        service={serviceWithCellsAndExclusions(cellsFn, getExclusions)}
+        onApply={jest.fn()}
+        onClear={jest.fn()}
+        activeCount={0}
+      />,
+    );
+
+    await waitFor(() => expect(getExclusions).toHaveBeenCalledWith("run-1"));
+    await waitFor(() =>
+      expect(lastSetDataBySource["picker-cells"]).toBeDefined(),
+    );
+    const applied = lastSetDataBySource["picker-cells"] as CellCollection;
+    const byId = new Map(
+      (applied.features ?? []).map(
+        (f) => [f.properties.cell_id, f.properties as Record<string, unknown>] as const,
+      ),
+    );
+    expect(byId.get("nodata-1")?.exclusion_class).toBe("nodata");
+    // Eligible cells are left untouched (no exclusion_class).
+    expect(byId.get("eligible-1")?.exclusion_class).toBeUndefined();
+  });
+
+  it("still renders cells when getExclusions is unavailable (best-effort join)", async () => {
+    const getRunCells = jest.fn().mockResolvedValue(collection("run-1"));
+    // serviceWithCells has no getExclusions — the optional call must not throw.
+    render(
+      <CellPicker
+        runId="run-1"
+        service={serviceWithCells(getRunCells)}
+        onApply={jest.fn()}
+        onClear={jest.fn()}
+        activeCount={0}
+      />,
+    );
+    await waitFor(() => expect(setDataSpy).toHaveBeenCalled());
+    expect(getRunCells).toHaveBeenCalledTimes(1);
+    // The cell source still received a FeatureCollection.
+    const applied = lastSetDataBySource["picker-cells"] as CellCollection;
+    expect(applied.type).toBe("FeatureCollection");
   });
 });

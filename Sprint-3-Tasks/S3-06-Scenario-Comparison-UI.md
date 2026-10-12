@@ -186,3 +186,43 @@ rendered verbatim), and the `scope-guard` suite (no `.sort`/`.reduce`/banned
 identifier/stray `fetch`); `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 npm run build` succeeds. Evidence: the verification note at the top of
 `app/web/.agents/tasks/s3-06-cell-selection-investigation.md`.
+
+### Update: mini-map visual parity with the main map (NSW shape + eligible/excluded styling)
+
+The drag-rectangle mini-map (`CellPicker`) now LOOKS LIKE the larger
+interactive map (`CellMap`) instead of a flat rectangular block of dots. It
+draws the NSW boundary + outside-NSW dimming mask (so the cells read as the
+SHAPE of NSW) and styles cells with the SAME visual language as the big map:
+eligible cells on the suitability-score colour ramp, environmental rule-outs in
+slate/blue, and unassessed no-data cells palest. Included (eligible) vs excluded
+cells are therefore distinguishable at a glance, matching the main map.
+
+To guarantee the two maps cannot drift, the NSW boundary/mask builders, the
+three engine-driven cell-layer builders, the exclusion classifier, the
+reason-join and the NSW clip were extracted VERBATIM into a shared
+`app/web/app/shell/cell-layers.ts` module. `CellMap` now imports them (its
+rendered output is byte-for-byte unchanged — identical layer ids, colours,
+radii, opacity, ramp stops, filters and draw order), and `CellPicker` consumes
+the SAME builders (the cell-layer builders take a `sourceId` so the picker feeds
+its own source without altering any paint). The picker's drag-rectangle,
+selected-cell highlight and search box stay layered on top and behave exactly as
+before; a compact legend mirrors the main map's.
+
+**Still a pure DISPLAY FILTER — no backend change.** The picker now also joins
+`service.getExclusions` (best-effort) alongside `service.getRunCells` for the
+per-cell exclusion class — the SAME two calls `CellMap` already makes, through
+the existing single client, with NO new client method and NO OpenAPI/schema
+change. `compareScenarios` and its request are unchanged; the engine still ranks
+the full population and the comparison table renders engine rows verbatim in
+engine order — selection only narrows which rows show. No `.sort`/`.reduce` or
+decision math was added (the shared helpers use `.filter`/`.map`/`.every`/`for`
+loops only), so the scope-guard stays green.
+
+Verification (mini-map parity): from `app/web` — `npm run typecheck` clean;
+`npm test` 173 passed (12 suites), including the new `cell-layers.test.ts`
+(classifier maps reason codes to env/nodata; eligible filter; ramp stops;
+boundary builders; both components import the same helpers), the extended
+`CellPicker.test.tsx` (NSW mask/border + three cell layers added, best-effort
+exclusions join stamps `exclusion_class`, drag still filters, Clear resets), and
+the `scope-guard` suite; `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+npm run build` succeeds. Frontend-only, pure presentation.

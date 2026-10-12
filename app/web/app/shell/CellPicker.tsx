@@ -12,10 +12,19 @@
  * no decision logic.
  *
  * Data path: cells come through the single shared client (`service.getRunCells`),
- * the same path CellMap uses — there is NO direct `fetch` here. The MapLibre
- * lifecycle mirrors CellMap's single-ordered-path shape (mount effect, a
- * `mapReady` gate, a `pendingDataRef` replay buffer, a `requestIdRef` staleness
- * guard) so it tests under the SAME jsdom mock.
+ * joined best-effort with `service.getExclusions` for the per-cell exclusion
+ * class — the SAME two calls CellMap makes — so there is NO direct `fetch` here
+ * and NO new client method. The MapLibre lifecycle mirrors CellMap's
+ * single-ordered-path shape (mount effect, a `mapReady` gate, a
+ * `pendingDataRef` replay buffer, a `requestIdRef` staleness guard) so it tests
+ * under the SAME jsdom mock.
+ *
+ * Visual parity (S3-06 follow-up): the mini-map draws the NSW boundary +
+ * outside-NSW dimming mask and the SAME three engine-driven cell layers CellMap
+ * uses (eligible score ramp / environmental rule-out / unassessed no-data) via
+ * the shared {@link ./cell-layers} builders, so it reads as the shape of NSW
+ * with the same colour language — not a flat rectangular block. The drawn
+ * rectangle and selected-cell markers stay layered on top.
  *
  * Accessibility: the drag interaction is a convenience, NOT the only way to
  * select — the sibling search box in ScenarioComparison is a full keyboard
@@ -35,8 +44,20 @@ import {
   DecisionServiceError,
   type CellCollection,
   type DecisionService,
+  type ExcludedRow,
 } from "../api/decision-service";
 import { bboxFromCorners, cellIdsInBbox, type Bbox } from "./cell-geometry";
+import {
+  NSW_SOURCE_ID,
+  clipToNsw,
+  withExclusionClasses,
+  nswBoundaryData,
+  nswMaskLayer,
+  nswBorderLayer,
+  excludedNoDataLayer,
+  excludedEnvLayer,
+  eligibleLayer,
+} from "./cell-layers";
 
 export interface CellPickerProps {
   /** `engine.run.run_id` for the currently-loaded run, or null when none. */
@@ -54,9 +75,14 @@ export interface CellPickerProps {
   activeCount: number;
 }
 
-/** The cell points source + layer (small dots, no decision styling here). */
+/**
+ * The cell points source. The picker keeps its OWN source id (so it never
+ * clashes with the big map if both ever mount) but draws the SAME three
+ * engine-driven cell layers CellMap uses — eligible / excluded-environmental /
+ * excluded-no-data — via the shared {@link cell-layers} builders, which take a
+ * `sourceId` so only the source binding differs, never the paint.
+ */
 const SOURCE_ID = "picker-cells";
-const CELL_LAYER_ID = "picker-cells-layer";
 /** The selected-cell overlay (cells inside the applied/drawn rectangle). */
 const SELECTED_SOURCE_ID = "picker-selected";
 const SELECTED_LAYER_ID = "picker-selected-layer";
@@ -65,9 +91,9 @@ const RECT_SOURCE_ID = "picker-rect";
 const RECT_FILL_LAYER_ID = "picker-rect-fill";
 const RECT_LINE_LAYER_ID = "picker-rect-line";
 
-/** NSW-framed initial view (whole-state overview), matching CellMap. */
+/** NSW-framed initial view (whole-state overview), matching CellMap's framing. */
 const NSW_CENTER: [number, number] = [147.0, -32.5];
-const NSW_ZOOM = 4;
+const NSW_ZOOM = 5;
 
 /** Required OSM attribution for the public basemap. */
 const OSM_ATTRIBUTION = "© OpenStreetMap contributors";
@@ -142,20 +168,6 @@ function selectedPointsData(
       geometry: feature.geometry as GeoJSON.Point,
     }));
   return { type: "FeatureCollection", features };
-}
-
-/** The faint base layer of every run cell (context for the drag). */
-function cellLayer(): maplibregl.CircleLayerSpecification {
-  return {
-    id: CELL_LAYER_ID,
-    type: "circle",
-    source: SOURCE_ID,
-    paint: {
-      "circle-color": "#5b6b8c",
-      "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 1.2, 9, 4],
-      "circle-opacity": 0.5,
-    },
-  };
 }
 
 /** The highlighted selected cells (drawn above the base cells). */
@@ -238,11 +250,27 @@ export default function CellPicker({
     mapRef.current = map;
 
     map.on("load", () => {
+      // The NSW boundary source + its mask/border layers are added FIRST so the
+      // cell layers below draw on top of them (dimmed surround, traced border) —
+      // the same bottom-most framing CellMap uses, so the mini-map reads as the
+      // SHAPE of NSW rather than a flat rectangular block.
+      map.addSource(NSW_SOURCE_ID, {
+        type: "geojson",
+        data: nswBoundaryData(),
+      });
+      map.addLayer(nswMaskLayer());
+      map.addLayer(nswBorderLayer());
       map.addSource(SOURCE_ID, {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
-      map.addLayer(cellLayer());
+      // Draw order (bottom -> top), identical to CellMap's visual language:
+      // faint no-data carpet, then genuine environmental rule-outs, then the
+      // eligible score ramp on top. The shared builders take this picker's own
+      // source id so only the source binding differs, never the paint.
+      map.addLayer(excludedNoDataLayer(SOURCE_ID));
+      map.addLayer(excludedEnvLayer(SOURCE_ID));
+      map.addLayer(eligibleLayer(SOURCE_ID));
       map.addSource(SELECTED_SOURCE_ID, {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
@@ -340,18 +368,33 @@ export default function CellPicker({
     setSelectedRef.current(new Set());
     cellsRef.current = null;
 
-    service
-      .getRunCells(runId)
-      .then((cells) => {
+    // The cells layer is the required data path; the exclusions call enriches
+    // it with the per-cell exclusion class (no-data vs environmental), exactly
+    // as CellMap does. The exclusions fetch is best-effort: if it is missing or
+    // fails, the cells still render (every excluded cell then falls back to the
+    // environmental style). All data comes through the shared client — the
+    // picker adds NO new client method; `getExclusions` already exists on it.
+    Promise.all([
+      service.getRunCells(runId),
+      Promise.resolve()
+        .then(() => service.getExclusions?.(runId) ?? [])
+        .catch(() => [] as ExcludedRow[]),
+    ])
+      .then(([cells, exclusions]) => {
         if (myId !== requestIdRef.current) return; // stale run superseded
+        // Enrich with exclusion classes, then clip the drawn cells to the NSW
+        // shape (presentation-only: removes out-of-state features geographically
+        // without touching any surviving cell's styling values). The hit-test
+        // and selected overlay read the SAME enriched+clipped collection.
+        const collection = clipToNsw(withExclusionClasses(cells, exclusions));
         const map = mapRef.current;
         const source = map?.getSource(SOURCE_ID) as GeoJSONSource | undefined;
         if (source) {
-          source.setData(cells as unknown as GeoJSON.FeatureCollection);
-          cellsRef.current = cells;
+          source.setData(collection as unknown as GeoJSON.FeatureCollection);
+          cellsRef.current = collection;
           pendingDataRef.current = null;
         } else {
-          pendingDataRef.current = cells;
+          pendingDataRef.current = collection;
         }
         setLoading(false);
       })
@@ -377,8 +420,9 @@ export default function CellPicker({
       <div
         ref={containerRef}
         className="om-cell-picker__map"
-        aria-label="Mini map — drag to select cells for the comparison table"
+        aria-label="Mini map of NSW — drag to select cells for the comparison table"
       />
+      <PickerLegend />
       {runId === null && (
         <p className="om-cell-picker__status">No run is loaded.</p>
       )}
@@ -406,5 +450,39 @@ export default function CellPicker({
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * A compact legend naming the cell classes the shared layers paint, mirroring
+ * CellMap's legend so the mini-map is read with the same visual language. The
+ * swatch colours reuse the CellMap `om-map__swatch--*` classes, which track the
+ * shared layer paint, so the two maps' legends cannot drift.
+ */
+function PickerLegend(): JSX.Element {
+  return (
+    <ul className="om-cell-picker__legend" aria-label="Mini-map legend">
+      <li>
+        <span
+          className="om-map__swatch om-map__swatch--eligible"
+          aria-hidden="true"
+        />
+        Eligible (shade = suitability)
+      </li>
+      <li>
+        <span
+          className="om-map__swatch om-map__swatch--env"
+          aria-hidden="true"
+        />
+        Excluded — environmental
+      </li>
+      <li>
+        <span
+          className="om-map__swatch om-map__swatch--nodata"
+          aria-hidden="true"
+        />
+        Not assessed — no data
+      </li>
+    </ul>
   );
 }
