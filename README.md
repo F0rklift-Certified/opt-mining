@@ -252,5 +252,6 @@ Full detail and the authoritative links for all of the above are in
 | [`app/`](app/README.md) | FastAPI `Decision_Service` + Next.js web client + Compose stack |
 | `DATA/` | Input and frozen derived datasets, with provenance per domain |
 | [`docs/`](docs/technical-reference.md) | Consolidated technical reference and ADRs |
+| [`docs/release/`](docs/release/README.md) | S3-10 release-candidate review package (demo script, limitations, AC-evidence matrix, rehearsal & verification) |
 | `tests/` | Pytest suite, including the end-to-end integration test |
 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | CI: tests, Docker build + smoke test, frontend |

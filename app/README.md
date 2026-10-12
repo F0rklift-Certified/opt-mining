@@ -213,7 +213,10 @@ from raw sources, run the pipeline's single command first — see the
 
 For the consolidated architecture, data-provenance, assumptions, limitations,
 scoring-equation, exclusion and default-weight reference, see
-[`docs/technical-reference.md`](../docs/technical-reference.md).
+[`docs/technical-reference.md`](../docs/technical-reference.md). The S3-10
+release-candidate review package (demo script, limitations, AC-evidence matrix,
+rehearsal and verification evidence) is indexed at
+[`docs/release/README.md`](../docs/release/README.md).
 
 ---
 
