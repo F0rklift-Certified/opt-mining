@@ -18,15 +18,17 @@ import { render, screen, within } from "@testing-library/react";
 import RootLayout from "../layout";
 import AppShell from "./AppShell";
 
-describe("AppShell — four fixed regions (R3.1–3.4)", () => {
+describe("AppShell — fixed shell regions (R3.1–3.4)", () => {
   const REGION_LABELS = [
     "Analysis controls",
     "Interactive map",
     "Ranked results",
     "Site detail / explanation",
+    // S3-06 adds the scenario-comparison region to the fixed shell.
+    "Scenario comparison",
   ];
 
-  it("renders all four labelled regions as headings", () => {
+  it("renders all labelled regions as headings", () => {
     render(<AppShell />);
 
     for (const label of REGION_LABELS) {
@@ -37,11 +39,11 @@ describe("AppShell — four fixed regions (R3.1–3.4)", () => {
     }
   });
 
-  it("exposes exactly four region landmarks", () => {
+  it("exposes exactly the fixed region landmarks", () => {
     render(<AppShell />);
 
     // PlaceholderRegion renders a <section aria-label=...>, which is a region
-    // landmark. There must be exactly the four fixed regions.
+    // landmark. There must be exactly the fixed shell regions.
     const regions = screen.getAllByRole("region");
     expect(regions).toHaveLength(REGION_LABELS.length);
   });

@@ -363,6 +363,66 @@ body {
 }
 
 /*
+ * Scenario comparison (S3-06): two preset selectors, a compare action, and a
+ * per-cell rank/delta table over the S2-07 engine output. Function-first,
+ * clarity-over-effects — plain controls, the shared results-table styling, and
+ * an explicit note framing these as preference (not probabilistic) scenarios.
+ */
+.om-comparison {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.om-comparison__note,
+.om-comparison__caption,
+.om-comparison__hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--om-text);
+}
+
+.om-comparison__hint {
+  color: var(--om-muted);
+}
+
+.om-comparison__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.om-comparison__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--om-border);
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.om-comparison__field legend {
+  font-weight: 600;
+  padding: 0 0.25rem;
+}
+
+.om-comparison__option {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 400;
+}
+
+.om-comparison__results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+/*
  * Fixed 2×2 grid: analysis controls (top-left), interactive map (top-right),
  * ranked results (bottom-left), site detail/explanation (bottom-right). On
  * narrow viewports the regions stack in a single column. `minmax(0, 1fr)`

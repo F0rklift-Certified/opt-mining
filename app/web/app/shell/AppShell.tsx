@@ -17,13 +17,22 @@ import {
   type RankedRow,
   type RunHandle,
   type RunRequest,
+  type ScenarioComparison as ScenarioComparisonResult,
   type SiteDetail,
 } from "../api/decision-service";
 import CellMap from "./CellMap";
 import DataQualityBanner from "./DataQualityBanner";
 import PlaceholderRegion from "./PlaceholderRegion";
 import RankedShortlist from "./RankedShortlist";
+import ScenarioComparison from "./ScenarioComparison";
 import type { SelectSite, SiteSelection } from "./siteSelection";
+
+/**
+ * The named S2-07 weighting presets available to the scenario-comparison UI.
+ * `compare_scenarios` only accepts named scenario keys, so the editable
+ * Baseline (which runs via explicit weights, not a scenario key) is excluded.
+ */
+const COMPARISON_PRESETS = WEIGHTING_OPTIONS.filter((option) => !option.editable);
 
 interface EngineView {
   run: RunHandle;
@@ -70,12 +79,22 @@ export default function AppShell({ service: injectedService }: AppShellProps = {
   // The shared client exposed to CellMap (same object held in apiRef); null
   // until the client is built (or if building it fails for lack of config).
   const [service, setService] = useState<DecisionService | null>(null);
+  // Scenario-comparison (S3-06): two chosen preset keys and the engine result.
+  const [scenarioA, setScenarioA] = useState<string>(COMPARISON_PRESETS[0]?.id ?? "");
+  const [scenarioB, setScenarioB] = useState<string>(
+    COMPARISON_PRESETS[1]?.id ?? COMPARISON_PRESETS[0]?.id ?? "",
+  );
+  const [comparison, setComparison] = useState<ScenarioComparisonResult | null>(null);
+  const [comparisonError, setComparisonError] = useState<string | null>(null);
+  const [comparisonLoading, setComparisonLoading] = useState(false);
 
   // Stable across renders; set once the client is ready (or fails to build).
   const apiRef = useRef<DecisionService | null>(null);
   // Guards a stale response (e.g. the mount run) from overwriting a later one
   // (e.g. a Run-button click) should they ever resolve out of order.
   const requestIdRef = useRef(0);
+  // Independent staleness guard for the scenario-comparison request.
+  const comparisonRequestIdRef = useRef(0);
 
   const runWith = useCallback(async (request: RunRequest) => {
     const api = apiRef.current;
@@ -159,6 +178,31 @@ export default function AppShell({ service: injectedService }: AppShellProps = {
   const handleRun = useCallback(() => {
     void runWith(buildRunRequest(optionId, baselineCriteria));
   }, [runWith, optionId, baselineCriteria]);
+
+  // Fetch the S2-07 scenario comparison for the chosen preset pair (S3-06).
+  // All comparison math is server-side; this only sends two scenario keys and
+  // renders the returned ranks/deltas via the single shared client.
+  const handleCompareScenarios = useCallback(() => {
+    const api = apiRef.current;
+    if (!api || scenarioA === scenarioB) return;
+    const requestId = ++comparisonRequestIdRef.current;
+    setComparisonLoading(true);
+    setComparisonError(null);
+    api.compareScenarios({ scenario_a: scenarioA, scenario_b: scenarioB }).then(
+      (result) => {
+        if (comparisonRequestIdRef.current === requestId) {
+          setComparison(result);
+          setComparisonLoading(false);
+        }
+      },
+      (error: unknown) => {
+        if (comparisonRequestIdRef.current === requestId) {
+          setComparisonError(errorMessage(error));
+          setComparisonLoading(false);
+        }
+      },
+    );
+  }, [scenarioA, scenarioB]);
 
   const activeRunId = engine?.run.run_id ?? null;
   const handleSelectSite = useCallback<SelectSite>((cellId) => {
@@ -246,6 +290,24 @@ export default function AppShell({ service: injectedService }: AppShellProps = {
           ) : selection ? (
             "Loading site detail…"
           ) : loadingText ?? "No site detail is available."}
+        />
+        <PlaceholderRegion
+          id="region-scenario-comparison"
+          label="Scenario comparison"
+          ariaLabel="Scenario comparison"
+          body={
+            <ScenarioComparison
+              presets={COMPARISON_PRESETS}
+              scenarioA={scenarioA}
+              onScenarioAChange={setScenarioA}
+              scenarioB={scenarioB}
+              onScenarioBChange={setScenarioB}
+              onCompare={handleCompareScenarios}
+              loading={comparisonLoading}
+              error={comparisonError}
+              comparison={comparison}
+            />
+          }
         />
       </div>
     </div>

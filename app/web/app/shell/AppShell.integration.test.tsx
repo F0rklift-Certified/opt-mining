@@ -20,6 +20,10 @@ function mapRegion(): HTMLElement {
   return screen.getByRole("region", { name: "Interactive map" });
 }
 
+function controlsRegion(): HTMLElement {
+  return screen.getByRole("region", { name: "Analysis controls" });
+}
+
 // Layer-scoped map handlers captured by `${event}:${layerId}` so a test can
 // drive CellMap's click-to-inspect path (S3-03b) without a GL context.
 const mapLayerHandlers: Record<string, (event: unknown) => void> = {};
@@ -167,7 +171,7 @@ describe("AppShell service integration", () => {
 
     await screen.findByText("run-wind-1");
 
-    fireEvent.click(screen.getByRole("radio", { name: "Grid-led" }));
+    fireEvent.click(within(controlsRegion()).getByRole("radio", { name: "Grid-led" }));
     fireEvent.click(screen.getByRole("button", { name: /run analysis/i }));
 
     expect(await screen.findByText("run-grid-1")).toBeInTheDocument();
@@ -277,7 +281,7 @@ describe("AppShell service integration", () => {
       expect(service.getSiteDetail).toHaveBeenLastCalledWith("run-wind-1", RANK_2);
     });
 
-    fireEvent.click(screen.getByRole("radio", { name: "Grid-led" }));
+    fireEvent.click(within(controlsRegion()).getByRole("radio", { name: "Grid-led" }));
     fireEvent.click(screen.getByRole("button", { name: /run analysis/i }));
 
     await waitFor(() => {
@@ -311,6 +315,93 @@ describe("AppShell service integration", () => {
       // only the field the user touched, never re-derives the rest.
       expect(lastCall.weights.criteria.slice(1)).toEqual(BASELINE_CRITERIA.slice(1));
     });
+  });
+});
+
+describe("AppShell scenario comparison (S3-06)", () => {
+  function comparisonRegion(): HTMLElement {
+    return screen.getByRole("region", { name: "Scenario comparison" });
+  }
+
+  it("compares the two chosen presets through the shared client and renders engine ranks", async () => {
+    const service = serviceWithFlaggedDataset();
+    service.compareScenarios = jest.fn().mockResolvedValue({
+      labels: { a: "wind_led", b: "grid_led" },
+      rows: [
+        { cell_id: "S31.186_E151.686", rank_a: 1, rank_b: 21, rank_delta: -20 },
+        { cell_id: "S40.000_E150.000", rank_a: 90, rank_b: 3, rank_delta: 87 },
+      ],
+    });
+    render(<AppShell service={service} />);
+
+    await screen.findByText("run-wind-1");
+
+    const region = comparisonRegion();
+    // The two selectors default to the two named presets (Wind-led, Grid-led).
+    fireEvent.click(
+      within(region).getByRole("button", { name: /compare scenarios/i }),
+    );
+
+    // The comparison math is server-side: the UI sends only the two keys.
+    await waitFor(() => {
+      expect(service.compareScenarios).toHaveBeenCalledWith({
+        scenario_a: "wind_led",
+        scenario_b: "grid_led",
+      });
+    });
+
+    // Engine-provided ranks and the rank delta render verbatim.
+    expect(await within(region).findByText("S31.186_E151.686")).toBeInTheDocument();
+    expect(within(region).getByText("-20")).toBeInTheDocument();
+    expect(within(region).getByText("+87")).toBeInTheDocument();
+  });
+
+  it("re-compares with the newly selected presets", async () => {
+    const service = serviceWithFlaggedDataset();
+    service.compareScenarios = jest.fn().mockResolvedValue({
+      labels: { a: "grid_led", b: "wind_led" },
+      rows: [{ cell_id: "S31.000_E150.000", rank_a: 4, rank_b: 2, rank_delta: 2 }],
+    });
+    render(<AppShell service={service} />);
+
+    await screen.findByText("run-wind-1");
+
+    const region = comparisonRegion();
+    const groupA = within(region).getByRole("group", { name: "Scenario A" });
+    const groupB = within(region).getByRole("group", { name: "Scenario B" });
+    fireEvent.click(within(groupA).getByRole("radio", { name: "Grid-led" }));
+    fireEvent.click(within(groupB).getByRole("radio", { name: "Wind-led" }));
+    fireEvent.click(
+      within(region).getByRole("button", { name: /compare scenarios/i }),
+    );
+
+    await waitFor(() => {
+      expect(service.compareScenarios).toHaveBeenLastCalledWith({
+        scenario_a: "grid_led",
+        scenario_b: "wind_led",
+      });
+    });
+  });
+
+  it("surfaces a comparison failure without hiding the rest of the shell", async () => {
+    const service = serviceWithFlaggedDataset();
+    service.compareScenarios = jest
+      .fn()
+      .mockRejectedValue(new Error("unknown scenario"));
+    render(<AppShell service={service} />);
+
+    await screen.findByText("run-wind-1");
+
+    const region = comparisonRegion();
+    fireEvent.click(
+      within(region).getByRole("button", { name: /compare scenarios/i }),
+    );
+
+    expect(await within(region).findByRole("alert")).toHaveTextContent(
+      "Scenario comparison unavailable: unknown scenario",
+    );
+    // The ranked shortlist is still present.
+    expect(screen.getByRole("button", { name: RANK_1 })).toBeInTheDocument();
   });
 });
 
