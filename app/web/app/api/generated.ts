@@ -138,6 +138,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sanity-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Sanity Check
+         * @description `get_sanity_check` — the baseline engine output's S1-12 sanity result.
+         *
+         *     Delegates to the operation, which projects the materialised Results_Sidecar
+         *     verbatim. It reuses the centralised `_STATUS_FOR_FAULT` map (a
+         *     missing/unreadable sidecar raised as `EngineOutputError` -> 503 naming the
+         *     missing input), so no mapping change is needed. This layer holds no sanity
+         *     arithmetic.
+         */
+        get: operations["read_sanity_check_sanity_check_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/scenario-comparison": {
         parameters: {
             query?: never;
@@ -339,6 +365,126 @@ export interface components {
             /** Scenario */
             scenario?: string | null;
             weights?: components["schemas"]["Weights"] | null;
+        };
+        /**
+         * SanityCheck
+         * @description The S1-12 sanity-check / validation result (CONTRACT.md §5, §4.8, S3-08).
+         *
+         *     Mirrors `pipeline/service/models.py::SanityCheck` field-for-field: the
+         *     always-on model-not-trained `caveat`, the `preliminary_disclaimer`, the
+         *     lineage `run_metadata`, the normalised per-check `checks` (incl. the
+         *     synthesized exclusion summary), the full `contradictions` list, the
+         *     known-wind-farm `wind_farms` table, the top-ranked band `top_band_n`, and the
+         *     per-landmark `exclusion_assertions` — all carried verbatim. `exclusion_assertions`
+         *     is a free-form mapping list so the mirror neither renames nor reorders the
+         *     sanity stage's assertion fields.
+         */
+        SanityCheck: {
+            /**
+             * Caveat
+             * @default
+             */
+            caveat: string;
+            /** Checks */
+            checks?: components["schemas"]["SanityCheckItem"][];
+            /** Contradictions */
+            contradictions?: components["schemas"]["SanityContradiction"][];
+            /** Exclusion Assertions */
+            exclusion_assertions?: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Preliminary Disclaimer
+             * @default
+             */
+            preliminary_disclaimer: string;
+            run_metadata?: components["schemas"]["SanityRunMetadata"] | null;
+            /**
+             * Top Band N
+             * @default 0
+             */
+            top_band_n: number;
+            /** Wind Farms */
+            wind_farms?: components["schemas"]["SanityWindFarmRow"][];
+        };
+        /**
+         * SanityCheckItem
+         * @description One normalised sanity-check outcome (CONTRACT.md §5, §4.8, S3-08).
+         */
+        SanityCheckItem: {
+            /** Expected */
+            expected: string;
+            /** Name */
+            name: string;
+            /** Observed */
+            observed: string;
+            /** Passed */
+            passed: boolean;
+        };
+        /**
+         * SanityContradiction
+         * @description One documented sanity contradiction / issue (CONTRACT.md §5, §4.8).
+         */
+        SanityContradiction: {
+            /** Check */
+            check: string;
+            /** Description */
+            description: string;
+            /** Investigation Note */
+            investigation_note: string;
+            /** Kind */
+            kind: string;
+        };
+        /**
+         * SanityRunMetadata
+         * @description The sanity result's lineage metadata (CONTRACT.md §5, §4.8).
+         */
+        SanityRunMetadata: {
+            /** N Cells */
+            n_cells?: number | null;
+            /** N Eligible */
+            n_eligible?: number | null;
+            /**
+             * Pipeline Version
+             * @default
+             */
+            pipeline_version: string;
+            /**
+             * Resolved Shortlist Path
+             * @default
+             */
+            resolved_shortlist_path: string;
+            /**
+             * Run Timestamp
+             * @default
+             */
+            run_timestamp: string;
+        };
+        /**
+         * SanityWindFarmRow
+         * @description One known-wind-farm comparison row (CONTRACT.md §5, §4.8).
+         */
+        SanityWindFarmRow: {
+            /** Cell Id */
+            cell_id: string;
+            /**
+             * In Upper Quartile
+             * @default false
+             */
+            in_upper_quartile: boolean;
+            /**
+             * Notes
+             * @default
+             */
+            notes: string;
+            /** Percentile */
+            percentile?: number | null;
+            /** Rank */
+            rank?: number | null;
+            /** Score */
+            score?: number | null;
+            /** Wind Farm */
+            wind_farm: string;
         };
         /**
          * ScenarioComparison
@@ -628,6 +774,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_sanity_check_sanity_check_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SanityCheck"];
                 };
             };
         };

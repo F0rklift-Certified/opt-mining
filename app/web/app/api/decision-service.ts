@@ -7,6 +7,7 @@
  * error; it contains no decision or data-transformation logic.
  *
  * S3-03a adds the seventh operation, `getRunCells`, the map's single data path.
+ * S3-08 adds the eighth operation, `getSanityCheck`, the sanity panel's data path.
  */
 import createClient from "openapi-fetch";
 
@@ -24,6 +25,7 @@ export type ScenarioComparisonRequest =
 export type ScenarioComparison = components["schemas"]["ScenarioComparison"];
 export type DataQualityStatus = components["schemas"]["DataQualityStatus"];
 export type CellCollection = components["schemas"]["CellCollection"];
+export type SanityCheck = components["schemas"]["SanityCheck"];
 
 export interface RankedResultsFilter {
   top_n?: number | null;
@@ -61,6 +63,7 @@ export interface DecisionService {
   ): Promise<ScenarioComparison>;
   getDataQuality(): Promise<DataQualityStatus>;
   getRunCells(runId: string): Promise<CellCollection>;
+  getSanityCheck(): Promise<SanityCheck>;
 }
 
 export class DecisionServiceError extends Error {
@@ -160,6 +163,12 @@ export function createDecisionServiceClient(
         "/runs/{run_id}/cells",
         { params: { path: { run_id: runId } } },
       );
+      if (data === undefined) throw new DecisionServiceError(response.status, error);
+      return data;
+    },
+
+    async getSanityCheck() {
+      const { data, error, response } = await client.GET("/sanity-check");
       if (data === undefined) throw new DecisionServiceError(response.status, error);
       return data;
     },

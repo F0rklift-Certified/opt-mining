@@ -499,3 +499,258 @@ class DataQualityStatus:
             "passed": self.passed,
             "checks": [check.to_dict() for check in self.checks],
         }
+
+
+@dataclass(frozen=True)
+class SanityCheckItem:
+    """
+    One normalised sanity-check outcome (S3-08, CONTRACT.md §5).
+
+    A `SanityCheckItem` is a verbatim projection of one `{label, expected,
+    observed, passed}` outcome block the S1-12 sanity stage wrote to the
+    Results_Sidecar (the Upper_Quartile and top-band known-wind-farm outcomes,
+    the clustering/correlation/REZ distribution outcomes, and the synthesized
+    exclusion summary). `get_sanity_check` (`sanity.py`) reads those blocks and
+    projects each into this shape; it performs no sanity check of its own and
+    re-derives no verdict (CONTRACT.md §1, Requirement 2). Every check is
+    surfaced — passing and failing alike — so there are no silent passes
+    (CONTRACT.md §5): an ABSENT check block is projected as a visible honest
+    failure (`passed=False`, `observed="not available"`), never omitted.
+
+    Fields
+    ------
+    name :
+        The check label, copied verbatim (e.g. "Upper_Quartile count",
+        "Known-wind-farm top-ranked band", "Exclusion validation").
+    expected :
+        The expected value/condition the sanity stage recorded, as a string.
+    observed :
+        The observed value the sanity stage recorded, as a string.
+    passed :
+        Whether this individual check passed (the sanity stage's own verdict).
+    """
+
+    name: str
+    expected: str
+    observed: str
+    passed: bool
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 `SanityCheckItem` shape."""
+        return {
+            "name": self.name,
+            "expected": self.expected,
+            "observed": self.observed,
+            "passed": self.passed,
+        }
+
+
+@dataclass(frozen=True)
+class SanityContradiction:
+    """
+    One documented sanity contradiction / issue (S3-08, CONTRACT.md §5).
+
+    A `SanityContradiction` is a verbatim projection of one entry in the S1-12
+    Results_Sidecar's `issues_for_sprint_2` list — the superset of anomalies
+    across all four plausibility checks (a known farm on excluded/low-ranked
+    land, a clustering/correlation anomaly, a spot-value anomaly). The service
+    carries each entry through unchanged, inventing no new investigation note
+    (CONTRACT.md §1). The `check` label identifies which plausibility check
+    raised the contradiction so a reviewer can see its source.
+
+    Fields
+    ------
+    check :
+        The plausibility check that raised the contradiction (e.g. "Known Wind
+        Farm Comparison").
+    description :
+        The human-readable description of the contradiction, carried verbatim.
+    kind :
+        The anomaly kind (e.g. "data_issue"), distinguishing a data issue from a
+        legitimate model result.
+    investigation_note :
+        The documented investigation note, carried verbatim.
+    """
+
+    check: str
+    description: str
+    kind: str
+    investigation_note: str
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 `SanityContradiction` shape."""
+        return {
+            "check": self.check,
+            "description": self.description,
+            "kind": self.kind,
+            "investigation_note": self.investigation_note,
+        }
+
+
+@dataclass(frozen=True)
+class SanityWindFarmRow:
+    """
+    One known-wind-farm comparison row (S3-08, CONTRACT.md §5).
+
+    A `SanityWindFarmRow` is a verbatim projection of one row of the S1-12
+    Results_Sidecar's `known_wind_farm_comparison.table` — each GA wind
+    generator located to its containing cell, with that cell's engine
+    `score`/`rank`/`percentile` and the Upper_Quartile flag. The service copies
+    the row through; it computes no score, rank or percentile (CONTRACT.md §1,
+    Requirement 2). The farm label is read from the sidecar's `wind_farm` field
+    (the engine already resolved it from the GA `feature_name` attribute), NOT a
+    `name` attribute.
+
+    Fields
+    ------
+    wind_farm :
+        The resolved wind-farm display name, carried verbatim from the sidecar's
+        `wind_farm` field.
+    cell_id :
+        The containing analysis-cell id.
+    score :
+        The cell's S2-05 `suitability_score`; `None` for an Excluded_Cell.
+    rank :
+        The cell's S2-05 integer `rank`; `None` for an Excluded_Cell.
+    percentile :
+        The cell's score percentile over the eligible population; `None` for an
+        Excluded_Cell.
+    in_upper_quartile :
+        Whether the cell falls in the Upper_Quartile (percentile >= 75).
+    notes :
+        The sanity stage's per-row note, carried verbatim.
+    """
+
+    wind_farm: str
+    cell_id: str
+    score: float | None = None
+    rank: int | None = None
+    percentile: float | None = None
+    in_upper_quartile: bool = False
+    notes: str = ""
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 `SanityWindFarmRow` shape."""
+        return {
+            "wind_farm": self.wind_farm,
+            "cell_id": self.cell_id,
+            "score": self.score,
+            "rank": self.rank,
+            "percentile": self.percentile,
+            "in_upper_quartile": self.in_upper_quartile,
+            "notes": self.notes,
+        }
+
+
+@dataclass(frozen=True)
+class SanityRunMetadata:
+    """
+    The sanity result's lineage metadata (S3-08, CONTRACT.md §5).
+
+    A `SanityRunMetadata` is a verbatim projection of the S1-12 Results_Sidecar's
+    `run_metadata` block — the run timestamp, pipeline version, resolved
+    shortlist path and cell counts that let a reviewer confirm the sanity result
+    reflects the same engine generation as the map/shortlist (FR5/AC7). Every
+    field defaults to empty / `None` so a sidecar missing `run_metadata` (or a
+    field within it) projects cleanly — the panel renders "lineage metadata
+    unavailable" rather than crashing, and the service never asserts a lineage it
+    cannot evidence.
+
+    Fields
+    ------
+    run_timestamp :
+        The UTC Run_Timestamp the sanity stage stamped; empty when absent.
+    pipeline_version :
+        The pipeline version the sanity run recorded; empty when absent.
+    resolved_shortlist_path :
+        The resolved shortlist path the sanity run read; empty when absent.
+    n_cells :
+        The total analysis-cell count; `None` when absent.
+    n_eligible :
+        The eligible-cell count; `None` when absent.
+    """
+
+    run_timestamp: str = ""
+    pipeline_version: str = ""
+    resolved_shortlist_path: str = ""
+    n_cells: int | None = None
+    n_eligible: int | None = None
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 `SanityRunMetadata` shape."""
+        return {
+            "run_timestamp": self.run_timestamp,
+            "pipeline_version": self.pipeline_version,
+            "resolved_shortlist_path": self.resolved_shortlist_path,
+            "n_cells": self.n_cells,
+            "n_eligible": self.n_eligible,
+        }
+
+
+@dataclass(frozen=True)
+class SanityCheck:
+    """
+    The S1-12 sanity-check / validation result for the baseline engine output
+    (S3-08, CONTRACT.md §5).
+
+    A `SanityCheck` mirrors the S1-12 machine-readable Results_Sidecar the sanity
+    stage materialised: the always-on model-not-trained `caveat`, the
+    `preliminary_disclaimer`, the lineage `run_metadata`, the normalised list of
+    per-check outcomes (incl. the synthesized exclusion summary), the full
+    contradictions list, the known-wind-farm comparison table, the top-ranked
+    band N, and the per-landmark exclusion assertions — all carried through
+    VERBATIM. `get_sanity_check` (`sanity.py`) reads that sidecar and projects it
+    into this shape; it performs no sanity check, re-runs nothing and re-derives
+    no verdict (CONTRACT.md §1, Requirement 2). This is how the Web_Application
+    surfaces the sanity result reachable from the app shell (FR4/AC6), with the
+    caveat always shown (FR2/AC3) and the lineage visible (FR5/AC7); a
+    missing/unreadable sidecar fails honestly rather than fabricating a passing
+    verdict (Requirement 7.3).
+
+    Fields
+    ------
+    caveat :
+        The always-on model-not-trained-to-reproduce caveat (FR2/AC3), carried
+        verbatim from the sidecar's top-level `caveat`.
+    preliminary_disclaimer :
+        The preliminary-screening disclaimer, carried verbatim.
+    run_metadata :
+        The lineage metadata (FR5/AC7); `None` when the sidecar carries none.
+    checks :
+        The six normalised per-check outcomes, including the synthesized
+        exclusion summary. Every check is surfaced — no silent passes.
+    contradictions :
+        The full `issues_for_sprint_2` list (all four checks' anomalies).
+    wind_farms :
+        The known-wind-farm comparison table rows, carried verbatim.
+    top_band_n :
+        The top-ranked band N (rank <= N) the top-band outcome used, so the panel
+        can render "rank <= N" without arithmetic.
+    exclusion_assertions :
+        The per-landmark exclusion-validation assertions, carried verbatim for an
+        optional sub-table.
+    """
+
+    caveat: str = ""
+    preliminary_disclaimer: str = ""
+    run_metadata: SanityRunMetadata | None = None
+    checks: list[SanityCheckItem] = field(default_factory=list)
+    contradictions: list[SanityContradiction] = field(default_factory=list)
+    wind_farms: list[SanityWindFarmRow] = field(default_factory=list)
+    top_band_n: int = 0
+    exclusion_assertions: list[dict] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 `SanityCheck` shape."""
+        return {
+            "caveat": self.caveat,
+            "preliminary_disclaimer": self.preliminary_disclaimer,
+            "run_metadata": (
+                self.run_metadata.to_dict() if self.run_metadata is not None else None
+            ),
+            "checks": [check.to_dict() for check in self.checks],
+            "contradictions": [c.to_dict() for c in self.contradictions],
+            "wind_farms": [w.to_dict() for w in self.wind_farms],
+            "top_band_n": self.top_band_n,
+            "exclusion_assertions": [dict(a) for a in self.exclusion_assertions],
+        }

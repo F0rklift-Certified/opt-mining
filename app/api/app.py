@@ -1,8 +1,8 @@
 """
 Backend_App — FastAPI application entry point (S3-01a scaffold).
 
-Constructs a single ``FastAPI()`` instance and registers exactly the seven
-frozen S2-08 routes as thin delegating handlers (CONTRACT.md §2 endpoint
+Constructs a single ``FastAPI()`` instance and registers exactly the eight
+frozen S2-08/S3 routes as thin delegating handlers (CONTRACT.md §2 endpoint
 mapping):
 
     POST /runs                            -> run_analysis
@@ -12,6 +12,7 @@ mapping):
     GET  /runs/{run_id}/cells             -> get_run_cells
     POST /scenario-comparison             -> compare_scenarios
     GET  /data-quality                    -> get_data_quality
+    GET  /sanity-check                    -> get_sanity_check
 
 Each handler is a PURE mapping layer (CONTRACT.md §1, §7-P3; Requirement 2.4,
 8.2; combined-sprint AC4): it parses the request, calls the matching
@@ -55,6 +56,7 @@ from pipeline.service import (
     get_exclusions,
     get_ranked_results,
     get_run_cells,
+    get_sanity_check,
     get_site_detail,
     run_analysis,
 )
@@ -91,6 +93,7 @@ from models import (
     RankedRow,
     RunHandle,
     RunRequest,
+    SanityCheck,
     ScenarioComparison,
     ScenarioComparisonRequest,
     SiteDetail,
@@ -99,12 +102,12 @@ from models import (
 app = FastAPI(
     title="Opt-Mining Decision_Service",
     description=(
-        "The frozen S2-08 Decision_Service exposed over HTTP + OpenAPI. Seven "
+        "The frozen S2-08 Decision_Service exposed over HTTP + OpenAPI. Eight "
         "operations, one per endpoint; the API delegates to the pure "
         "`pipeline.service` operations and holds no decision logic "
         "(CONTRACT.md §1, §2)."
     ),
-    version="1.1",
+    version="1.2",
 )
 
 # ---------------------------------------------------------------------------
@@ -286,3 +289,16 @@ def read_data_quality() -> dict:
     """`get_data_quality` — the frozen dataset's S2-02 Data_Quality_Status."""
     status = get_data_quality()
     return status.to_dict()
+
+
+@app.get("/sanity-check", response_model=SanityCheck)
+def read_sanity_check() -> dict:
+    """`get_sanity_check` — the baseline engine output's S1-12 sanity result.
+
+    Delegates to the operation, which projects the materialised Results_Sidecar
+    verbatim. It reuses the centralised `_STATUS_FOR_FAULT` map (a
+    missing/unreadable sidecar raised as `EngineOutputError` -> 503 naming the
+    missing input), so no mapping change is needed. This layer holds no sanity
+    arithmetic.
+    """
+    return get_sanity_check().to_dict()

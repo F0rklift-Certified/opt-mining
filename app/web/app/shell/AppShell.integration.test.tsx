@@ -108,6 +108,16 @@ function serviceWithFlaggedDataset(): DecisionService {
       run_id: "run-wind-1",
       features: [],
     }),
+    getSanityCheck: jest.fn().mockResolvedValue({
+      caveat: "",
+      preliminary_disclaimer: "",
+      run_metadata: null,
+      checks: [],
+      contradictions: [],
+      wind_farms: [],
+      top_band_n: 0,
+      exclusion_assertions: [],
+    }),
   };
 }
 

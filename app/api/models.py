@@ -27,7 +27,9 @@ Mirrors:
               ScenarioComparisonRow, ScenarioComparison, DataQualityCheck,
               DataQualityStatus, CellGeometry, CellProperties, CellFeature,
               CellCollection (the GeoJSON FeatureCollection of per-cell
-              centroids)
+              centroids), SanityCheckItem, SanityContradiction,
+              SanityWindFarmRow, SanityRunMetadata, SanityCheck (the S1-12
+              sanity-check / validation result)
 """
 
 from __future__ import annotations
@@ -227,3 +229,66 @@ class CellCollection(BaseModel):
     type: Literal["FeatureCollection"]
     run_id: str
     features: list[CellFeature] = Field(default_factory=list)
+
+
+class SanityCheckItem(BaseModel):
+    """One normalised sanity-check outcome (CONTRACT.md §5, §4.8, S3-08)."""
+
+    name: str
+    expected: str
+    observed: str
+    passed: bool
+
+
+class SanityContradiction(BaseModel):
+    """One documented sanity contradiction / issue (CONTRACT.md §5, §4.8)."""
+
+    check: str
+    description: str
+    kind: str
+    investigation_note: str
+
+
+class SanityWindFarmRow(BaseModel):
+    """One known-wind-farm comparison row (CONTRACT.md §5, §4.8)."""
+
+    wind_farm: str
+    cell_id: str
+    score: float | None = None
+    rank: int | None = None
+    percentile: float | None = None
+    in_upper_quartile: bool = False
+    notes: str = ""
+
+
+class SanityRunMetadata(BaseModel):
+    """The sanity result's lineage metadata (CONTRACT.md §5, §4.8)."""
+
+    run_timestamp: str = ""
+    pipeline_version: str = ""
+    resolved_shortlist_path: str = ""
+    n_cells: int | None = None
+    n_eligible: int | None = None
+
+
+class SanityCheck(BaseModel):
+    """The S1-12 sanity-check / validation result (CONTRACT.md §5, §4.8, S3-08).
+
+    Mirrors `pipeline/service/models.py::SanityCheck` field-for-field: the
+    always-on model-not-trained `caveat`, the `preliminary_disclaimer`, the
+    lineage `run_metadata`, the normalised per-check `checks` (incl. the
+    synthesized exclusion summary), the full `contradictions` list, the
+    known-wind-farm `wind_farms` table, the top-ranked band `top_band_n`, and the
+    per-landmark `exclusion_assertions` — all carried verbatim. `exclusion_assertions`
+    is a free-form mapping list so the mirror neither renames nor reorders the
+    sanity stage's assertion fields.
+    """
+
+    caveat: str = ""
+    preliminary_disclaimer: str = ""
+    run_metadata: SanityRunMetadata | None = None
+    checks: list[SanityCheckItem] = Field(default_factory=list)
+    contradictions: list[SanityContradiction] = Field(default_factory=list)
+    wind_farms: list[SanityWindFarmRow] = Field(default_factory=list)
+    top_band_n: int = 0
+    exclusion_assertions: list[dict[str, Any]] = Field(default_factory=list)

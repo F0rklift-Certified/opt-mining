@@ -322,6 +322,231 @@
         "title": "RunRequest",
         "type": "object"
       },
+      "SanityCheck": {
+        "description": "The S1-12 sanity-check / validation result (CONTRACT.md \u00a75, \u00a74.8, S3-08).\n\nMirrors `pipeline/service/models.py::SanityCheck` field-for-field: the\nalways-on model-not-trained `caveat`, the `preliminary_disclaimer`, the\nlineage `run_metadata`, the normalised per-check `checks` (incl. the\nsynthesized exclusion summary), the full `contradictions` list, the\nknown-wind-farm `wind_farms` table, the top-ranked band `top_band_n`, and the\nper-landmark `exclusion_assertions` \u2014 all carried verbatim. `exclusion_assertions`\nis a free-form mapping list so the mirror neither renames nor reorders the\nsanity stage's assertion fields.",
+        "properties": {
+          "caveat": {
+            "default": "",
+            "title": "Caveat",
+            "type": "string"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/SanityCheckItem"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "contradictions": {
+            "items": {
+              "$ref": "#/components/schemas/SanityContradiction"
+            },
+            "title": "Contradictions",
+            "type": "array"
+          },
+          "exclusion_assertions": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Exclusion Assertions",
+            "type": "array"
+          },
+          "preliminary_disclaimer": {
+            "default": "",
+            "title": "Preliminary Disclaimer",
+            "type": "string"
+          },
+          "run_metadata": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SanityRunMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "top_band_n": {
+            "default": 0,
+            "title": "Top Band N",
+            "type": "integer"
+          },
+          "wind_farms": {
+            "items": {
+              "$ref": "#/components/schemas/SanityWindFarmRow"
+            },
+            "title": "Wind Farms",
+            "type": "array"
+          }
+        },
+        "title": "SanityCheck",
+        "type": "object"
+      },
+      "SanityCheckItem": {
+        "description": "One normalised sanity-check outcome (CONTRACT.md \u00a75, \u00a74.8, S3-08).",
+        "properties": {
+          "expected": {
+            "title": "Expected",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "observed": {
+            "title": "Observed",
+            "type": "string"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "expected",
+          "observed",
+          "passed"
+        ],
+        "title": "SanityCheckItem",
+        "type": "object"
+      },
+      "SanityContradiction": {
+        "description": "One documented sanity contradiction / issue (CONTRACT.md \u00a75, \u00a74.8).",
+        "properties": {
+          "check": {
+            "title": "Check",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "investigation_note": {
+            "title": "Investigation Note",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "check",
+          "description",
+          "kind",
+          "investigation_note"
+        ],
+        "title": "SanityContradiction",
+        "type": "object"
+      },
+      "SanityRunMetadata": {
+        "description": "The sanity result's lineage metadata (CONTRACT.md \u00a75, \u00a74.8).",
+        "properties": {
+          "n_cells": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N Cells"
+          },
+          "n_eligible": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N Eligible"
+          },
+          "pipeline_version": {
+            "default": "",
+            "title": "Pipeline Version",
+            "type": "string"
+          },
+          "resolved_shortlist_path": {
+            "default": "",
+            "title": "Resolved Shortlist Path",
+            "type": "string"
+          },
+          "run_timestamp": {
+            "default": "",
+            "title": "Run Timestamp",
+            "type": "string"
+          }
+        },
+        "title": "SanityRunMetadata",
+        "type": "object"
+      },
+      "SanityWindFarmRow": {
+        "description": "One known-wind-farm comparison row (CONTRACT.md \u00a75, \u00a74.8).",
+        "properties": {
+          "cell_id": {
+            "title": "Cell Id",
+            "type": "string"
+          },
+          "in_upper_quartile": {
+            "default": false,
+            "title": "In Upper Quartile",
+            "type": "boolean"
+          },
+          "notes": {
+            "default": "",
+            "title": "Notes",
+            "type": "string"
+          },
+          "percentile": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percentile"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "wind_farm": {
+            "title": "Wind Farm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "wind_farm",
+          "cell_id"
+        ],
+        "title": "SanityWindFarmRow",
+        "type": "object"
+      },
       "ScenarioComparison": {
         "description": "A per-cell ranking comparison between two scenarios (CONTRACT.md \u00a75).",
         "properties": {
@@ -547,9 +772,9 @@
     }
   },
   "info": {
-    "description": "The frozen S2-08 Decision_Service exposed over HTTP + OpenAPI. Seven operations, one per endpoint; the API delegates to the pure `pipeline.service` operations and holds no decision logic (CONTRACT.md \u00a71, \u00a72).",
+    "description": "The frozen S2-08 Decision_Service exposed over HTTP + OpenAPI. Eight operations, one per endpoint; the API delegates to the pure `pipeline.service` operations and holds no decision logic (CONTRACT.md \u00a71, \u00a72).",
     "title": "Opt-Mining Decision_Service",
-    "version": "1.1"
+    "version": "1.2"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -818,6 +1043,25 @@
           }
         },
         "summary": "Read Site Detail"
+      }
+    },
+    "/sanity-check": {
+      "get": {
+        "description": "`get_sanity_check` \u2014 the baseline engine output's S1-12 sanity result.\n\nDelegates to the operation, which projects the materialised Results_Sidecar\nverbatim. It reuses the centralised `_STATUS_FOR_FAULT` map (a\nmissing/unreadable sidecar raised as `EngineOutputError` -> 503 naming the\nmissing input), so no mapping change is needed. This layer holds no sanity\narithmetic.",
+        "operationId": "read_sanity_check_sanity_check_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SanityCheck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Read Sanity Check"
       }
     },
     "/scenario-comparison": {

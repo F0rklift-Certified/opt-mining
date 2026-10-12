@@ -593,3 +593,50 @@ def load_validation_result() -> dict:
             f"(got {type(result).__name__}); it carries no verdict or checks."
         )
     return result
+
+
+def load_sanity_result() -> dict:
+    """
+    Load the materialised S1-12 Results_Sidecar verbatim (CONTRACT.md §4.8, §5).
+
+    Reads the JSON sidecar the S1-12 sanity stage (`pipeline/sanity/`) wrote
+    (`config.sanity_result_path()`, composed from the producing module's own
+    constant) and returns the parsed object UNCHANGED — the per-check outcomes,
+    the known-wind-farm table, the exclusion assertions, the `issues_for_sprint_2`
+    contradictions, the `caveat`/`preliminary_disclaimer`, and `run_metadata`
+    exactly as the sanity stage emitted them. The service re-runs no check and
+    re-derives no verdict; it surfaces the sanity stage's own output (CONTRACT.md
+    §1, Requirement 2).
+
+    The Results_Sidecar is a screening-level artefact for the baseline engine
+    output — it is resolved once from its fixed location rather than per-Run,
+    mirroring the S2-02 Data_Quality_Status, the S2-03 Eligibility_Table and the
+    S2-06 explanation output.
+
+    Raises
+    ------
+    EngineOutputError
+        The Results_Sidecar is missing, unreadable, or not the expected object
+        shape — the error NAMES the missing input rather than fabricating a
+        result or a passing verdict (Requirement 7.3). A missing sanity result
+        is never silently treated as "passed".
+    """
+    path = config.sanity_result_path()
+    if not path.exists():
+        raise EngineOutputError(
+            f"Sanity Results_Sidecar is missing: {path}. Run "
+            f"`python -m pipeline --only sanity` to materialise the S1-12 "
+            f"sanity result before the sanity check can be served."
+        )
+    try:
+        result = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise EngineOutputError(
+            f"Sanity Results_Sidecar {path} is unreadable: {exc}"
+        ) from exc
+    if not isinstance(result, dict):
+        raise EngineOutputError(
+            f"Sanity Results_Sidecar {path} is not the expected object "
+            f"(got {type(result).__name__}); it carries no checks or caveat."
+        )
+    return result

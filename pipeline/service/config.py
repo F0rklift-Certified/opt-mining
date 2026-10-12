@@ -128,6 +128,28 @@ def data_quality_result_path() -> Path:
 
     return _validate.DEFAULT_VALIDATION_RESULT_PATH
 
+# --- Input: the S1-12 Results_Sidecar (authoritative upstream: sanity/) ---
+# get_sanity_check reads the machine-readable Results_Sidecar the S1-12 sanity
+# stage (`pipeline/sanity/`) materialised and projects its per-check outcomes +
+# caveat + run_metadata through VERBATIM as a SanityCheck. The path is composed
+# from `pipeline.sanity.config.SIDECAR_PATH` (the producing module's own
+# constant) — never re-typed as a literal here — so an upstream rename of the
+# artefact or its directory breaks loudly rather than silently drifting; the
+# service never re-runs the sanity checks (CONTRACT.md §1, §5). Imported lazily
+# inside the resolver (mirroring `data_quality_result_path`) so the thin service
+# layer does not pull the sanity stage's geospatial dependencies at import time.
+def sanity_result_path() -> Path:
+    """
+    Absolute path to the S1-12 Results_Sidecar JSON.
+
+    Composed from `pipeline.sanity.config.SIDECAR_PATH` (the producing module's
+    authoritative constant), so this path can never drift from where the sanity
+    stage writes it.
+    """
+    from ..sanity import config as _sanity_config
+
+    return _sanity_config.SIDECAR_PATH
+
 # --- Output: the per-Run materialisation store ---
 SERVICE_DIR = PROJECT_ROOT / "DATA" / "service"
 RUNS_DIR = SERVICE_DIR / "runs"

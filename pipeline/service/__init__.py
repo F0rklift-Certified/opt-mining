@@ -61,6 +61,15 @@ Modules:
                    validation of its own; a missing/unreadable status fails
                    honestly rather than reporting a passing verdict (CONTRACT.md
                    §4.6, Requirement 5.1–5.3).
+    sanity       — `get_sanity_check() -> SanityCheck`: surfaces the S1-12
+                   sanity-check / validation result for the baseline engine
+                   output by reading the Results_Sidecar the sanity stage wrote
+                   and projecting its per-check outcomes, known-wind-farm table,
+                   contradictions, the always-on model-not-trained caveat and the
+                   lineage run_metadata through VERBATIM, so the Web_Application
+                   can render a sanity panel. It re-runs no check and re-derives
+                   no verdict; a missing/unreadable sidecar fails honestly rather
+                   than reporting a passing verdict (CONTRACT.md §4.8, S3-08).
 """
 
 from .filters import apply_display_filter, apply_min_score, apply_top_n
@@ -72,6 +81,11 @@ from .models import (
     ExcludedRow,
     RankedRow,
     RunHandle,
+    SanityCheck,
+    SanityCheckItem,
+    SanityContradiction,
+    SanityRunMetadata,
+    SanityWindFarmRow,
     ScenarioComparison,
     ScenarioComparisonRow,
     SiteDetail,
@@ -84,6 +98,7 @@ from .results import (
     get_site_detail,
 )
 from .run_analysis import run_analysis
+from .sanity import get_sanity_check
 from .scenarios import compare_scenarios
 
 __all__ = [
@@ -94,6 +109,11 @@ __all__ = [
     "ExcludedRow",
     "RankedRow",
     "RunHandle",
+    "SanityCheck",
+    "SanityCheckItem",
+    "SanityContradiction",
+    "SanityRunMetadata",
+    "SanityWindFarmRow",
     "ScenarioComparison",
     "ScenarioComparisonRow",
     "SiteDetail",
@@ -105,6 +125,7 @@ __all__ = [
     "get_exclusions",
     "get_ranked_results",
     "get_run_cells",
+    "get_sanity_check",
     "get_site_detail",
     "run_analysis",
 ]

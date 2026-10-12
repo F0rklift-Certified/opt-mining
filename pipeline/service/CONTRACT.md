@@ -1,8 +1,9 @@
 # Decision_Service Contract (S2-08)
 
-**Status: FROZEN at the Sprint 2 / Sprint 3 boundary. Current version: 1.1**
-(frozen at **1.0**; amended to **1.1** by S3-03a under the §8 change-control
-process — the `get_run_cells` geometry operation; see the [Change log](#8-change-log)).
+**Status: FROZEN at the Sprint 2 / Sprint 3 boundary. Current version: 1.2**
+(frozen at **1.0**; amended to **1.1** by S3-03a — the `get_run_cells` geometry
+operation; amended to **1.2** by S3-08 — the `get_sanity_check` operation; both
+under the §8 change-control process; see the [Change log](#8-change-log)).
 
 This document is the human-readable narration of the `Decision_Service` HTTP
 contract. It is the single boundary between the Sprint 2 decision engine
@@ -94,6 +95,7 @@ the HTTP layer; `app.py` maps each to an endpoint below.
 | 1.5 | `compare_scenarios` | `POST /scenario-comparison` | `ScenarioComparisonRequest` (body) | `ScenarioComparison` |
 | 1.6 | `get_data_quality` | `GET /data-quality` | — | `DataQualityStatus` |
 | 1.7 | `get_run_cells` | `GET /runs/{run_id}/cells` | `run_id` (path) | `CellCollection` (GeoJSON FeatureCollection) |
+| 1.8 | `get_sanity_check` | `GET /sanity-check` | — | `SanityCheck` |
 
 ---
 
@@ -290,6 +292,36 @@ Scored_Table that is missing/unreadable, or that lacks a required centroid
 column (`centroid_lat` / `centroid_lon`), returns an error **naming the missing
 input** (`503`). See [§6](#6-error-handling).
 
+### 4.8 `get_sanity_check` — `GET /sanity-check` (S3-08; added v1.2)
+
+Surfaces the S1-12 sanity-check / validation result for the **baseline** engine
+output, so the Web_Application can render a sanity panel reachable from the app
+shell. It reads the **fixed** machine-readable Results_Sidecar the S1-12 sanity
+stage (`pipeline/sanity/`) materialised and projects it **verbatim** into a
+`SanityCheck` — the per-check expected/observed/pass-fail outcomes, the
+known-wind-farm comparison table, the documented contradictions, the always-on
+model-not-trained caveat, and the lineage `run_metadata`. Like
+`get_data_quality`, the Results_Sidecar is a screening-level artefact resolved
+once from its fixed location rather than per-Run.
+
+**No recompute.** The service re-runs no plausibility check, re-derives no
+verdict and re-scores nothing; every pass/fail and figure is the sanity stage's
+own (CONTRACT.md §1, Requirement 2). Every check is surfaced — passing and
+failing alike — and an **absent** check block is projected as a visible honest
+failure (`passed = false`, `observed = "not available"`), never omitted. The
+exclusion-validation item is a single **synthesized** summary read from the
+sidecar's existing `{n_passed, n_failed, all_passed}` fields — pure projection of
+the engine's own verdict, no new pass/fail arithmetic.
+
+**Request:** none.
+
+**Response — `SanityCheck`** (see §5).
+
+**Errors:** a missing/unreadable Results_Sidecar returns an error **naming the
+missing input** (`503`, via the existing `EngineOutputError` mapping). A missing
+`run_metadata` degrades honestly to empty lineage — it is **not** an error. See
+[§6](#6-error-handling).
+
 ---
 
 ## 5. Data models
@@ -443,6 +475,61 @@ cell of a Run, plus the `run_id` the cells belong to.
 | `suitability_score` | `number \| null` | The S2-05 score (never recomputed); `null` for an excluded cell. |
 | `rank` | `integer \| null` | The S2-05 rank; `null` for an excluded cell. |
 
+### `SanityCheck` (S3-08; added v1.2)
+
+Mirrors the S1-12 machine-readable Results_Sidecar, carried through verbatim.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `caveat` | `string` | The always-on model-not-trained-to-reproduce caveat; shown on every surface including a passing result. |
+| `preliminary_disclaimer` | `string` | The preliminary-screening disclaimer. |
+| `run_metadata` | `SanityRunMetadata \| null` | Lineage so a reviewer can confirm the same engine generation as the map/shortlist; empty fields when the sidecar carries none. |
+| `checks` | `[SanityCheckItem]` | The six normalised per-check outcomes (Upper_Quartile and top-band known-wind-farm, the synthesized exclusion summary, clustering, correlation, REZ). No silent passes; an absent block is `passed = false` / `observed = "not available"`. |
+| `contradictions` | `[SanityContradiction]` | The full `issues_for_sprint_2` list — all four checks' anomalies. |
+| `wind_farms` | `[SanityWindFarmRow]` | The known-wind-farm comparison table rows. |
+| `top_band_n` | `integer` | The top-ranked band N (`rank <= N`) the top-band outcome used, so the UI can render "rank <= N" without arithmetic. |
+| `exclusion_assertions` | `[object]` | The per-landmark exclusion-validation assertions, carried verbatim for an optional sub-table. |
+
+`SanityCheckItem`:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `name` | `string` | The check label. |
+| `expected` | `string` | The expected value/condition. |
+| `observed` | `string` | The observed value. |
+| `passed` | `boolean` | Whether this check passed. No silent passes — every check is reported. |
+
+`SanityContradiction`:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `check` | `string` | The plausibility check that raised the contradiction. |
+| `description` | `string` | Human-readable description, carried verbatim. |
+| `kind` | `string` | The anomaly kind (e.g. `data_issue`). |
+| `investigation_note` | `string` | The documented investigation note. |
+
+`SanityWindFarmRow`:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `wind_farm` | `string` | The resolved wind-farm display name (the engine's `feature_name`). |
+| `cell_id` | `string` | The containing analysis-cell id. |
+| `score` | `number \| null` | The cell's `suitability_score`; `null` for an Excluded_Cell. |
+| `rank` | `integer \| null` | The cell's `rank`; `null` for an Excluded_Cell. |
+| `percentile` | `number \| null` | The cell's percentile over the eligible population; `null` for an Excluded_Cell. |
+| `in_upper_quartile` | `boolean` | Whether the cell is in the Upper_Quartile (percentile >= 75). |
+| `notes` | `string` | The sanity stage's per-row note. |
+
+`SanityRunMetadata`:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `run_timestamp` | `string` | The UTC Run_Timestamp; empty when absent. |
+| `pipeline_version` | `string` | The pipeline version; empty when absent. |
+| `resolved_shortlist_path` | `string` | The resolved shortlist path; empty when absent. |
+| `n_cells` | `integer \| null` | The total analysis-cell count; `null` when absent. |
+| `n_eligible` | `integer \| null` | The eligible-cell count; `null` when absent. |
+
 ---
 
 ## 6. Error handling
@@ -493,6 +580,7 @@ returned as empty sets with a `200`, **never** as an error (Requirement 7.4).
 | --- | --- | --- | --- |
 | 1.0 | Sprint 2/3 boundary | Initial frozen contract: six operations, endpoint mapping, data models, weights interpretation, error handling. | Frozen per Requirement 6.5. |
 | 1.1 | S3-03a | Added the seventh operation `get_run_cells` (`GET /runs/{run_id}/cells`) returning a GeoJSON `CellCollection` of per-cell EPSG:4326 centroids (one Point Feature per cell, eligible and excluded alike; centroids carried verbatim, no reprojection; §1 clause, §2 row 1.7, §4.7, §5 `CellCollection`/`CellFeature`/`CellGeometry`/`CellProperties`, §7 P1 set-equality). No change to the v1.0 operations or their semantics. | Decision_Engine_Spec §8 change-control; propagated to the generated client (S3-01b). |
+| 1.2 | 2026-10-12 (S3-08) | Added the eighth operation `get_sanity_check` (`GET /sanity-check`) returning a `SanityCheck` that projects the S1-12 Results_Sidecar verbatim (per-check outcomes incl. a synthesized exclusion summary, the known-wind-farm table, the full `issues_for_sprint_2` contradictions, the always-on model-not-trained caveat, and the lineage `run_metadata`; §2 row 1.8, §4.8, §5 `SanityCheck`/`SanityCheckItem`/`SanityContradiction`/`SanityWindFarmRow`/`SanityRunMetadata`). Reuses the existing `EngineOutputError` -> 503 mapping; no change to the v1.0/v1.1 operations or their semantics. | Decision_Engine_Spec §8 change-control; propagated to the generated client (S3-08). |
 
 Any post-freeze change to this contract or the published OpenAPI schema follows
 the Decision_Engine_Spec §8 change-control process, bumps the version above, and
