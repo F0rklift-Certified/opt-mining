@@ -7,16 +7,21 @@
  * engine order (never re-sorting or recomputing); and frame the scenarios as
  * preference-based, not probabilistic uncertainty.
  */
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
-import type { ScenarioComparison as ScenarioComparisonResult } from "../api/decision-service";
-import type { WeightingOption } from "./AnalysisControls";
+import type {
+  Criterion,
+  ScenarioComparison as ScenarioComparisonResult,
+} from "../api/decision-service";
+import { BASELINE_CRITERIA, type WeightingOption } from "./AnalysisControls";
 import ScenarioComparison from "./ScenarioComparison";
 
 const PRESETS: WeightingOption[] = [
-  { id: "wind_led", label: "Wind-led", editable: false, criteria: [] },
-  { id: "grid_led", label: "Grid-led", editable: false, criteria: [] },
+  { id: "wind_led", label: "Wind-led", editable: false, criteria: BASELINE_CRITERIA },
+  { id: "grid_led", label: "Grid-led", editable: false, criteria: BASELINE_CRITERIA },
 ];
+
+const SEED: Criterion[] = BASELINE_CRITERIA.map((c) => ({ ...c }));
 
 const COMPARISON: ScenarioComparisonResult = {
   labels: { a: "wind_led", b: "grid_led" },
@@ -36,6 +41,10 @@ function renderPanel(
     onScenarioAChange: jest.fn(),
     scenarioB: "grid_led",
     onScenarioBChange: jest.fn(),
+    customCriteriaA: SEED.map((c) => ({ ...c })),
+    onCustomCriteriaAChange: jest.fn(),
+    customCriteriaB: SEED.map((c) => ({ ...c })),
+    onCustomCriteriaBChange: jest.fn(),
     onCompare: jest.fn(),
     loading: false,
     error: null,
@@ -65,7 +74,7 @@ describe("ScenarioComparison", () => {
     expect(note).toHaveTextContent(/no scenario is more or less likely/i);
   });
 
-  it("offers two scenario groups populated from the provided weighting presets", () => {
+  it("offers two scenario groups populated from the presets plus a Custom option", () => {
     renderPanel();
 
     const groupA = screen.getByRole("group", { name: "Scenario A" });
@@ -74,8 +83,24 @@ describe("ScenarioComparison", () => {
       const options = within(group)
         .getAllByRole("radio")
         .map((radio) => radio.getAttribute("value"));
-      expect(options).toEqual(["wind_led", "grid_led"]);
+      // The two named presets are kept, with a Custom-weights option appended.
+      expect(options).toEqual(["wind_led", "grid_led", "custom"]);
     }
+  });
+
+  it("keeps the two named presets selectable (presets kept)", () => {
+    const props = renderPanel({ scenarioA: "grid_led" });
+    const groupA = screen.getByRole("group", { name: "Scenario A" });
+
+    expect(
+      within(groupA).getByRole("radio", { name: "Wind-led" }),
+    ).toBeInTheDocument();
+    expect(
+      within(groupA).getByRole("radio", { name: "Grid-led" }),
+    ).toBeChecked();
+
+    fireEvent.click(within(groupA).getByRole("radio", { name: "Wind-led" }));
+    expect(props.onScenarioAChange).toHaveBeenCalledWith("wind_led");
   });
 
   it("reports the chosen scenario when a selector changes", () => {
@@ -160,5 +185,60 @@ describe("ScenarioComparison", () => {
       screen.getByText(/pick two preference scenarios and compare/i),
     ).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("switches a side to Custom and reveals an editable six-criterion weight editor", () => {
+    const props = renderPanel();
+
+    const groupA = screen.getByRole("group", { name: "Scenario A" });
+    fireEvent.click(within(groupA).getByRole("radio", { name: /custom weights/i }));
+    expect(props.onScenarioAChange).toHaveBeenCalledWith("custom");
+
+    // Re-render with side A set to custom to see the editor appear.
+    cleanup();
+    renderPanel({ scenarioA: "custom" });
+
+    // One editable number input per frozen criterion (six), labelled for A.
+    const windInput = screen.getByLabelText(/custom a wind speed weight/i);
+    expect(windInput).toHaveAttribute("type", "number");
+    expect(
+      screen.getByLabelText(/custom a inside rez weight/i),
+    ).toBeInTheDocument();
+  });
+
+  it("edits only the touched custom weight, carrying the rest through unchanged", () => {
+    const props = renderPanel({ scenarioA: "custom" });
+
+    const windInput = screen.getByLabelText(/custom a wind speed weight/i);
+    fireEvent.change(windInput, { target: { value: "0.9" } });
+
+    const onChange = props.onCustomCriteriaAChange as jest.Mock;
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const next = onChange.mock.calls[0]![0] as Criterion[];
+    // The touched criterion changed; the rest are the seed values unchanged.
+    expect(next[0]!.weight).toBe(0.9);
+    expect(next.slice(1)).toEqual(SEED.slice(1));
+    // The criteria set and directions are untouched — only the weight changed.
+    expect(next.map((c) => c.feature)).toEqual(SEED.map((c) => c.feature));
+    expect(next.map((c) => c.direction)).toEqual(SEED.map((c) => c.direction));
+  });
+
+  it("compares two different custom sides (two Custom sides are a valid pair)", () => {
+    const props = renderPanel({ scenarioA: "custom", scenarioB: "custom" });
+
+    const button = screen.getByRole("button", { name: /compare scenarios/i });
+    expect(button).toBeEnabled();
+    fireEvent.click(button);
+    expect(props.onCompare).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks comparing while a custom side has an invalid (all-zero) weight set", () => {
+    const zeroed: Criterion[] = SEED.map((c) => ({ ...c, weight: 0 }));
+    renderPanel({ scenarioA: "custom", customCriteriaA: zeroed });
+
+    expect(
+      screen.getByRole("button", { name: /compare scenarios/i }),
+    ).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent(/at least one weight/i);
   });
 });

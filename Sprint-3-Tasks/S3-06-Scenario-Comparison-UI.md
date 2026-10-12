@@ -104,3 +104,41 @@ copy are all covered by tests. See `app/web/.agents/tasks/s3-06-verification.md`
 ### Commits
 
 - _(committed by the release step)_ — S3-06 scenario-comparison UI.
+
+### Update: editable custom scenario weights (AC3 extended)
+
+The comparison now lets the user EDIT a scenario's weighting parameters, not
+only pick a fixed preset. The two named presets (Wind-led / Grid-led) are kept
+exactly as before; each scenario side (A and B) can instead be set to **Custom
+weights**, which reveals an editable table over the SIX frozen criteria. The
+criteria set and their directions stay fixed — only the weights change — so both
+sides remain comparable. The Custom editor mirrors the S3-02 AnalysisControls
+pattern exactly (same `FEATURE_LABELS`, the same `type="number"` controls, the
+same `.om-weights` table, the shared `validateWeights` guard) and edits only the
+touched criterion, carrying the other five through unchanged. It seeds from a
+preset so it opens on sensible values.
+
+Still engine-only, no UI re-ranking. On Compare, each side is sent as EITHER a
+scenario key OR an explicit `weights` configuration through the single
+`compareScenarios` client; the engine does all scoring/normalisation/ranking and
+returns `rank_a` / `rank_b` / `rank_delta`, which the UI renders verbatim.
+Changing a Custom weight and re-running re-issues the request and re-renders. The
+scope-guard (bans `fetch`/`.sort`/`.reduce`/decision-math in shell source) still
+passes.
+
+Backend contract extended + schema regenerated. `ScenarioComparisonRequest`
+(both `app/api/models.py` and `pipeline/service/app.py`) gained optional
+per-side `weights_a` / `weights_b` fields alongside the now-optional
+`scenario_a` / `scenario_b`; the named-key-only form stays valid.
+`compare_scenarios` resolves each side through `run_analysis(weights=...)` or
+`run_analysis(scenario=...)` — reusing `resolve_weights` / the engine parser as
+the single validator (no new validator; invalid weights raise
+`ScoringConfigError` → 422). The frontend OpenAPI schema + `generated.ts` were
+regenerated from the updated backend models (`npm run generate:api-client`).
+
+Verification (custom-weights extension): backend `pytest tests/service/test_scenarios.py`
+14 passed (incl. new custom-weights, invalid-weights-422, both-sides-custom, and
+preset-unchanged cases) and the backend contract/passthrough/snapshot suites
+pass; frontend `npm run typecheck` clean, `npm test` 126 passed (9 suites),
+`npm run build` succeeds. Evidence:
+`app/web/.agents/tasks/s3-06-custom-weights-verification.md`.

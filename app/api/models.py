@@ -85,11 +85,23 @@ class RunRequest(BaseModel):
 class ScenarioComparisonRequest(BaseModel):
     """
     Request body for `compare_scenarios` — `POST /scenario-comparison`
-    (CONTRACT.md §4.5, §5). Both scenario keys are required.
+    (CONTRACT.md §4.5, §5).
+
+    Each SIDE (A and B) is EITHER a named Scenario key OR an explicit,
+    user-edited `weights` configuration over the same six frozen criteria. For
+    side A supply either `scenario_a` or `weights_a` (not both, not neither);
+    likewise for side B. The exactly-one-of-per-side rule is enforced by the
+    `compare_scenarios` operation (which passes each side through the engine
+    parser and returns 422 on a fault), not by this model — so every field is
+    nullable here. The backend does NOT validate weights itself; it passes them
+    to the engine parser (`pipeline/scoring/weights.py`), the single validator.
+    The named-key-only form `{scenario_a, scenario_b}` remains valid unchanged.
     """
 
-    scenario_a: str
-    scenario_b: str
+    scenario_a: str | None = None
+    scenario_b: str | None = None
+    weights_a: Weights | None = None
+    weights_b: Weights | None = None
 
 
 # ---------------------------------------------------------------------------

@@ -263,8 +263,21 @@ def read_run_cells(run_id: str) -> dict:
 
 @app.post("/scenario-comparison", response_model=ScenarioComparison)
 def create_scenario_comparison(request: ScenarioComparisonRequest) -> dict:
-    """`compare_scenarios` — per-cell rank comparison of two named scenarios."""
-    comparison = compare_scenarios(request.scenario_a, request.scenario_b)
+    """`compare_scenarios` — per-cell rank comparison of two weighting sides.
+
+    Each side is either a named scenario key or an explicit weights
+    configuration; both are passed straight to the operation, which routes each
+    side through the engine (the single validator). This layer never scores,
+    ranks, or validates weights.
+    """
+    weights_a = request.weights_a.model_dump() if request.weights_a is not None else None
+    weights_b = request.weights_b.model_dump() if request.weights_b is not None else None
+    comparison = compare_scenarios(
+        request.scenario_a,
+        request.scenario_b,
+        weights_a=weights_a,
+        weights_b=weights_b,
+    )
     return comparison.to_dict()
 
 

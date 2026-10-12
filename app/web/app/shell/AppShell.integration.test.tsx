@@ -383,6 +383,50 @@ describe("AppShell scenario comparison (S3-06)", () => {
     });
   });
 
+  it("sends an edited Custom side as explicit weights through the shared client", async () => {
+    const service = serviceWithFlaggedDataset();
+    service.compareScenarios = jest.fn().mockResolvedValue({
+      labels: { a: "custom_a", b: "grid_led" },
+      rows: [{ cell_id: "S31.000_E150.000", rank_a: 1, rank_b: 5, rank_delta: -4 }],
+    });
+    render(<AppShell service={service} />);
+
+    await screen.findByText("run-wind-1");
+
+    const region = comparisonRegion();
+    const groupA = within(region).getByRole("group", { name: "Scenario A" });
+    // Switch side A to Custom and edit its wind-speed weight.
+    fireEvent.click(within(groupA).getByRole("radio", { name: /custom weights/i }));
+    const windInput = within(region).getByLabelText(/custom a wind speed weight/i);
+    fireEvent.change(windInput, { target: { value: "0.8" } });
+
+    fireEvent.click(
+      within(region).getByRole("button", { name: /compare scenarios/i }),
+    );
+
+    await waitFor(() => {
+      expect(service.compareScenarios).toHaveBeenCalledTimes(1);
+    });
+    // Side A travels as explicit weights (the edited value present, no scenario
+    // key for A); side B stays its preset key. All ranking is server-side.
+    const request = (service.compareScenarios as jest.Mock).mock.calls[0]![0];
+    expect(request.scenario_a).toBeUndefined();
+    expect(request.weights_a.criteria[0]).toMatchObject({
+      feature: "wind_speed",
+      weight: 0.8,
+    });
+    // Only the weight changed — the criteria set and directions are the seed's.
+    expect(request.weights_a.criteria.map((c: { feature: string }) => c.feature)).toEqual(
+      BASELINE_CRITERIA.map((c) => c.feature),
+    );
+    expect(request.scenario_b).toBe("grid_led");
+    expect(request.weights_b).toBeUndefined();
+
+    // The engine's returned rank/delta render verbatim.
+    expect(await within(region).findByText("S31.000_E150.000")).toBeInTheDocument();
+    expect(within(region).getByText("-4")).toBeInTheDocument();
+  });
+
   it("surfaces a comparison failure without hiding the rest of the shell", async () => {
     const service = serviceWithFlaggedDataset();
     service.compareScenarios = jest

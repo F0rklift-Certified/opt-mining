@@ -18,13 +18,14 @@ import {
   type RunHandle,
   type RunRequest,
   type ScenarioComparison as ScenarioComparisonResult,
+  type ScenarioComparisonRequest,
   type SiteDetail,
 } from "../api/decision-service";
 import CellMap from "./CellMap";
 import DataQualityBanner from "./DataQualityBanner";
 import PlaceholderRegion from "./PlaceholderRegion";
 import RankedShortlist from "./RankedShortlist";
-import ScenarioComparison from "./ScenarioComparison";
+import ScenarioComparison, { CUSTOM_SIDE } from "./ScenarioComparison";
 import type { SelectSite, SiteSelection } from "./siteSelection";
 
 /**
@@ -33,6 +34,17 @@ import type { SelectSite, SiteSelection } from "./siteSelection";
  * Baseline (which runs via explicit weights, not a scenario key) is excluded.
  */
 const COMPARISON_PRESETS = WEIGHTING_OPTIONS.filter((option) => !option.editable);
+
+/**
+ * Seed weights for a Custom comparison side. The six frozen criteria and their
+ * directions are fixed; the user adjusts only the weights, starting from a
+ * sensible preset (the first named preset, or the Baseline if no preset is
+ * available). This is a plain copy of a known-valid criteria set — no decision
+ * math — so the Custom editor opens on real values rather than blanks.
+ */
+const CUSTOM_SEED_CRITERIA: Criterion[] = (
+  COMPARISON_PRESETS[0]?.criteria ?? BASELINE_CRITERIA
+).map((criterion) => ({ ...criterion }));
 
 interface EngineView {
   run: RunHandle;
@@ -87,6 +99,10 @@ export default function AppShell({ service: injectedService }: AppShellProps = {
   const [comparison, setComparison] = useState<ScenarioComparisonResult | null>(null);
   const [comparisonError, setComparisonError] = useState<string | null>(null);
   const [comparisonLoading, setComparisonLoading] = useState(false);
+  // Per-side Custom weight sets, seeded from a preset so the editor opens on
+  // real values. Only used when the matching side is set to CUSTOM_SIDE.
+  const [customCriteriaA, setCustomCriteriaA] = useState<Criterion[]>(CUSTOM_SEED_CRITERIA);
+  const [customCriteriaB, setCustomCriteriaB] = useState<Criterion[]>(CUSTOM_SEED_CRITERIA);
 
   // Stable across renders; set once the client is ready (or fails to build).
   const apiRef = useRef<DecisionService | null>(null);
@@ -179,16 +195,32 @@ export default function AppShell({ service: injectedService }: AppShellProps = {
     void runWith(buildRunRequest(optionId, baselineCriteria));
   }, [runWith, optionId, baselineCriteria]);
 
-  // Fetch the S2-07 scenario comparison for the chosen preset pair (S3-06).
-  // All comparison math is server-side; this only sends two scenario keys and
-  // renders the returned ranks/deltas via the single shared client.
+  // Fetch the S2-07 scenario comparison for the chosen pair (S3-06). All
+  // comparison math is server-side; this only shapes each side as a scenario
+  // key OR an explicit weights configuration and renders the returned
+  // ranks/deltas via the single shared client. A Custom side sends weights; a
+  // preset side sends its scenario key — never both for the same side, so the
+  // engine's exactly-one-of-per-side guard stays satisfied.
   const handleCompareScenarios = useCallback(() => {
     const api = apiRef.current;
-    if (!api || scenarioA === scenarioB) return;
+    if (!api) return;
+    // Two different presets, or any Custom side, are comparable; two identical
+    // presets are not.
+    const samePreset = scenarioA === scenarioB && scenarioA !== CUSTOM_SIDE;
+    if (samePreset) return;
+    const request: ScenarioComparisonRequest =
+      scenarioA === CUSTOM_SIDE
+        ? { weights_a: { criteria: customCriteriaA } }
+        : { scenario_a: scenarioA };
+    if (scenarioB === CUSTOM_SIDE) {
+      request.weights_b = { criteria: customCriteriaB };
+    } else {
+      request.scenario_b = scenarioB;
+    }
     const requestId = ++comparisonRequestIdRef.current;
     setComparisonLoading(true);
     setComparisonError(null);
-    api.compareScenarios({ scenario_a: scenarioA, scenario_b: scenarioB }).then(
+    api.compareScenarios(request).then(
       (result) => {
         if (comparisonRequestIdRef.current === requestId) {
           setComparison(result);
@@ -202,7 +234,7 @@ export default function AppShell({ service: injectedService }: AppShellProps = {
         }
       },
     );
-  }, [scenarioA, scenarioB]);
+  }, [scenarioA, scenarioB, customCriteriaA, customCriteriaB]);
 
   const activeRunId = engine?.run.run_id ?? null;
   const handleSelectSite = useCallback<SelectSite>((cellId) => {
@@ -302,6 +334,10 @@ export default function AppShell({ service: injectedService }: AppShellProps = {
               onScenarioAChange={setScenarioA}
               scenarioB={scenarioB}
               onScenarioBChange={setScenarioB}
+              customCriteriaA={customCriteriaA}
+              onCustomCriteriaAChange={setCustomCriteriaA}
+              customCriteriaB={customCriteriaB}
+              onCustomCriteriaBChange={setCustomCriteriaB}
               onCompare={handleCompareScenarios}
               loading={comparisonLoading}
               error={comparisonError}

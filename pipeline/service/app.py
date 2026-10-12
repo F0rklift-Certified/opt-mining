@@ -155,10 +155,24 @@ class ScenarioComparisonModel(BaseModel):
 
 
 class ScenarioComparisonRequest(BaseModel):
-    """Body of `POST /scenario-comparison` (CONTRACT.md §4.5)."""
+    """Body of `POST /scenario-comparison` (CONTRACT.md §4.5).
 
-    scenario_a: str = Field(..., description="A named Scenario key.")
-    scenario_b: str = Field(..., description="A named Scenario key.")
+    Each side is EITHER a named Scenario key OR an explicit, user-edited
+    `weights` configuration over the same six frozen criteria. Supply exactly
+    one input per side (`scenario_a`/`weights_a` for side A, `scenario_b`/
+    `weights_b` for side B); the one-of-per-side rule is enforced by the
+    `compare_scenarios` operation via the engine parser (422 on a fault), not
+    this model, so every field is nullable. The named-key-only form stays valid.
+    """
+
+    scenario_a: str | None = Field(None, description="A named Scenario key for side A.")
+    scenario_b: str | None = Field(None, description="A named Scenario key for side B.")
+    weights_a: Weights | None = Field(
+        None, description="Explicit weights configuration for side A (custom)."
+    )
+    weights_b: Weights | None = Field(
+        None, description="Explicit weights configuration for side B (custom)."
+    )
 
 
 class DataQualityCheckModel(BaseModel):
@@ -371,10 +385,19 @@ def get_run_exclusions(run_id: str) -> list[dict]:
 def post_scenario_comparison(body: ScenarioComparisonRequest) -> dict:
     """CONTRACT.md §4.5 — `compare_scenarios` (Requirement 1.5, 4.3).
 
-    Materialises each Scenario as its own S2-05 Run (the engine, reused — never
-    a second scorer, Property P5) and returns a per-cell rank comparison.
+    Materialises each side as its own S2-05 Run — a named scenario or an
+    explicit weights configuration — using the engine, reused (never a second
+    scorer, Property P5), and returns a per-cell rank comparison. The engine is
+    the single weights validator; invalid weights raise ScoringConfigError (422).
     """
-    comparison = compare_scenarios(body.scenario_a, body.scenario_b)
+    weights_a = body.weights_a.model_dump() if body.weights_a is not None else None
+    weights_b = body.weights_b.model_dump() if body.weights_b is not None else None
+    comparison = compare_scenarios(
+        body.scenario_a,
+        body.scenario_b,
+        weights_a=weights_a,
+        weights_b=weights_b,
+    )
     return comparison.to_dict()
 
 

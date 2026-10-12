@@ -149,7 +149,12 @@ export interface paths {
         put?: never;
         /**
          * Create Scenario Comparison
-         * @description `compare_scenarios` — per-cell rank comparison of two named scenarios.
+         * @description `compare_scenarios` — per-cell rank comparison of two weighting sides.
+         *
+         *     Each side is either a named scenario key or an explicit weights
+         *     configuration; both are passed straight to the operation, which routes each
+         *     side through the engine (the single validator). This layer never scores,
+         *     ranks, or validates weights.
          */
         post: operations["create_scenario_comparison_scenario_comparison_post"];
         delete?: never;
@@ -350,13 +355,25 @@ export interface components {
         /**
          * ScenarioComparisonRequest
          * @description Request body for `compare_scenarios` — `POST /scenario-comparison`
-         *     (CONTRACT.md §4.5, §5). Both scenario keys are required.
+         *     (CONTRACT.md §4.5, §5).
+         *
+         *     Each SIDE (A and B) is EITHER a named Scenario key OR an explicit,
+         *     user-edited `weights` configuration over the same six frozen criteria. For
+         *     side A supply either `scenario_a` or `weights_a` (not both, not neither);
+         *     likewise for side B. The exactly-one-of-per-side rule is enforced by the
+         *     `compare_scenarios` operation (which passes each side through the engine
+         *     parser and returns 422 on a fault), not by this model — so every field is
+         *     nullable here. The backend does NOT validate weights itself; it passes them
+         *     to the engine parser (`pipeline/scoring/weights.py`), the single validator.
+         *     The named-key-only form `{scenario_a, scenario_b}` remains valid unchanged.
          */
         ScenarioComparisonRequest: {
             /** Scenario A */
-            scenario_a: string;
+            scenario_a?: string | null;
             /** Scenario B */
-            scenario_b: string;
+            scenario_b?: string | null;
+            weights_a?: components["schemas"]["Weights"] | null;
+            weights_b?: components["schemas"]["Weights"] | null;
         };
         /**
          * ScenarioComparisonRow

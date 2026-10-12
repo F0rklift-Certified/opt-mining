@@ -344,21 +344,51 @@
         "type": "object"
       },
       "ScenarioComparisonRequest": {
-        "description": "Request body for `compare_scenarios` \u2014 `POST /scenario-comparison`\n(CONTRACT.md \u00a74.5, \u00a75). Both scenario keys are required.",
+        "description": "Request body for `compare_scenarios` \u2014 `POST /scenario-comparison`\n(CONTRACT.md \u00a74.5, \u00a75).\n\nEach SIDE (A and B) is EITHER a named Scenario key OR an explicit,\nuser-edited `weights` configuration over the same six frozen criteria. For\nside A supply either `scenario_a` or `weights_a` (not both, not neither);\nlikewise for side B. The exactly-one-of-per-side rule is enforced by the\n`compare_scenarios` operation (which passes each side through the engine\nparser and returns 422 on a fault), not by this model \u2014 so every field is\nnullable here. The backend does NOT validate weights itself; it passes them\nto the engine parser (`pipeline/scoring/weights.py`), the single validator.\nThe named-key-only form `{scenario_a, scenario_b}` remains valid unchanged.",
         "properties": {
           "scenario_a": {
-            "title": "Scenario A",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario A"
           },
           "scenario_b": {
-            "title": "Scenario B",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario B"
+          },
+          "weights_a": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Weights"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "weights_b": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Weights"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
-        "required": [
-          "scenario_a",
-          "scenario_b"
-        ],
         "title": "ScenarioComparisonRequest",
         "type": "object"
       },
@@ -792,7 +822,7 @@
     },
     "/scenario-comparison": {
       "post": {
-        "description": "`compare_scenarios` \u2014 per-cell rank comparison of two named scenarios.",
+        "description": "`compare_scenarios` \u2014 per-cell rank comparison of two weighting sides.\n\nEach side is either a named scenario key or an explicit weights\nconfiguration; both are passed straight to the operation, which routes each\nside through the engine (the single validator). This layer never scores,\nranks, or validates weights.",
         "operationId": "create_scenario_comparison_scenario_comparison_post",
         "requestBody": {
           "content": {

@@ -416,6 +416,25 @@ body {
   font-weight: 400;
 }
 
+/*
+ * A single scenario side: its preset/custom selector stacked above the custom
+ * weight editor (shown only when "Custom weights" is chosen). The editor reuses
+ * the shared `.om-weights` table styling from the analysis controls, so the
+ * Custom editing surface matches S3-02 exactly.
+ */
+.om-comparison__side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.om-comparison__editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+}
+
 .om-comparison__results {
   display: flex;
   flex-direction: column;

@@ -19,7 +19,7 @@
  */
 import type { Criterion, RunHandle } from "../api/decision-service";
 
-const FEATURE_LABELS: Record<string, string> = {
+export const FEATURE_LABELS: Record<string, string> = {
   wind_speed: "Wind speed",
   dist_transmission_km: "Distance to transmission",
   demand_proxy: "Demand proxy",
@@ -28,7 +28,7 @@ const FEATURE_LABELS: Record<string, string> = {
   inside_rez: "Inside REZ",
 };
 
-function featureLabel(feature: string): string {
+export function featureLabel(feature: string): string {
   return FEATURE_LABELS[feature] ?? feature;
 }
 
