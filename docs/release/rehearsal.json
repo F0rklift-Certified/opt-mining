@@ -1,0 +1,246 @@
+{
+  "api_base_url": "http://localhost:18010",
+  "web_origin": "http://localhost:13010",
+  "runs": {},
+  "data_quality": {
+    "passed": true,
+    "check_count": 28
+  },
+  "run_ids": {
+    "baseline": "9a4c70db9cd5f912",
+    "wind_led": "a743f7dc0bcabffa",
+    "grid_led": "2b0d1e4f332babe9"
+  },
+  "top_cells": [
+    {
+      "cell_id": "S31.186_E151.686",
+      "suitability_score": 0.9139051757537562,
+      "rank": 1
+    },
+    {
+      "cell_id": "S31.186_E151.736",
+      "suitability_score": 0.9085176774952508,
+      "rank": 2
+    },
+    {
+      "cell_id": "S31.136_E151.686",
+      "suitability_score": 0.9065079065525115,
+      "rank": 3
+    },
+    {
+      "cell_id": "S31.236_E151.686",
+      "suitability_score": 0.9049615773470144,
+      "rank": 4
+    },
+    {
+      "cell_id": "S32.436_E149.086",
+      "suitability_score": 0.8995748538980828,
+      "rank": 5
+    },
+    {
+      "cell_id": "S30.086_E151.686",
+      "suitability_score": 0.8936756207274591,
+      "rank": 6
+    },
+    {
+      "cell_id": "S30.086_E151.736",
+      "suitability_score": 0.8936232295824992,
+      "rank": 7
+    },
+    {
+      "cell_id": "S32.436_E149.036",
+      "suitability_score": 0.8924266792107857,
+      "rank": 8
+    },
+    {
+      "cell_id": "S32.486_E149.086",
+      "suitability_score": 0.8920559358635355,
+      "rank": 9
+    },
+    {
+      "cell_id": "S31.086_E151.686",
+      "suitability_score": 0.8911000189722442,
+      "rank": 10
+    }
+  ],
+  "rank_1_detail": {
+    "cell_id": "S31.186_E151.686",
+    "suitability_score": 0.9139051757537562,
+    "rank": 1,
+    "contributions": {
+      "wind_speed": 0.48610865542931314,
+      "dist_transmission_km": 0.14162182745279728,
+      "demand_proxy": 0.09999999999999998,
+      "dist_substation_km": 0.04724825858925462,
+      "slope_deg": 0.038926434282391155,
+      "inside_rez": 0.09999999999999998
+    }
+  },
+  "excluded_example": {
+    "cell_id": "S28.186_E152.386",
+    "reason_codes": [
+      "excessive_slope"
+    ],
+    "reason_text": "Slope exceeds 15\u00b0",
+    "suitability_score": null,
+    "rank": null
+  },
+  "exclusion_count": 14786,
+  "cells": {
+    "total": 47311,
+    "eligible": 32525,
+    "excluded": 14786
+  },
+  "scenario_comparison": {
+    "labels": {
+      "a": "wind_led",
+      "b": "grid_led"
+    },
+    "row_count": 32525,
+    "moved_cell_count": 32519,
+    "moved_example": {
+      "cell_id": "S31.186_E151.686",
+      "rank_a": 1,
+      "rank_b": 21,
+      "rank_delta": -20
+    }
+  },
+  "sanity": {
+    "caveat": "This model is NOT trained or fitted to reproduce known wind-farm or REZ locations. A strong overlap between the top-ranked areas and these references is corroboration that the screening is plausible, not evidence of a fitted target; divergences are expected and are investigated, not tuned away.",
+    "top_band_n": 20,
+    "wind_farms": [
+      {
+        "wind_farm": "Cullerin Range Wind Farm",
+        "cell_id": "S34.786_E149.386",
+        "rank": 962,
+        "percentile": 97.04534973097617,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Blayney Wind Farm",
+        "cell_id": "S33.636_E149.186",
+        "rank": 4778,
+        "percentile": 85.31283627978478,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Woodlawn Wind Farm",
+        "cell_id": "S35.086_E149.586",
+        "rank": 758,
+        "percentile": 97.67255956956187,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Gunning",
+        "cell_id": "S34.686_E149.386",
+        "rank": 761,
+        "percentile": 97.66333589546502,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Capital Hill Wind Farm",
+        "cell_id": "S35.136_E149.536",
+        "rank": 880,
+        "percentile": 97.29746348962337,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Boco Rock",
+        "cell_id": "S36.586_E149.136",
+        "rank": 11225,
+        "percentile": 65.49116064565719,
+        "in_upper_quartile": false,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Bango Wind Farm",
+        "cell_id": "S34.586_E148.836",
+        "rank": 4478,
+        "percentile": 86.23520368946964,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Bodangora Wind Farm",
+        "cell_id": "S32.436_E149.086",
+        "rank": 2,
+        "percentile": 99.99692544196772,
+        "in_upper_quartile": true,
+        "in_top_band": true
+      },
+      {
+        "wind_farm": "Gullen Range Wind Farm",
+        "cell_id": "S34.686_E149.486",
+        "rank": 2543,
+        "percentile": 92.18447348193698,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Gullen Range Wind Farm",
+        "cell_id": "S34.636_E149.436",
+        "rank": 657,
+        "percentile": 97.98308993082244,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Taralga Wind Farm",
+        "cell_id": "S34.436_E149.886",
+        "rank": null,
+        "percentile": null,
+        "in_upper_quartile": false,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "White Rock Solar Farm",
+        "cell_id": "S29.786_E151.536",
+        "rank": 655,
+        "percentile": 97.98923904688701,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "White Rock Wind Farm",
+        "cell_id": "S29.786_E151.536",
+        "rank": 655,
+        "percentile": 97.98923904688701,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Sapphire Wind Farm",
+        "cell_id": "S29.686_E151.436",
+        "rank": 154,
+        "percentile": 99.52959262106073,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Silverton Wind Farm",
+        "cell_id": "S31.786_E141.286",
+        "rank": 2119,
+        "percentile": 93.48808608762491,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Rye Park Wind Farm",
+        "cell_id": "S34.786_E148.986",
+        "rank": null,
+        "percentile": null,
+        "in_upper_quartile": false,
+        "in_top_band": false
+      }
+    ],
+    "contradiction_count": 2
+  },
+  "engine_recompute": "not requested",
+  "result": "PASS",
+  "final_gate": "NOT FINAL: an automated green rehearsal is not Checkpoint D acceptance; review/merge/client sign-off gates remain open."
+}

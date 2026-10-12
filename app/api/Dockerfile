@@ -56,6 +56,10 @@ COPY pipeline ./pipeline
 COPY DATA/integration ./DATA/integration
 COPY DATA/exclusions ./DATA/exclusions
 COPY DATA/explanation ./DATA/explanation
+# The S1-12 sanity Results_Sidecar consumed by GET /sanity-check (S3-08, AC10,
+# §10 demo step 8). Without it the sanity operation raises EngineOutputError
+# (503) because the frozen sidecar is absent from the image.
+COPY DATA/sanity ./DATA/sanity
 
 # The FastAPI application itself.
 COPY app/api ./app/api

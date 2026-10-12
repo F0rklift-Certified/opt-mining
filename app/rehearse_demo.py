@@ -65,6 +65,27 @@ STALE_TOKENS = (
 
 READINESS_TIMEOUT_S = 90
 
+# The S1-10/S2-01 documented default ("Baseline") weights, mirrored verbatim
+# from pipeline/scoring/scoring_weights.yaml exactly as the web client mirrors
+# them in app/web/app/shell/AnalysisControls.tsx (BASELINE_CRITERIA). The API
+# has NO "baseline" named scenario — the app's Baseline run is a POST /runs with
+# an explicit default-weights body (AppShell.buildRunRequest), so the rehearsal
+# must request it the same way the real web client does, not as a scenario key.
+BASELINE_CRITERIA = [
+    {"feature": "wind_speed", "weight": 0.35, "direction": "higher_is_better",
+     "rationale": "Primary resource indicator; energy yield scales roughly with the cube of wind speed."},
+    {"feature": "dist_transmission_km", "weight": 0.20, "direction": "lower_is_better",
+     "rationale": "Connection cost is a major capex component and scales with distance to the nearest >=132 kV line."},
+    {"feature": "demand_proxy", "weight": 0.15, "direction": "higher_is_better",
+     "rationale": "Proximity to electrical demand improves offtake prospects (a NEM-region annual mean proxy)."},
+    {"feature": "dist_substation_km", "weight": 0.10, "direction": "lower_is_better",
+     "rationale": "Substation proximity reduces interconnection complexity; weighted below transmission distance because the two are partly collinear."},
+    {"feature": "slope_deg", "weight": 0.10, "direction": "lower_is_better",
+     "rationale": "Flatter terrain lowers civil-works and turbine-siting cost, complementing the hard slope exclusion."},
+    {"feature": "inside_rez", "weight": 0.10, "direction": "higher_is_better",
+     "rationale": "Cells inside a declared NSW Renewable Energy Zone benefit from coordinated network planning."},
+]
+
 
 # ---------------------------------------------------------------------------
 # A distinct non-zero exit code so a technically-green run under --require-final
@@ -282,14 +303,22 @@ def rehearse(client: _Client, *, external_sanity: bool = False) -> dict:
         "check_count": len(quality["checks"]),
     }
 
-    # §10 steps 2/3/7 — baseline, wind_led, grid_led runs.
+    # §10 steps 2/3/7 — baseline, wind_led, grid_led runs. The API has no
+    # "baseline" named scenario; the app's Baseline run is an explicit
+    # default-weights POST /runs (exactly what the web client sends via
+    # buildRunRequest), while wind_led / grid_led are named scenarios.
+    run_requests: dict[str, dict] = {
+        "baseline": {"weights": {"criteria": BASELINE_CRITERIA}},
+        "wind_led": {"scenario": "wind_led"},
+        "grid_led": {"scenario": "grid_led"},
+    }
     run_ids: dict[str, str] = {}
-    for scenario in ("baseline", "wind_led", "grid_led"):
-        run = client.request("/runs", {"scenario": scenario})
+    for label, payload in run_requests.items():
+        run = client.request("/runs", payload)
         run_id = run.get("run_id")
         if not run_id:
-            raise RehearsalError(f"POST /runs ({scenario}) returned no run_id")
-        run_ids[scenario] = run_id
+            raise RehearsalError(f"POST /runs ({label}) returned no run_id")
+        run_ids[label] = run_id
 
     # Capture the frozen input SHA when the service surfaces it on a run handle.
     evidence["run_ids"] = run_ids
