@@ -33,6 +33,95 @@ export function featureLabel(feature: string): string {
 }
 
 /**
+ * Hover-help naming where each criterion's data came from, surfaced via the
+ * native `title` tooltip on the criterion cell. Sources are taken from the
+ * `DATA/**` provenance records (see `DATA/integration/DATA_PROVENANCE.md` and
+ * the per-feature `DATA_PROVENANCE.md` files) so the text reflects the real
+ * lineage rather than a guess.
+ */
+export const FEATURE_SOURCES: Record<string, string> = {
+  wind_speed:
+    "Source: Global Wind Atlas v4 — mean wind speed at 100 m hub height, sampled per analysis cell.",
+  dist_transmission_km:
+    "Source: Geoscience Australia transmission lines (≥132 kV) — straight-line distance from each cell centroid in EPSG:3577 (Australian Albers).",
+  demand_proxy:
+    "Source: AEMO demand aggregate allocated across NEM region geometry — a regional annual-mean proxy, not measured local demand.",
+  dist_substation_km:
+    "Source: Geoscience Australia substations — straight-line distance from each cell centroid in EPSG:3577 (Australian Albers).",
+  slope_deg:
+    "Source: NASA SRTM GL3 (~90 m) elevation — Horn 3×3 slope in degrees, derived per cell.",
+  inside_rez:
+    "Source: EnergyCo NSW Renewable Energy Zones — whether the cell falls inside a declared REZ.",
+};
+
+/** Where a criterion's data came from, for the Criterion-cell tooltip. */
+export function featureSource(feature: string): string {
+  return FEATURE_SOURCES[feature] ?? "Source: see DATA provenance records.";
+}
+
+/**
+ * Short, plain-language text shown in the Interpretation column. The full
+ * reasoning stays in each criterion's `rationale` (sent to the service and
+ * shown on hover), while the table displays this simplified one-liner. Keyed
+ * by feature; falls back to a direction-based sentence for anything unmapped.
+ */
+export const FEATURE_INTERPRETATION: Record<string, string> = {
+  wind_speed:
+    "Windier sites score higher — stronger wind means more energy generated, so it's the main driver of a good site.",
+  dist_transmission_km:
+    "Sites closer to a transmission line score higher — a shorter connection to the grid means lower build cost.",
+  demand_proxy:
+    "Sites nearer to electricity demand score higher — being close to where power is used makes it easier to sell.",
+  dist_substation_km:
+    "Sites closer to a substation score higher — a nearby connection point keeps hook-up simpler and cheaper.",
+  slope_deg:
+    "Flatter sites score higher — gentle terrain is easier and cheaper to build turbines on than steep land.",
+  inside_rez:
+    "Sites inside a Renewable Energy Zone score higher — these areas have planned grid investment and clearer access.",
+};
+
+/** The simplified Interpretation text for a criterion. */
+export function interpretationText(criterion: Criterion): string {
+  const mapped = FEATURE_INTERPRETATION[criterion.feature];
+  if (mapped) {
+    return mapped;
+  }
+  return criterion.direction === "higher_is_better"
+    ? "Higher values score higher."
+    : "Lower values score higher.";
+}
+
+/**
+ * Hover-help for the three weight-table column headers. Each is a short,
+ * plain-language sentence explaining what the column means, surfaced via the
+ * native `title` tooltip on the `<th>`.
+ */
+export const COLUMN_HELP: Record<"criterion" | "weight" | "interpretation", string> = {
+  criterion:
+    "The site characteristic being scored (e.g. wind speed or distance to transmission). Each cell is measured on every criterion.",
+  weight:
+    "How much this criterion counts toward the overall suitability score. Weights are relative — a larger weight pulls the ranking more strongly, and the weights sum to 1 across all criteria.",
+  interpretation:
+    "Why this criterion matters and which direction is favourable — whether higher or lower values make a site more suitable.",
+};
+
+/**
+ * Hover-help for a single weight value. Combines the criterion's direction
+ * (higher-is-better vs lower-is-better) with its share of the total so the
+ * tooltip explains both how the value is measured and how heavily it counts.
+ */
+export function weightHelp(criterion: Criterion): string {
+  const direction =
+    criterion.direction === "higher_is_better"
+      ? "Higher values score better — a cell is more suitable as this measure rises."
+      : "Lower values score better — a cell is more suitable as this measure falls.";
+  const share = `Weight ${criterion.weight.toFixed(2)}: this criterion contributes ${(
+    criterion.weight * 100
+  ).toFixed(0)}% of the overall score.`;
+  return `${direction} ${share}`;
+}
+
+/**
  * The S1-10/S2-01 documented default weights, mirrored from
  * `pipeline/scoring/scoring_weights.yaml`. This is the Baseline option and
  * the shell's default — it must match that file's values (Requirement:
@@ -264,22 +353,31 @@ export default function AnalysisControls({
         <caption>{activeOption.label} weights</caption>
         <thead>
           <tr>
-            <th scope="col">Criterion</th>
-            <th scope="col">Weight</th>
-            <th scope="col">Interpretation</th>
+            <th scope="col" title={COLUMN_HELP.criterion}>
+              Criterion
+            </th>
+            <th scope="col" title={COLUMN_HELP.weight}>
+              Weight
+            </th>
+            <th scope="col" title={COLUMN_HELP.interpretation}>
+              Interpretation
+            </th>
           </tr>
         </thead>
         <tbody>
           {displayedCriteria.map((criterion, index) => (
             <tr key={criterion.feature}>
-              <td>{featureLabel(criterion.feature)}</td>
-              <td>
+              <td title={featureSource(criterion.feature)}>
+                {featureLabel(criterion.feature)}
+              </td>
+              <td title={weightHelp(criterion)}>
                 {activeOption.editable ? (
                   <input
                     type="number"
                     step="0.01"
                     min="0"
                     aria-label={`${featureLabel(criterion.feature)} weight`}
+                    title={weightHelp(criterion)}
                     value={Number.isNaN(criterion.weight) ? "" : criterion.weight}
                     disabled={running}
                     onChange={(event) => handleWeightInput(index, event.target.valueAsNumber)}
@@ -288,7 +386,7 @@ export default function AnalysisControls({
                   criterion.weight.toFixed(2)
                 )}
               </td>
-              <td>{criterion.rationale}</td>
+              <td title={criterion.rationale}>{interpretationText(criterion)}</td>
             </tr>
           ))}
         </tbody>

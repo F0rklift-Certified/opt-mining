@@ -67,13 +67,18 @@ describe("AnalysisControls", () => {
     expect(screen.getByLabelText("Distance to transmission weight")).toHaveValue(0.2);
   });
 
-  it("shows editable weight inputs and each criterion's interpretation for the Baseline", () => {
+  it("shows editable weight inputs and each criterion's simplified interpretation for the Baseline", () => {
     renderControls();
 
     expect(screen.getByLabelText("Wind speed weight")).toBeInTheDocument();
-    expect(
-      screen.getByText(/energy yield scales roughly with the cube of wind speed/i),
-    ).toBeInTheDocument();
+    // The Interpretation column shows a simplified one-liner...
+    const interpretation = screen.getByText(/Windier sites score higher/i);
+    expect(interpretation).toBeInTheDocument();
+    // ...while the full rationale is retained on hover (the cell's title).
+    expect(interpretation).toHaveAttribute(
+      "title",
+      expect.stringMatching(/energy yield scales roughly with the cube of wind speed/i),
+    );
   });
 
   it("shows locked, read-only weights (no inputs) for a preset", () => {
