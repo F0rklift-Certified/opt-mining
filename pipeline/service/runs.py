@@ -258,12 +258,45 @@ def materialise_run(
     target = run_dir(run_id)
     manifest_path = target / config.RUN_MANIFEST_FILENAME
     gpkg_path = target / config.SCORED_GPKG_FILENAME
+    # Reuse an existing materialisation ONLY when its Scored_Table is actually
+    # READABLE. A momentarily read-only run store can leave a TRUNCATED .gpkg on
+    # disk while run.json still got written; the files-exist check alone would
+    # then reuse that corrupt artefact forever, wedging every later read behind
+    # an honest-but-permanent 503. Probing readability turns such a partial
+    # write into a cache MISS so the Run self-heals by re-materialising over it
+    # (the writer's tmp-sibling + os.replace makes the overwrite safe). The
+    # content-addressed idempotency for a healthy Run is unchanged: a valid
+    # existing output is still reused without re-scoring.
     if manifest_path.exists() and gpkg_path.exists():
+        if _scored_table_readable(run_id):
+            if verbose:
+                print(f"  reusing materialised run {run_id}")
+            return RunHandle(
+                run_id=run_id, weights_id=weights_id, scenario=scenario_key
+            )
         if verbose:
-            print(f"  reusing materialised run {run_id}")
-        return RunHandle(run_id=run_id, weights_id=weights_id, scenario=scenario_key)
+            print(f"  re-materialising run {run_id}: existing output unreadable")
 
     return _materialise(run_id, resolved, scenario_key, weights_id, verbose)
+
+
+def _scored_table_readable(run_id: str) -> bool:
+    """
+    Lightweight validity probe for a materialised Run's Scored_Table.
+
+    Reuses the read path's own loader (`load_scored_table`) so "readable" means
+    exactly what every read operation requires — no second notion of validity to
+    drift from the one the service serves against. Pure I/O: it opens the
+    GeoPackage and makes no scoring, ranking or normalisation decision. Returns
+    ``True`` only when the table opens cleanly; a corrupt/truncated artefact
+    (which raises ``EngineOutputError`` from the loader) returns ``False`` so the
+    caller treats it as a cache miss and re-materialises.
+    """
+    try:
+        load_scored_table(run_id)
+    except (EngineOutputError, RunNotFoundError):
+        return False
+    return True
 
 
 # --------------------------------------------------------------------------- #

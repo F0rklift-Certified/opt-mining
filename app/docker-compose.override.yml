@@ -35,6 +35,11 @@ services:
       - ../DATA/integration:/srv/DATA/integration
       - ../DATA/exclusions:/srv/DATA/exclusions
       - ../DATA/explanation:/srv/DATA/explanation
+      # Per-run materialisation store (writable, regenerable). Each Run writes
+      # its Scored_Table + manifest here; mounting it to the host keeps those
+      # writes off the read-only image layer, so a partial write can never
+      # wedge a Run behind an HTTP 503. DATA/service/runs/ is git-ignored.
+      - ../DATA/service:/srv/DATA/service
     # --reload watches the mounted source and restarts the worker on change.
     command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
