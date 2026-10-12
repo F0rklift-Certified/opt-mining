@@ -187,3 +187,88 @@ def test_property_3_upper_quartile_count_is_correct(n_cols, n_rows, data):
     else:
         expected_proportion = expected_uq_count / n_farms
         assert result.proportion_upper_quartile == expected_proportion
+
+
+def test_in_top_band_tracks_rank_and_diverges_from_upper_quartile():
+    """S3-08 (review Finding): the per-row ``in_top_band`` flag reflects the
+    engine's rank <= ``top_band_n`` membership, NOT the Upper_Quartile flag.
+
+    This pins the exact confusion the review found: a farm can be in the
+    Upper_Quartile yet OUTSIDE the top-ranked band, so the two column values
+    must be able to diverge. We construct a 1x3 grid where every cell is
+    eligible, with ranks 1, 2, 3 assigned so that only the two best-ranked cells
+    fall inside a ``top_band_n = 2`` band while all three sit in the
+    Upper_Quartile. The row whose rank is > N must report ``in_top_band=False``
+    even though its ``in_upper_quartile`` is True.
+    """
+    top_band_n = 2
+    n_cells = 10
+    grid = _make_grid(n_cols=n_cells, n_rows=1)
+    all_cells = [_cell_id(c, 0) for c in range(n_cells)]
+
+    # Ten eligible cells. The engine `rank` is assigned INDEPENDENTLY of the
+    # score so that band membership (rank <= N) and Upper_Quartile membership
+    # (percentile >= 75) genuinely diverge:
+    #   - cell 0 has the LOWEST score (percentile 10, NOT Upper_Quartile) but
+    #     rank 1 → in the top-ranked band;
+    #   - cell 9 has the HIGHEST score (percentile 100, Upper_Quartile) but
+    #     rank 10 → OUTSIDE the top-ranked band.
+    scores = [0.10 + 0.05 * c for c in range(n_cells)]  # 0.10 .. 0.55, ascending
+    ranks = [c + 1 for c in range(n_cells)]  # cell 0 -> rank 1, cell 9 -> rank 10
+    scored = pd.DataFrame({"cell_id": all_cells, _SCORE: scores, _RANK: ranks})
+
+    # One farm per cell, placed at each cell's interior so its containing cell —
+    # and therefore its rank — is known by construction.
+    wind_generators = gpd.GeoDataFrame(
+        {_NAME: [f"farm_{c}" for c in range(n_cells)]},
+        geometry=[_interior_point(c, 0) for c in range(n_cells)],
+        crs=STORAGE_CRS,
+    )
+
+    transform_log: list[CrsTransform] = []
+    result = check_known_wind_farms(
+        wind_generators,
+        grid,
+        scored,
+        CONTAINMENT_CRS,
+        transform_log,
+        top_band_n=top_band_n,
+    )
+
+    rows_by_rank = {int(row.rank): row for row in result.rows}
+
+    # Band membership tracks rank <= N exactly, regardless of percentile.
+    assert rows_by_rank[1].in_top_band is True
+    assert rows_by_rank[2].in_top_band is True
+    assert rows_by_rank[3].in_top_band is False
+    assert rows_by_rank[10].in_top_band is False
+
+    # ...and the aggregate count agrees with the per-row flags.
+    assert result.n_in_top_band == 2
+    assert sum(1 for row in result.rows if row.in_top_band) == result.n_in_top_band
+
+    # The two columns genuinely DIVERGE in BOTH directions, so they can no longer
+    # silently coincide — the exact confusion a panel reading in_upper_quartile
+    # under a "rank <= N" header would create:
+    #   rank-1 farm: in band but NOT Upper_Quartile (lowest score);
+    low_rank_cell = rows_by_rank[1]
+    assert low_rank_cell.in_top_band is True
+    assert low_rank_cell.in_upper_quartile is False
+    #   rank-10 farm: Upper_Quartile (highest score) but NOT in band.
+    high_score_cell = rows_by_rank[10]
+    assert high_score_cell.in_upper_quartile is True
+    assert high_score_cell.in_top_band is False
+
+    # A null-rank / out-of-grid farm is never in band: an offshore point lands in
+    # no cell, so its row carries in_top_band=False.
+    offshore = gpd.GeoDataFrame(
+        {_NAME: ["offshore"]},
+        geometry=[Point(ORIGIN_LON - 10.0, ORIGIN_LAT - 10.0)],
+        crs=STORAGE_CRS,
+    )
+    offshore_result = check_known_wind_farms(
+        offshore, grid, scored, CONTAINMENT_CRS, [], top_band_n=top_band_n
+    )
+    assert offshore_result.rows[0].rank is None
+    assert offshore_result.rows[0].in_top_band is False
+    assert offshore_result.n_in_top_band == 0

@@ -468,6 +468,11 @@ export interface components {
             /** Cell Id */
             cell_id: string;
             /**
+             * In Top Band
+             * @default false
+             */
+            in_top_band: boolean;
+            /**
              * In Upper Quartile
              * @default false
              */

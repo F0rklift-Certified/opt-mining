@@ -492,6 +492,11 @@
             "title": "Cell Id",
             "type": "string"
           },
+          "in_top_band": {
+            "default": false,
+            "title": "In Top Band",
+            "type": "boolean"
+          },
           "in_upper_quartile": {
             "default": false,
             "title": "In Upper Quartile",

@@ -178,7 +178,7 @@ export default function SanityCheckPanel({
                     <td className="om-results__num">{formatNumber(row.score, 3)}</td>
                     <td className="om-results__num">{formatInteger(row.rank)}</td>
                     <td className="om-results__num">{formatNumber(row.percentile, 2)}</td>
-                    <td>{row.in_upper_quartile ? "Yes" : "No"}</td>
+                    <td>{row.in_top_band ? "Yes" : "No"}</td>
                   </tr>
                 ))}
               </tbody>

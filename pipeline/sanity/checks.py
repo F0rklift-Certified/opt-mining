@@ -239,6 +239,13 @@ class WindFarmRow:
     percentile: float | None  # percentile over eligible pop, or None (2.4)
     in_upper_quartile: bool  # percentile >= UPPER_QUARTILE_PERCENTILE (2.5)
     notes: str  # honest outcome for the Notes column (2.6, 2.7)
+    # S3-08: whether the located cell's non-null engine rank is within the
+    # top-ranked band (rank <= top_band_n) — the SAME test that feeds
+    # ``n_in_top_band`` (design §4.2). A null-rank / excluded / out-of-grid farm
+    # is NEVER in band. This is the engine-computed per-row flag the panel
+    # renders under the "rank <= N" header, so the UI performs no band
+    # arithmetic (NFR1). Defaults keep existing construction sites working.
+    in_top_band: bool = False
 
 
 @dataclass(frozen=True)
@@ -617,7 +624,12 @@ def check_known_wind_farms(
         # non-null rank; the out-of-grid / absent / excluded cases above all
         # carry a null rank and are never counted in band.
         row_rank = None if rank_is_null else raw_rank
-        if row_rank is not None and not pd.isna(row_rank) and float(row_rank) <= top_band_n:
+        in_top_band = (
+            row_rank is not None
+            and not pd.isna(row_rank)
+            and float(row_rank) <= top_band_n
+        )
+        if in_top_band:
             n_in_top_band += 1
 
         rows.append(
@@ -629,6 +641,7 @@ def check_known_wind_farms(
                 percentile=percentile,
                 in_upper_quartile=in_uq,
                 notes=note,
+                in_top_band=in_top_band,
             )
         )
 

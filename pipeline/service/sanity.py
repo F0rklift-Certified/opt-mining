@@ -179,6 +179,7 @@ def get_sanity_check() -> SanityCheck:
             rank=_coerce_optional_int(row.get("rank")),
             percentile=_coerce_optional_number(row.get("percentile")),
             in_upper_quartile=bool(row.get("in_upper_quartile", False)),
+            in_top_band=bool(row.get("in_top_band", False)),
             notes=str(row.get("notes", "")),
         )
         for row in kwf.get("table", [])

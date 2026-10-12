@@ -53,6 +53,7 @@ const PASSING_SANITY: SanityCheck = {
       rank: 3,
       percentile: 0.98,
       in_upper_quartile: true,
+      in_top_band: true,
       notes: "",
     },
   ],
@@ -200,6 +201,54 @@ describe("SanityCheckPanel", () => {
     );
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent(/Sanity reflects the BASELINE run, not the current scenario/);
+  });
+
+  it("renders the in-band column from in_top_band, not in_upper_quartile", () => {
+    // Two rows that would COINCIDE if the panel read in_upper_quartile: both are
+    // in the Upper_Quartile, but only the rank ≤ 20 row is in the top-ranked
+    // band. The panel must render band membership (in_top_band), so the two
+    // columns can no longer silently agree.
+    const divergent: SanityCheck = {
+      ...PASSING_SANITY,
+      wind_farms: [
+        {
+          wind_farm: "Bodangora",
+          cell_id: "S32.000_E149.000",
+          score: 0.9,
+          rank: 2, // within the band (rank ≤ 20)
+          percentile: 0.99,
+          in_upper_quartile: true,
+          in_top_band: true,
+          notes: "",
+        },
+        {
+          wind_farm: "Sapphire",
+          cell_id: "S30.100_E151.200",
+          score: 0.81,
+          rank: 55, // outside the band (rank > 20) but still Upper_Quartile
+          percentile: 0.98,
+          in_upper_quartile: true,
+          in_top_band: false,
+          notes: "",
+        },
+      ],
+    };
+    render(
+      <SanityCheckPanel sanity={divergent} error={null} loading={false} isBaselineRun />,
+    );
+
+    const bodangoraRow = screen.getByRole("rowheader", { name: "Bodangora" }).closest("tr");
+    const sapphireRow = screen.getByRole("rowheader", { name: "Sapphire" }).closest("tr");
+    expect(bodangoraRow).not.toBeNull();
+    expect(sapphireRow).not.toBeNull();
+
+    // The in-band cell is the LAST cell in each row.
+    const bodangoraInBand = within(bodangoraRow as HTMLElement).getAllByRole("cell").at(-1);
+    const sapphireInBand = within(sapphireRow as HTMLElement).getAllByRole("cell").at(-1);
+
+    // rank ≤ 20 → "Yes"; rank > 20 → "No", even though both are Upper_Quartile.
+    expect(bodangoraInBand).toHaveTextContent("Yes");
+    expect(sapphireInBand).toHaveTextContent("No");
   });
 
   it("falls back to 'lineage metadata unavailable' when run_metadata is null", () => {

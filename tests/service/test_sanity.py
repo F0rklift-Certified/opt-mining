@@ -90,6 +90,7 @@ def _sidecar(**overrides) -> dict:
                         "rank": 154.0,
                         "percentile": 99.5,
                         "in_upper_quartile": True,
+                        "in_top_band": False,
                         "notes": "In Upper_Quartile, as expected.",
                     },
                     {
@@ -99,6 +100,7 @@ def _sidecar(**overrides) -> dict:
                         "rank": None,
                         "percentile": None,
                         "in_upper_quartile": False,
+                        "in_top_band": False,
                         "notes": "Excluded_Cell; recorded honestly.",
                     },
                 ],
@@ -233,6 +235,14 @@ def test_wind_farm_rows_read_wind_farm_label(sanity_sidecar):
     assert excluded.score is None and excluded.rank is None
     assert excluded.percentile is None
     assert excluded.in_upper_quartile is False
+    # S3-08 (review Finding): in_top_band is projected verbatim and is DISTINCT
+    # from in_upper_quartile — Sapphire ranks 154 (> top_band_n=20) yet sits in
+    # the Upper_Quartile, so in_top_band must be False even though
+    # in_upper_quartile is True.
+    sapphire = rows[0]
+    assert sapphire.in_upper_quartile is True
+    assert sapphire.in_top_band is False
+    assert excluded.in_top_band is False
 
 
 def test_exclusion_assertions_carried_verbatim(sanity_sidecar):

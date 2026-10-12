@@ -258,6 +258,7 @@ class SanityWindFarmRow(BaseModel):
     rank: int | None = None
     percentile: float | None = None
     in_upper_quartile: bool = False
+    in_top_band: bool = False
     notes: str = ""
 
 

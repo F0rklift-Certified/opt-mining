@@ -672,6 +672,10 @@ def _sidecar_wind_farms(result: WindFarmCheckResult) -> dict:
                 "rank": row.rank,
                 "percentile": row.percentile,
                 "in_upper_quartile": row.in_upper_quartile,
+                # S3-08: the engine's per-row top-ranked-band membership (rank <=
+                # top_band_n), carried verbatim so the panel renders it under the
+                # "rank <= N" header without re-deriving band membership.
+                "in_top_band": row.in_top_band,
                 "notes": row.notes,
             }
             for row in result.rows

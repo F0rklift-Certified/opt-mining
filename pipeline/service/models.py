@@ -617,6 +617,11 @@ class SanityWindFarmRow:
         Excluded_Cell.
     in_upper_quartile :
         Whether the cell falls in the Upper_Quartile (percentile >= 75).
+    in_top_band :
+        Whether the cell's engine rank falls in the top-ranked band (rank <=
+        `top_band_n`), carried verbatim from the sidecar so the panel renders it
+        under the "rank <= N" header without computing band membership itself
+        (the Upper_Quartile flag and band membership diverge; NFR1).
     notes :
         The sanity stage's per-row note, carried verbatim.
     """
@@ -627,6 +632,7 @@ class SanityWindFarmRow:
     rank: int | None = None
     percentile: float | None = None
     in_upper_quartile: bool = False
+    in_top_band: bool = False
     notes: str = ""
 
     def to_dict(self) -> dict:
@@ -638,6 +644,7 @@ class SanityWindFarmRow:
             "rank": self.rank,
             "percentile": self.percentile,
             "in_upper_quartile": self.in_upper_quartile,
+            "in_top_band": self.in_top_band,
             "notes": self.notes,
         }
 

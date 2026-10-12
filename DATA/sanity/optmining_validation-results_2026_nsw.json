@@ -6,8 +6,8 @@
   "preliminary_disclaimer": "This report is a preliminary-screening plausibility sanity check. It asks whether the pipeline's outputs make sense against known reality; it is NOT a formal accuracy assessment and NOT a site approval. Surprising results are documented honestly for investigation, and the model is never adjusted to make a check pass.",
   "caveat": "This model is NOT trained or fitted to reproduce known wind-farm or REZ locations. A strong overlap between the top-ranked areas and these references is corroboration that the screening is plausible, not evidence of a fitted target; divergences are expected and are investigated, not tuned away.",
   "run_metadata": {
-    "run_timestamp": "2026-10-12T11:05:16+00:00",
-    "pipeline_version": "ba456c7b48d12fa8c94f25316408293a69af7daa-dirty",
+    "run_timestamp": "2026-10-12T11:47:44+00:00",
+    "pipeline_version": "628b0dc0b1f96450e85f32c8ad4b10090993fc0f-dirty",
     "n_cells": 47311,
     "n_eligible": 32525,
     "resolved_shortlist_path": "DATA/shortlist/sprint1_shortlist_20261007.geojson"
@@ -40,6 +40,7 @@
           "rank": 962.0,
           "percentile": 97.04534973097617,
           "in_upper_quartile": true,
+          "in_top_band": false,
           "notes": "In Upper_Quartile (Percentile 97.0 >= 75), as expected."
         },
         {
@@ -49,6 +50,7 @@
           "rank": 4778.0,
           "percentile": 85.31283627978478,
           "in_upper_quartile": true,
+          "in_top_band": false,
           "notes": "In Upper_Quartile (Percentile 85.3 >= 75), as expected."
         },
         {
@@ -58,6 +60,7 @@
           "rank": 758.0,
           "percentile": 97.67255956956187,
           "in_upper_quartile": true,
+          "in_top_band": false,
           "notes": "In Upper_Quartile (Percentile 97.7 >= 75), as expected."
         },
         {
@@ -67,6 +70,7 @@
           "rank": 761.0,
           "percentile": 97.66333589546502,
           "in_upper_quartile": true,
+          "in_top_band": false,
           "notes": "In Upper_Quartile (Percentile 97.7 >= 75), as expected."
         },
         {
@@ -76,6 +80,7 @@
           "rank": 880.0,
           "percentile": 97.29746348962337,
           "in_upper_quartile": true,
+          "in_top_band": false,
           "notes": "In Upper_Quartile (Percentile 97.3 >= 75), as expected."
         },
         {
@@ -85,6 +90,7 @@
           "rank": 11225.0,
           "percentile": 65.49116064565719,
           "in_upper_quartile": false,
+          "in_top_band": false,
           "notes": "Percentile 65.5 (mid-range)."
         },
         {
@@ -94,6 +100,7 @@
           "rank": 4478.0,
           "percentile": 86.23520368946964,
           "in_upper_quartile": true,
+          "in_top_band": false,
           "notes": "In Upper_Quartile (Percentile 86.2 >= 75), as expected."
         },
         {
@@ -103,6 +110,7 @@
           "rank": 2.0,
           "percentile": 99.99692544196772,
           "in_upper_quartile": true,
+          "in_top_band": true,
           "notes": "In Upper_Quartile (Percentile 100.0 >= 75), as expected."
         },
         {
@@ -112,6 +120,7 @@
           "rank": 2543.0,
           "percentile": 92.18447348193698,
           "in_upper_quartile": true,
+          "in_top_band": false,
           "notes": "In Upper_Quartile (Percentile 92.2 >= 75), as expected."
         },
         {
@@ -121,6 +130,7 @@
           "rank": 657.0,
           "percentile": 97.98308993082244,
           "in_upper_quartile": true,
+          "in_top_band": false,
           "notes": "In Upper_Quartile (Percentile 98.0 >= 75), as expected."
         },
         {
@@ -130,6 +140,7 @@
           "rank": null,
           "percentile": null,
           "in_upper_quartile": false,
+          "in_top_band": false,
           "notes": "Containing cell 'S34.436_E149.886' is an Excluded_Cell (null suitability_score/rank); the farm sits in land the pipeline excluded. Recorded honestly; model NOT adjusted."
         },
         {
@@ -139,6 +150,7 @@
           "rank": 655.0,
           "percentile": 97.98923904688701,
           "in_upper_quartile": true,
+          "in_top_band": false,
           "notes": "In Upper_Quartile (Percentile 98.0 >= 75), as expected."
         },
         {
@@ -148,6 +160,7 @@
           "rank": 655.0,
           "percentile": 97.98923904688701,
           "in_upper_quartile": true,
+          "in_top_band": false,
           "notes": "In Upper_Quartile (Percentile 98.0 >= 75), as expected."
         },
         {
@@ -157,6 +170,7 @@
           "rank": 154.0,
           "percentile": 99.52959262106073,
           "in_upper_quartile": true,
+          "in_top_band": false,
           "notes": "In Upper_Quartile (Percentile 99.5 >= 75), as expected."
         },
         {
@@ -166,6 +180,7 @@
           "rank": 2119.0,
           "percentile": 93.48808608762491,
           "in_upper_quartile": true,
+          "in_top_band": false,
           "notes": "In Upper_Quartile (Percentile 93.5 >= 75), as expected."
         },
         {
@@ -175,6 +190,7 @@
           "rank": null,
           "percentile": null,
           "in_upper_quartile": false,
+          "in_top_band": false,
           "notes": "Containing cell 'S34.786_E148.986' is an Excluded_Cell (null suitability_score/rank); the farm sits in land the pipeline excluded. Recorded honestly; model NOT adjusted."
         }
       ]

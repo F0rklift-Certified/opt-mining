@@ -5,10 +5,10 @@
       "sidecar_file": "DATA/sanity/optmining_validation-results_2026_nsw.json",
       "stage": "sanity",
       "product_type": "derived",
-      "run_timestamp": "2026-10-12T11:05:16+00:00",
-      "generated_utc": "2026-10-12T11:05:17+00:00",
-      "pipeline_version": "ba456c7b48d12fa8c94f25316408293a69af7daa-dirty",
-      "sha256_report": "dfabbadfd9409806b8f562326376af4544c8ac91d7279b1cecd6be92099a434a",
+      "run_timestamp": "2026-10-12T11:47:44+00:00",
+      "generated_utc": "2026-10-12T11:47:45+00:00",
+      "pipeline_version": "628b0dc0b1f96450e85f32c8ad4b10090993fc0f-dirty",
+      "sha256_report": "0b3695ce7241b16bbfaa1dae1f8ac4cacc2d1fed52bd580a194c115629b7250c",
       "bytes_report": 12882,
       "inputs": [
         {
@@ -47,8 +47,8 @@
           "bytes": 13803520
         }
       ],
-      "sha256_sidecar": "dd4b33ccabc05060b422ab343e47fec12d49c1d336e650aef79d41d86247dae0",
-      "bytes_sidecar": 18390
+      "sha256_sidecar": "a742bebd658703c58043891e356e1b6ef6e4bb1620584dfa69c5060c2f5bc8c5",
+      "bytes_sidecar": 18901
     }
   ]
 }

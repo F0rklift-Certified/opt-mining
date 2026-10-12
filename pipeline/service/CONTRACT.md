@@ -1,6 +1,6 @@
 # Decision_Service Contract (S2-08)
 
-**Status: FROZEN at the Sprint 2 / Sprint 3 boundary. Current version: 1.2**
+**Status: FROZEN at the Sprint 2 / Sprint 3 boundary. Current version: 1.2.1**
 (frozen at **1.0**; amended to **1.1** by S3-03a — the `get_run_cells` geometry
 operation; amended to **1.2** by S3-08 — the `get_sanity_check` operation; both
 under the §8 change-control process; see the [Change log](#8-change-log)).
@@ -518,6 +518,7 @@ Mirrors the S1-12 machine-readable Results_Sidecar, carried through verbatim.
 | `rank` | `integer \| null` | The cell's `rank`; `null` for an Excluded_Cell. |
 | `percentile` | `number \| null` | The cell's percentile over the eligible population; `null` for an Excluded_Cell. |
 | `in_upper_quartile` | `boolean` | Whether the cell is in the Upper_Quartile (percentile >= 75). |
+| `in_top_band` | `boolean` | Whether the cell's `rank` is within the top-ranked band (`rank <= top_band_n`); `false` for a null-rank / Excluded_Cell / out-of-grid farm. Distinct from `in_upper_quartile` (the two diverge); carried verbatim so the UI renders the "rank <= N" column without arithmetic. (added v1.2.1) |
 | `notes` | `string` | The sanity stage's per-row note. |
 
 `SanityRunMetadata`:
@@ -581,6 +582,7 @@ returned as empty sets with a `200`, **never** as an error (Requirement 7.4).
 | 1.0 | Sprint 2/3 boundary | Initial frozen contract: six operations, endpoint mapping, data models, weights interpretation, error handling. | Frozen per Requirement 6.5. |
 | 1.1 | S3-03a | Added the seventh operation `get_run_cells` (`GET /runs/{run_id}/cells`) returning a GeoJSON `CellCollection` of per-cell EPSG:4326 centroids (one Point Feature per cell, eligible and excluded alike; centroids carried verbatim, no reprojection; §1 clause, §2 row 1.7, §4.7, §5 `CellCollection`/`CellFeature`/`CellGeometry`/`CellProperties`, §7 P1 set-equality). No change to the v1.0 operations or their semantics. | Decision_Engine_Spec §8 change-control; propagated to the generated client (S3-01b). |
 | 1.2 | 2026-10-12 (S3-08) | Added the eighth operation `get_sanity_check` (`GET /sanity-check`) returning a `SanityCheck` that projects the S1-12 Results_Sidecar verbatim (per-check outcomes incl. a synthesized exclusion summary, the known-wind-farm table, the full `issues_for_sprint_2` contradictions, the always-on model-not-trained caveat, and the lineage `run_metadata`; §2 row 1.8, §4.8, §5 `SanityCheck`/`SanityCheckItem`/`SanityContradiction`/`SanityWindFarmRow`/`SanityRunMetadata`). Reuses the existing `EngineOutputError` -> 503 mapping; no change to the v1.0/v1.1 operations or their semantics. | Decision_Engine_Spec §8 change-control; propagated to the generated client (S3-08). |
+| 1.2.1 | 2026-10-12 (S3-08) | Additive field: `SanityWindFarmRow.in_top_band` (`boolean`, default `false`) — the engine's per-row top-ranked-band membership (`rank <= top_band_n`), carried verbatim so the sanity panel renders the "rank <= N" column from an engine-computed field rather than reusing `in_upper_quartile` (the two diverge; §5 `SanityWindFarmRow`). Backward-compatible addition to the v1.2 `get_sanity_check` response; no operation added or removed, no other field changed. | Decision_Engine_Spec §8 change-control; OpenAPI snapshot + generated client regenerated (S3-08). |
 
 Any post-freeze change to this contract or the published OpenAPI schema follows
 the Decision_Engine_Spec §8 change-control process, bumps the version above, and
