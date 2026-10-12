@@ -1,5 +1,13 @@
 # Opt-Mining Web Stack (S3-01b — Decision-Service Integration)
 
+> **Screening-level tool.** Opt-Mining performs **preliminary screening** — it
+> surfaces higher-ranked candidate areas for further investigation under the
+> selected assumptions. It does **not** pick the "best site to build a wind
+> farm". For the consolidated technical reference (architecture, data
+> provenance, assumptions, limitations, scoring equations, exclusions and
+> default weights) see
+> [`docs/technical-reference.md`](../docs/technical-reference.md).
+
 This directory holds the MVP web stack for the Opt-Mining decision tool:
 
 - **`api/`** — the FastAPI **Backend_App**. It exposes the frozen S2-08
@@ -147,6 +155,65 @@ This builds and starts both services in one command:
 **repository root** as its build context (so the `pipeline/` package and the
 root `requirements.txt` are reachable); this is wired for you in
 [`docker-compose.yml`](docker-compose.yml).
+
+---
+
+## Clean-environment reproducible run
+
+A clean checkout already ships the built, frozen artefacts the app serves (the
+S1-08 integrated table, the S1-07 exclusions and the S2-06 explanations are
+committed), so you do **not** need to rebuild the data to run the app. The
+whole stack boots from a clean environment with a single documented command.
+
+**Prerequisites**
+
+- Docker + Docker Compose v2 (`docker compose`) for the single-command stack.
+- Python **3.13** (`>=3.13,<3.14`) and Node **>= 20** only if you want to run
+  the backend or frontend outside containers (see *Run commands* above).
+
+**Single command (full stack)**
+
+Run from **`app/`**:
+
+```bash
+docker compose up --build
+```
+
+This builds and starts both services:
+
+- Frontend (`web`) on <http://localhost:3000>
+- Backend (`api`) on <http://localhost:8000> (`/docs`, `/openapi.json` there)
+
+The default host ports and every cross-service URL come from the environment
+variables in the table below (all wired with `${VAR:-default}` in
+[`docker-compose.yml`](docker-compose.yml)); override them before the command,
+e.g.:
+
+```bash
+API_HOST_PORT=9000 WEB_HOST_PORT=4000 \
+NEXT_PUBLIC_API_BASE_URL=http://localhost:9000 \
+CORS_ALLOW_ORIGINS=http://localhost:4000 docker compose up --build
+```
+
+**Verify the running stack**
+
+With both services up, from the repository root:
+
+```bash
+python app/smoke_test.py
+```
+
+This exercises the web page, the browser CORS preflight and all real service
+operations. CI runs the same check against the built Compose containers.
+
+**Rebuild the frozen data (optional).** To regenerate the data the app serves
+from raw sources, run the pipeline's single command first — see the
+*Clean install & single-command run* section in
+[`pipeline/README.md`](../pipeline/README.md) — then rebuild the API image.
+
+For the consolidated architecture, data-provenance, assumptions, limitations,
+scoring-equation, exclusion and default-weight reference, see
+[`docs/technical-reference.md`](../docs/technical-reference.md).
 
 ---
 

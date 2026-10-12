@@ -94,6 +94,39 @@ This document records the source, variables, units, CRS, resolution, temporal co
 
 Datasets considered but excluded are documented in [`DATA/data-specification/sprint1_out_of_scope.md`](../DATA/data-specification/sprint1_out_of_scope.md).
 
+**Consolidated technical reference.** For a single entry point that gathers the application architecture, data provenance, assumptions, limitations, scoring equations, exclusions and default weights (linking the authoritative sources rather than duplicating them), see **[`docs/technical-reference.md`](../docs/technical-reference.md)**.
+
+## Screening-level use & limitations
+
+The Opt-Mining platform performs **preliminary screening**. It surfaces higher-ranked candidate cells for *further investigation* under the selected assumptions and criteria — it does **not** identify the "best site to build a wind farm", a "best place to build", an optimal location or a final recommendation, and it is never a site approval, a project cost, an LCOE, a yield estimate or an engineering-grade assessment. The screening-language commitment is frozen in the **[Decision-Engine Specification §1.4](../Sprint-2-Tasks/decision_engine_specification.md)**.
+
+Important limitations to read with any result (consolidated from the data specification §4.5–§4.7):
+
+- **The electricity demand layer is a PROXY.** `demand_proxy` is a normalized proxy *indicator* — a NEM-region annual-mean operational demand figure allocated **uniformly** to every cell in the region. It is **never** measured or actual local demand, so it discriminates only coarsely between regions and not at all within a region. See [`DATA/electricity-demand/demand_feature_method.md`](../DATA/electricity-demand/demand_feature_method.md) and data specification §4.2.3.
+- **Scores are relative.** Normalisation is min-max over the eligible population, so a cell's score is relative to the candidate set being compared and is not a portable absolute rating.
+- **Linear normalisation**, with no cost/yield/engineering-grade modelling, at the ~5 km (0.05°) analysis-grid resolution; the mean-wind aggregation (frozen decision Q1) buries sub-cell ridge signals.
+
+## Clean install & single-command run
+
+From a clean checkout, the pipeline runs from raw data to the ranked shortlist and sanity check with a **single command**, consistent with the Sprint 1 "single command runs the pipeline" pattern.
+
+**Prerequisites:** Python **3.13** (`>=3.13,<3.14` — the engine does not support 3.14, per `requires-python` in `pyproject.toml`).
+
+```bash
+# From the repository root
+python -m venv .venv
+source .venv/bin/activate              # Windows: .venv\Scripts\activate
+pip install -r requirements.txt        # engine deps (pandas, geopandas, …)
+
+# Single command: run the whole pipeline (raw → … → scoring → explanation →
+# shortlist → validate → sanity), each stage sequentially.
+python -m pipeline
+```
+
+`python -m pipeline` is the one documented command for the full run; `--only <domain|stage>` re-runs a single stage against the already-built upstream artefacts (see *Quick Start* and *CLI Options* above). The committed repository already ships the built, frozen artefacts the application serves, so rebuilding the data is optional.
+
+To run the **application stack** (which serves these artefacts over HTTP) from a clean environment, see the *Clean-environment reproducible run* section in [`app/README.md`](../app/README.md) — a single `docker compose up --build` from `app/`.
+
 ## Architecture
 
 ```
