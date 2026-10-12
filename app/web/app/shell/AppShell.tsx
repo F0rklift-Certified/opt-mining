@@ -103,6 +103,11 @@ export default function AppShell({ service: injectedService }: AppShellProps = {
   // real values. Only used when the matching side is set to CUSTOM_SIDE.
   const [customCriteriaA, setCustomCriteriaA] = useState<Criterion[]>(CUSTOM_SEED_CRITERIA);
   const [customCriteriaB, setCustomCriteriaB] = useState<Criterion[]>(CUSTOM_SEED_CRITERIA);
+  // Rectangle-selected cell ids scoping the comparison TABLE (S3-06 cell
+  // selection). A DISPLAY FILTER local to the comparison feature — it never
+  // alters the compare request, re-ranks, or touches the shared SiteSelection.
+  // `null` means no rectangle selection (table shows all engine rows).
+  const [comparisonCellIds, setComparisonCellIds] = useState<string[] | null>(null);
 
   // Stable across renders; set once the client is ready (or fails to build).
   const apiRef = useRef<DecisionService | null>(null);
@@ -118,6 +123,9 @@ export default function AppShell({ service: injectedService }: AppShellProps = {
     const requestId = ++requestIdRef.current;
     // A new run clears any prior selection; it reopens on the new run's rank 1.
     setSelection(null);
+    // A new run invalidates any comparison-table cell selection (the cells it
+    // referred to belong to the previous run).
+    setComparisonCellIds(null);
     setEngineLoading(true);
     setEngineError(null);
     try {
@@ -218,6 +226,9 @@ export default function AppShell({ service: injectedService }: AppShellProps = {
       request.scenario_b = scenarioB;
     }
     const requestId = ++comparisonRequestIdRef.current;
+    // A fresh comparison supersedes any prior rectangle selection, so a stale
+    // selection never scopes a different pair's results.
+    setComparisonCellIds(null);
     setComparisonLoading(true);
     setComparisonError(null);
     api.compareScenarios(request).then(
@@ -342,6 +353,10 @@ export default function AppShell({ service: injectedService }: AppShellProps = {
               loading={comparisonLoading}
               error={comparisonError}
               comparison={comparison}
+              runId={engine?.run.run_id ?? null}
+              service={service}
+              selectedCellIds={comparisonCellIds}
+              onSelectedCellIdsChange={setComparisonCellIds}
             />
           }
         />

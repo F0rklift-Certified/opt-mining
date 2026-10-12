@@ -142,3 +142,47 @@ preset-unchanged cases) and the backend contract/passthrough/snapshot suites
 pass; frontend `npm run typecheck` clean, `npm test` 126 passed (9 suites),
 `npm run build` succeeds. Evidence:
 `app/web/.agents/tasks/s3-06-custom-weights-verification.md`.
+
+### Update: cell selection for the comparison table (search + drag-rectangle mini-map)
+
+The user can now choose WHICH cells the comparison table lists, via two
+composable controls added to the `ScenarioComparison` panel:
+
+- **Search by Site ID** — a text box that filters the displayed rows live by
+  case-insensitive `cell_id` substring. It is the keyboard-operable alternative
+  to the drag, so cell selection is never mouse-only (accessibility).
+- **Drag-rectangle mini-map** — a small MapLibre map (new `CellPicker`
+  component) showing the run's cells; the user click-drags a rectangle and every
+  cell whose CENTRE falls inside it is selected (drawn rectangle + highlighted
+  cells shown). An **Apply** happens on drag release and a **Clear selection**
+  button resets to all rows. The count of selected cells is shown, and an empty
+  selection explicitly means "all cells".
+
+The two controls COMPOSE as an intersection: with a rectangle selection active
+AND a search substring typed, a row must satisfy BOTH. An empty rectangle
+selection with an empty search box shows all rows exactly as before.
+
+**DISPLAY FILTER ONLY — no re-ranking, no backend change.** This is the critical
+guarantee: the engine still ranks the FULL eligible population and
+`compareScenarios` is called UNCHANGED. The cell selection only filters which
+already-returned `ScenarioComparisonRow` rows the UI RENDERS; the shown
+`rank_a` / `rank_b` / `rank_delta` remain the engine's GLOBAL ranks, and rows
+stay in the engine's returned order (unselected ones are simply omitted). The
+frontend does NO ranking, scoring, weight scaling, re-sorting or delta
+arithmetic — only `.filter` / `.includes` / `Set` membership and a pure
+point-in-bbox test (`cell-geometry.ts`) over coordinates already in memory. The
+mini-map's cells come through the existing single client
+(`service.getRunCells`), never a direct `fetch`. No backend or OpenAPI change
+was made. The caption states the ranks are the engine's global ranks so a
+filtered view is never misread as a re-ranking of the subset.
+
+Verification (cell-selection extension): from `app/web` — `npm run typecheck`
+clean; `npm test` 154 passed (11 suites), including the new
+`cell-geometry.test.tsx` (pure rectangle hit-test), `CellPicker.test.tsx`
+(drag -> onApply with the in-box cell_ids, Clear), the extended
+`ScenarioComparison.test.tsx` (search narrows rows, rectangle selection
+restricts to selected cells in engine order, clear restores all rows, ranks
+rendered verbatim), and the `scope-guard` suite (no `.sort`/`.reduce`/banned
+identifier/stray `fetch`); `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+npm run build` succeeds. Evidence: the verification note at the top of
+`app/web/.agents/tasks/s3-06-cell-selection-investigation.md`.

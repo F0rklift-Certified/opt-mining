@@ -36,6 +36,7 @@ import {
   type ExcludedRow,
 } from "../api/decision-service";
 import { NSW_BOUNDARY } from "./nsw-boundary";
+import { cellCenters } from "./cell-geometry";
 
 export interface CellMapProps {
   /** `engine.run.run_id` for the currently-loaded run, or null when none. */
@@ -384,25 +385,6 @@ function clipToNsw(collection: CellCollection): CellCollection {
     return pointInNsw(lng, lat);
   });
   return { ...collection, features };
-}
-
-/**
- * Extract the `[lng, lat]` centre of every Point feature in a cell collection.
- * Used to seed the hover test (which cell's square contains the cursor) off the
- * same clipped data the map draws. A pure coordinate read — no decision math; a
- * plain `for` loop, never `.reduce`/`.sort`.
- */
-function cellCenters(collection: CellCollection): [number, number][] {
-  const centers: [number, number][] = [];
-  const features = collection.features ?? [];
-  for (let i = 0; i < features.length; i++) {
-    const geometry = features[i]?.geometry;
-    if (geometry?.type !== "Point") continue;
-    const lng = geometry.coordinates[0];
-    const lat = geometry.coordinates[1];
-    if (lng !== undefined && lat !== undefined) centers.push([lng, lat]);
-  }
-  return centers;
 }
 
 /**

@@ -11,6 +11,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 
 import type {
   Criterion,
+  DecisionService,
   ScenarioComparison as ScenarioComparisonResult,
 } from "../api/decision-service";
 import { BASELINE_CRITERIA, type WeightingOption } from "./AnalysisControls";
@@ -49,6 +50,10 @@ function renderPanel(
     loading: false,
     error: null,
     comparison: null as ScenarioComparisonResult | null,
+    runId: "run-1",
+    service: null as DecisionService | null,
+    selectedCellIds: null as string[] | null,
+    onSelectedCellIdsChange: jest.fn(),
     ...overrides,
   };
   render(<ScenarioComparison {...props} />);
@@ -240,5 +245,102 @@ describe("ScenarioComparison", () => {
       screen.getByRole("button", { name: /compare scenarios/i }),
     ).toBeDisabled();
     expect(screen.getByRole("alert")).toHaveTextContent(/at least one weight/i);
+  });
+});
+
+describe("ScenarioComparison cell-selection display filter (S3-06)", () => {
+  function rowSiteIds(): (string | null)[] {
+    return bodyRows().map((row) => within(row).getByRole("rowheader").textContent);
+  }
+
+  it("renders all engine rows in engine order when no selection and no search is active", () => {
+    renderPanel({ comparison: COMPARISON });
+
+    // Unchanged baseline behaviour: all three rows, in the engine's served
+    // order (NOT re-sorted by delta).
+    expect(rowSiteIds()).toEqual([
+      "S31.186_E151.686",
+      "S31.186_E151.736",
+      "S40.000_E150.000",
+    ]);
+  });
+
+  it("restricts the table to the rectangle-selected cells, still in engine order", () => {
+    // A selection that includes the 3rd and 1st engine rows (deliberately out
+    // of order) must still render them in the engine's original order.
+    renderPanel({
+      comparison: COMPARISON,
+      selectedCellIds: ["S40.000_E150.000", "S31.186_E151.686"],
+    });
+
+    expect(rowSiteIds()).toEqual(["S31.186_E151.686", "S40.000_E150.000"]);
+    // The engine ranks are rendered verbatim for the kept rows (no recompute).
+    const [first] = bodyRows();
+    expect(
+      within(first!).getAllByRole("cell").map((c) => c.textContent),
+    ).toEqual(["1", "21", "-20"]);
+  });
+
+  it("narrows the rows live as the user types a Site ID substring", () => {
+    renderPanel({ comparison: COMPARISON });
+
+    const search = screen.getByRole("searchbox", { name: /filter comparison rows by site id/i });
+    fireEvent.change(search, { target: { value: "S31.186_E151.736" } });
+
+    expect(rowSiteIds()).toEqual(["S31.186_E151.736"]);
+  });
+
+  it("intersects the rectangle selection and the search box (both must match)", () => {
+    renderPanel({
+      comparison: COMPARISON,
+      selectedCellIds: ["S31.186_E151.686", "S31.186_E151.736"],
+    });
+
+    // The selection has two rows; the search narrows to the one that also
+    // contains the substring.
+    const search = screen.getByRole("searchbox", { name: /filter comparison rows by site id/i });
+    fireEvent.change(search, { target: { value: "E151.736" } });
+
+    expect(rowSiteIds()).toEqual(["S31.186_E151.736"]);
+  });
+
+  it("reports the filtered count and the full ranked total in the caption", () => {
+    renderPanel({
+      comparison: COMPARISON,
+      selectedCellIds: ["S31.186_E151.686"],
+    });
+
+    const caption = screen.getByText(/showing/i);
+    // One selected row shown, but the full population (3) is still ranked.
+    expect(caption).toHaveTextContent(/showing 1 of 1 selected \(3 ranked\)/i);
+    expect(caption).toHaveTextContent(/engine's global ranks/i);
+  });
+
+  it("shows a hint and no table when the filter matches no cells", () => {
+    renderPanel({
+      comparison: COMPARISON,
+      selectedCellIds: ["does-not-exist"],
+    });
+
+    expect(screen.getByText(/no cells match this selection/i)).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("restores all rows when a search is cleared (reset to all)", () => {
+    renderPanel({ comparison: COMPARISON });
+
+    const search = screen.getByRole("searchbox", { name: /filter comparison rows by site id/i });
+    fireEvent.change(search, { target: { value: "E150.000" } });
+    expect(rowSiteIds()).toEqual(["S40.000_E150.000"]);
+
+    fireEvent.change(search, { target: { value: "" } });
+    expect(rowSiteIds()).toHaveLength(3);
+  });
+
+  it("does not render the search box before any comparison result exists", () => {
+    renderPanel();
+    expect(
+      screen.queryByRole("searchbox", { name: /filter comparison rows by site id/i }),
+    ).not.toBeInTheDocument();
   });
 });

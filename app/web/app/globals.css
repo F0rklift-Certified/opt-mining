@@ -442,6 +442,71 @@ body {
 }
 
 /*
+ * Cell-selection surface (S3-06 extension) — a DISPLAY FILTER over the engine's
+ * rows. A text search over Site ID plus a mini-map rectangle picker. The search
+ * box is the keyboard alternative to the mouse-only drag.
+ */
+.om-comparison__selection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--om-border);
+  border-radius: 6px;
+}
+
+.om-comparison__search {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.om-comparison__search input {
+  padding: 0.3rem 0.4rem;
+  font: inherit;
+  font-weight: 400;
+}
+
+/*
+ * Mini-map cell picker (S3-06). The map container MUST carry an explicit height
+ * or the MapLibre GL canvas collapses to 0px (same constraint as .om-map).
+ */
+.om-cell-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.om-cell-picker__map {
+  height: 260px;
+  width: 100%;
+  border: 1px solid var(--om-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.om-cell-picker__status {
+  margin: 0;
+  padding: 0.25rem 0;
+  font-size: 0.82rem;
+  color: var(--om-muted);
+}
+
+.om-cell-picker__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.om-cell-picker__count {
+  font-size: 0.82rem;
+  color: var(--om-muted);
+}
+
+/*
  * Fixed 2×2 grid: analysis controls (top-left), interactive map (top-right),
  * ranked results (bottom-left), site detail/explanation (bottom-right). On
  * narrow viewports the regions stack in a single column. `minmax(0, 1fr)`
