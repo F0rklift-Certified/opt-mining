@@ -197,6 +197,14 @@ _ALLOWED_SERVICE_DEFINITIONS = {
     "get_exclusions",
     "_reason_codes_and_text",
     "_run_feature_names",
+    # runs.py — a pure validity PROBE (opens the Scored_Table via the read
+    # loader to decide cache hit/miss); it computes no score/rank/exclusion.
+    "_scored_table_readable",
+    # sanity.py — a pure PROJECTION that composes the exclusion summary item
+    # from the sidecar's existing {n_passed, n_failed, all_passed} fields; the
+    # verdict is the engine's own, the service invents no pass/fail arithmetic
+    # (design §5, NFR1-safe).
+    "_exclusion_summary_item",
     # models.py dataclasses/methods carry no arithmetic.
 }
 
