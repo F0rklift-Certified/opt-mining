@@ -346,7 +346,6 @@
           },
           "exclusion_assertions": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Exclusion Assertions",
@@ -689,12 +688,10 @@
             "type": "boolean"
           },
           "explanation": {
-            "additionalProperties": true,
             "title": "Explanation",
             "type": "object"
           },
           "features": {
-            "additionalProperties": true,
             "title": "Features",
             "type": "object"
           },
