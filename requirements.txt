@@ -43,3 +43,14 @@ pyyaml==6.0.2
 # S1-05 — Infrastructure features: AEMO KCI connection points ship as .xlsx,
 # read via pandas.read_excel which requires openpyxl as the engine.
 openpyxl==3.1.5
+
+# S2-08 — Decision_Service HTTP layer. The service is realised as a FastAPI app
+# (pipeline/service/app.py) that publishes the frozen OpenAPI contract the
+# Sprint 3 web application generates its typed client from (CONTRACT.md §2).
+# FastAPI pulls starlette + pydantic v2 as pinned dependencies. httpx is
+# required by fastapi.testclient.TestClient, which the contract/integration
+# tests (tests/service/test_contract_integration.py) drive the endpoints over
+# in-process — so it is a test dependency, but pinned here alongside fastapi so
+# CI installs a matched, verified pair rather than resolving them separately.
+fastapi==0.115.6
+httpx==0.28.1

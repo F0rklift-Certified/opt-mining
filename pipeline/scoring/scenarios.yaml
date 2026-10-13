@@ -1,0 +1,145 @@
+# Named weighting scenarios for the decision engine (S2-07).
+#
+# A SCENARIO IS A PREFERENCE, NOT AN UNCERTAINTY. Each entry below is a named
+# weight set — one documented ordering of screening priorities. Running the
+# engine under a different scenario surfaces a different ranking because the
+# user's PREFERENCES differ, not because the world is uncertain. These are
+# explicitly PREFERENCE / WEIGHTING scenarios; they are NOT probabilistic
+# uncertainty scenarios and must never be described as modelling uncertainty
+# in the data or the outcome.
+#
+# A SCENARIO IS DATA, NOT CODE. Exactly like pipeline/scoring/scoring_weights.yaml,
+# a scenario carries no logic — only a label, a description and a weight set.
+# The engine (pipeline/scoring/score.py::score_and_rank) is reused UNCHANGED
+# for every scenario; nothing here re-implements scoring, normalisation or
+# ranking. Each scenario's `criteria` block is validated by the SAME validator
+# as the default weights (pipeline/scoring/weights.py::parse_weights), so an
+# invalid preset fails loudly before any output is produced.
+#
+# WEIGHTS ARE RELATIVE, NOT ABSOLUTE. The score divides by the sum of the
+# weights actually applied to a cell (§3.2 of the Decision_Engine_Spec), so
+# doubling every weight in a scenario changes no score and no ranking. The
+# weights below sum to 1.00 only for readability.
+#
+# CRITERIA AND DIRECTIONS ARE FIXED ACROSS SCENARIOS. Every scenario scores the
+# same six frozen criteria (Decision_Engine_Spec §2 / §4) with the same
+# directions; ONLY the weights differ. This is what makes two scenarios
+# comparable: the normalisation bounds (computed once from the eligible
+# population) are identical, so a ranking change is attributable purely to the
+# change in preferences. compare_scenarios() enforces the shared-criteria rule.
+#
+# The engine surfaces "higher-ranked candidate cells under the selected
+# assumptions and criteria" (Screening_Language) — a different scenario is a
+# different, equally documented set of assumptions, not a more or less "correct"
+# answer.
+
+version: "1.0"
+
+scenarios:
+  wind_led:
+    label: "Wind-led"
+    description: >-
+      Emphasises wind-resource quality. Wind speed carries more than half the
+      weight, so cells with the strongest resource rise to the top even when
+      they sit further from the grid. Use this preference when resource yield
+      is the dominant screening priority.
+    criteria:
+      - feature: wind_speed
+        weight: 0.55
+        direction: higher_is_better
+        rationale: >-
+          Primary resource indicator, emphasised in this scenario. Energy yield
+          scales roughly with the cube of wind speed; the Wind-led preference
+          lets the resource dominate the ranking. An INPUT feature only — the
+          model never predicts wind from wind-derived features (no circular
+          modelling).
+      - feature: dist_transmission_km
+        weight: 0.15
+        direction: lower_is_better
+        rationale: >-
+          Connection cost scales with distance to the nearest >=132 kV line.
+          Retained but down-weighted under the Wind-led preference so grid
+          proximity cannot outweigh a strong resource. Centroid distance in
+          EPSG:3577.
+      - feature: demand_proxy
+        weight: 0.10
+        direction: higher_is_better
+        rationale: >-
+          Proximity to electrical demand improves offtake prospects. A NEM-region
+          annual mean allocated uniformly to every cell (a proxy), so it
+          discriminates between regions rather than neighbouring cells.
+      - feature: dist_substation_km
+        weight: 0.05
+        direction: lower_is_better
+        rationale: >-
+          Substation proximity reduces interconnection complexity. Partly
+          collinear with transmission distance, so weighted lightly to avoid
+          double-counting the same "near the grid" signal.
+      - feature: slope_deg
+        weight: 0.05
+        direction: lower_is_better
+        rationale: >-
+          Flatter terrain lowers civil-works and turbine-siting cost. A continuous
+          penalty complementing the S1-07 hard slope exclusion. Derived Horn slope
+          from SRTM.
+      - feature: inside_rez
+        weight: 0.10
+        direction: higher_is_better
+        rationale: >-
+          Cells inside a declared NSW Renewable Energy Zone benefit from
+          coordinated network planning. A policy signal that shifts between
+          planning cycles, so weighted modestly. Boolean {False -> 0.0,
+          True -> 1.0}.
+
+  grid_led:
+    label: "Grid-led"
+    description: >-
+      Emphasises grid and infrastructure accessibility. Distance to transmission
+      and REZ membership carry the most weight, so cells that are cheap and
+      simple to connect rise to the top even when the resource is more modest.
+      Use this preference when connection cost and network readiness are the
+      dominant screening priorities.
+    criteria:
+      - feature: wind_speed
+        weight: 0.25
+        direction: higher_is_better
+        rationale: >-
+          Resource quality still matters, but the Grid-led preference down-weights
+          it relative to connection accessibility. An INPUT feature only — the
+          model never predicts wind from wind-derived features (no circular
+          modelling).
+      - feature: dist_transmission_km
+        weight: 0.35
+        direction: lower_is_better
+        rationale: >-
+          Connection cost is the dominant discriminator under the Grid-led
+          preference: distance to the nearest >=132 kV line carries the largest
+          single weight. Centroid distance in EPSG:3577.
+      - feature: demand_proxy
+        weight: 0.10
+        direction: higher_is_better
+        rationale: >-
+          Proximity to electrical demand improves offtake prospects. A NEM-region
+          annual mean allocated uniformly to every cell (a proxy), so it
+          discriminates between regions rather than neighbouring cells.
+      - feature: dist_substation_km
+        weight: 0.10
+        direction: lower_is_better
+        rationale: >-
+          Substation proximity reduces interconnection complexity and works scope.
+          Weighted higher than under Wind-led because interconnection accessibility
+          is central to this preference. Centroid distance in EPSG:3577.
+      - feature: slope_deg
+        weight: 0.05
+        direction: lower_is_better
+        rationale: >-
+          Flatter terrain lowers civil-works and turbine-siting cost. A continuous
+          penalty complementing the S1-07 hard slope exclusion. Derived Horn slope
+          from SRTM.
+      - feature: inside_rez
+        weight: 0.15
+        direction: higher_is_better
+        rationale: >-
+          REZ membership is emphasised under the Grid-led preference: a declared
+          NSW Renewable Energy Zone brings committed transmission investment and
+          an established access regime. Boolean {False -> 0.0, True -> 1.0}.

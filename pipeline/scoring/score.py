@@ -44,7 +44,7 @@ import numpy as np
 import pandas as pd
 
 from . import config
-from .normalise import Bounds, compute_bounds, normalise_series
+from .normalise import Bounds, compute_bounds, normalise_frame
 from .rank import assign_ranks
 from .weights import Criterion, WeightsConfig
 
@@ -74,16 +74,13 @@ def normalised_frame(
     One normalised column per criterion, named `norm_{feature}`, on the rows
     given. Exposed separately so tests and the method report can inspect the
     intermediate values that produced a score.
+
+    Delegates to the standalone `normalise_frame` so the scoring path and the
+    independently-testable normalisation component are literally the same
+    code — a `Criterion` satisfies the `SpecLike` contract by carrying
+    `feature` and `direction`.
     """
-    return pd.DataFrame(
-        {
-            f"norm_{c.feature}": normalise_series(
-                features[c.feature], bounds[c.feature], c.direction
-            )
-            for c in criteria
-        },
-        index=features.index,
-    )
+    return normalise_frame(features, criteria, bounds=bounds)
 
 
 def score_frame(

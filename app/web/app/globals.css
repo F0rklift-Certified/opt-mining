@@ -1,0 +1,712 @@
+/*
+ * Global base styles for the Opt-Mining Frontend_App (S3-01a).
+ *
+ * Function-first, clarity-over-effects (Requirement 1.3): a plain system font
+ * stack, neutral colours, and no decorative effects. Layout-specific rules for
+ * the app shell live with their components; this file only sets sensible
+ * document defaults.
+ */
+
+:root {
+  --om-border: #d0d0d0;
+  --om-bar-bg: #1f2a37;
+  --om-bar-fg: #ffffff;
+  --om-text: #1a1a1a;
+  --om-muted: #5a5a5a;
+  --om-bg: #f7f7f7;
+  --om-success-bg: #edf7ee;
+  --om-success-border: #4d8753;
+  --om-warning-bg: #fff4dc;
+  --om-warning-border: #a76500;
+  --om-selected-bg: #e6eef8;
+  --om-selected-border: #2f5d8f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  color: var(--om-text);
+  background: var(--om-bg);
+  line-height: 1.4;
+}
+
+/* Global title bar: fixed region, function-first, no visual effects. */
+.om-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--om-bar-bg);
+  color: var(--om-bar-fg);
+  border-bottom: 1px solid var(--om-border);
+}
+
+.om-titlebar__title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+/* Region is fixed to NSW for the MVP — a static label, NOT a selector. */
+.om-titlebar__region {
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 3px;
+}
+
+.om-main {
+  padding: 1rem;
+}
+
+/*
+ * Placeholder region: a bordered, labelled empty box (S3-01a, task 6.3).
+ * Function-first, clarity-over-effects (Requirement 1.3) — a plain border, a
+ * heading, and static body text. No decoration, no animation. These regions are
+ * the fixed, empty substrate for S3-02 … S3-06 (Requirements 3.5, 8.1, 8.3).
+ */
+.om-region {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+  background: #ffffff;
+  border: 1px solid var(--om-border);
+  border-radius: 4px;
+}
+
+.om-region__heading {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--om-text);
+}
+
+.om-region__body {
+  font-size: 0.9rem;
+  color: var(--om-muted);
+}
+
+.om-region__body p {
+  margin: 0;
+}
+
+/*
+ * App shell layout: the fixed four-region CSS grid (S3-01a, task 6.4).
+ * Function-first, clarity-over-effects (Requirement 1.3). The four regions —
+ * analysis controls, interactive map, ranked results, site detail/explanation —
+ * are the fixed substrate for S3-02 … S3-06 (Requirements 3.1–3.4, 8.3). No
+ * decoration, no animation.
+ */
+.om-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* Static config line surfacing NEXT_PUBLIC_API_BASE_URL — display only, no fetch. */
+.om-quality,
+.om-service-error {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--om-border);
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.om-quality--passed {
+  background: var(--om-success-bg);
+  border-color: var(--om-success-border);
+}
+
+.om-quality--failed,
+.om-service-error {
+  background: var(--om-warning-bg);
+  border-color: var(--om-warning-border);
+}
+
+.om-quality__checks {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+}
+
+/*
+ * Sanity-check / validation panel (S3-08). A pure view over GET /sanity-check:
+ * the always-on caveat, the lineage line, the baseline-vs-scenario disclosure,
+ * the per-check PASS/FAIL list, the known-wind-farm table and the
+ * contradictions list. Function-first, clarity-over-effects (Requirement 1.3).
+ */
+.om-sanity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.om-sanity--loading,
+.om-sanity--failed {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--om-border);
+  border-radius: 4px;
+}
+
+.om-sanity--failed {
+  background: var(--om-warning-bg);
+  border-color: var(--om-warning-border);
+}
+
+.om-sanity__caveat {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--om-warning-border);
+  border-radius: 4px;
+  background: var(--om-warning-bg);
+}
+
+.om-sanity__lineage-state {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--om-border);
+  border-radius: 4px;
+}
+
+.om-sanity__lineage-state--baseline {
+  background: var(--om-success-bg);
+  border-color: var(--om-success-border);
+}
+
+.om-sanity__lineage-state--scenario {
+  background: var(--om-warning-bg);
+  border-color: var(--om-warning-border);
+}
+
+.om-sanity__lineage {
+  margin: 0;
+  color: var(--om-muted);
+  font-size: 0.85rem;
+}
+
+.om-sanity__disclaimer {
+  margin: 0;
+  color: var(--om-muted);
+}
+
+.om-sanity__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.om-sanity__heading {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.om-sanity__checks,
+.om-sanity__contradictions {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.om-sanity__badge {
+  display: inline-block;
+  padding: 0 0.4rem;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.om-sanity__badge--pass {
+  background: var(--om-success-bg);
+  color: var(--om-success-border);
+  border: 1px solid var(--om-success-border);
+}
+
+.om-sanity__badge--fail {
+  background: var(--om-warning-bg);
+  color: var(--om-warning-border);
+  border: 1px solid var(--om-warning-border);
+}
+
+.om-sanity__check-label {
+  font-weight: 600;
+}
+
+.om-sanity__kind {
+  color: var(--om-muted);
+}
+
+.om-sanity__note {
+  color: var(--om-muted);
+}
+
+.om-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.om-controls__presets {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--om-border);
+  border-radius: 4px;
+}
+
+.om-controls__option {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 400;
+}
+
+.om-weights {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.om-weights caption {
+  text-align: left;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.om-weights th,
+.om-weights td {
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--om-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.om-weights input[type="number"] {
+  width: 4.5rem;
+}
+
+.om-controls__error {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--om-warning-border);
+  background: var(--om-warning-bg);
+  border-radius: 4px;
+}
+
+.om-facts {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.om-facts > div {
+  display: grid;
+  grid-template-columns: minmax(7rem, auto) 1fr;
+  gap: 0.75rem;
+}
+
+.om-facts dt {
+  font-weight: 600;
+}
+
+.om-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.om-results {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.om-results th,
+.om-results td {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--om-border);
+  text-align: left;
+}
+
+/*
+ * Ranked shortlist (S3-04): rows follow the engine's order; one row is the
+ * selected site shared with the map and detail view. The table scrolls
+ * sideways rather than squeezing the component columns.
+ */
+.om-shortlist {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.om-shortlist__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.om-shortlist__note {
+  font-size: 0.8rem;
+}
+
+.om-shortlist__export {
+  flex-shrink: 0;
+}
+
+.om-results__scroll {
+  overflow-x: auto;
+}
+
+.om-results th.om-results__num,
+.om-results td.om-results__num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.om-results thead th {
+  vertical-align: bottom;
+}
+
+.om-results td.om-results__num {
+  white-space: nowrap;
+}
+
+.om-results__row {
+  cursor: pointer;
+}
+
+.om-results__row:hover {
+  background: var(--om-bg);
+}
+
+.om-results__row--selected,
+.om-results__row--selected:hover {
+  background: var(--om-selected-bg);
+  color: var(--om-text);
+}
+
+.om-results__row--selected > :first-child {
+  box-shadow: inset 3px 0 0 var(--om-selected-border);
+}
+
+.om-results__select {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.om-results__select:focus-visible {
+  outline: 2px solid var(--om-selected-border);
+  outline-offset: 2px;
+}
+
+/*
+ * Interactive map (S3-03a). MapLibre renders into .om-map, which MUST carry an
+ * explicit height or the GL canvas collapses to 0px. The status line reuses the
+ * muted shell palette for the loading / no-run / error messages.
+ */
+.om-map {
+  height: 480px;
+  width: 100%;
+  border: 1px solid var(--om-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.om-map__status {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  color: var(--om-muted);
+}
+
+/*
+ * Map legend (S3-03a): names the three cell classes the layers paint so the
+ * rendering is read honestly — eligible candidates, genuine environmental
+ * rule-outs, and cells left unassessed outside the wind-data footprint. The
+ * swatch colours mirror the CellMap layer paint.
+ */
+.om-map__legend {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  font-size: 0.82rem;
+  color: var(--om-text);
+}
+
+.om-map__legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.om-map__swatch {
+  display: inline-block;
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  flex: none;
+}
+
+/* Mid-stop of the eligible score ramp (#fee5d9 -> #fb6a4a -> #a50f15). */
+.om-map__swatch--eligible {
+  background: #fb6a4a;
+}
+
+/* Matches excludedEnvLayer circle-color. */
+.om-map__swatch--env {
+  background: #5b6b8c;
+}
+
+/* Matches excludedNoDataLayer circle-color. */
+.om-map__swatch--nodata {
+  background: #c7ccd1;
+}
+
+/*
+ * Scenario comparison (S3-06): two preset selectors, a compare action, and a
+ * per-cell rank/delta table over the S2-07 engine output. Function-first,
+ * clarity-over-effects — plain controls, the shared results-table styling, and
+ * an explicit note framing these as preference (not probabilistic) scenarios.
+ */
+.om-comparison {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.om-comparison__note,
+.om-comparison__caption,
+.om-comparison__hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--om-text);
+}
+
+.om-comparison__hint {
+  color: var(--om-muted);
+}
+
+.om-comparison__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.om-comparison__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--om-border);
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.om-comparison__field legend {
+  font-weight: 600;
+  padding: 0 0.25rem;
+}
+
+.om-comparison__option {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 400;
+}
+
+/*
+ * A single scenario side: its preset/custom selector stacked above the custom
+ * weight editor (shown only when "Custom weights" is chosen). The editor reuses
+ * the shared `.om-weights` table styling from the analysis controls, so the
+ * Custom editing surface matches S3-02 exactly.
+ */
+.om-comparison__side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.om-comparison__editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+}
+
+.om-comparison__results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+/*
+ * Cell-selection surface (S3-06 extension) — a DISPLAY FILTER over the engine's
+ * rows. A text search over Site ID plus a mini-map rectangle picker. The search
+ * box is the keyboard alternative to the mouse-only drag.
+ */
+.om-comparison__selection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--om-border);
+  border-radius: 6px;
+}
+
+.om-comparison__search {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.om-comparison__search input {
+  padding: 0.3rem 0.4rem;
+  font: inherit;
+  font-weight: 400;
+}
+
+/*
+ * Mini-map cell picker (S3-06). The map container MUST carry an explicit height
+ * or the MapLibre GL canvas collapses to 0px (same constraint as .om-map).
+ */
+.om-cell-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.om-cell-picker__map {
+  height: 260px;
+  width: 100%;
+  border: 1px solid var(--om-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.om-cell-picker__status {
+  margin: 0;
+  padding: 0.25rem 0;
+  font-size: 0.82rem;
+  color: var(--om-muted);
+}
+
+/*
+ * Compact mini-map legend. Mirrors .om-map__legend but at a smaller scale to
+ * suit the picker; the swatches reuse the .om-map__swatch--* classes so their
+ * colours stay locked to the shared cell-layer paint.
+ */
+.om-cell-picker__legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.1rem 0.75rem;
+  font-size: 0.72rem;
+  color: var(--om-muted);
+}
+
+.om-cell-picker__legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.om-cell-picker__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.om-cell-picker__count {
+  font-size: 0.82rem;
+  color: var(--om-muted);
+}
+
+/*
+ * Site detail & explanation (S3-05). A stacked read-out of the selected cell's
+ * header facts, verbatim S2-06 explanation sections, and the shared results
+ * tables for component scores and features. Function-first; it reuses .om-facts
+ * and .om-results so the detail region matches the shortlist exactly.
+ */
+.om-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.om-detail__headline {
+  margin: 0;
+  font-weight: 600;
+}
+
+.om-detail__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.om-detail__heading {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.om-detail__list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+/*
+ * Fixed 2×2 grid: analysis controls (top-left), interactive map (top-right),
+ * ranked results (bottom-left), site detail/explanation (bottom-right). On
+ * narrow viewports the regions stack in a single column. `minmax(0, 1fr)`
+ * keeps wide content (the shortlist table) from stretching its column; that
+ * content scrolls inside its own region instead.
+ */
+.om-shell__grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 60rem) {
+  .om-shell__grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}

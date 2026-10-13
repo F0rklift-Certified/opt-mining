@@ -203,6 +203,10 @@ def _render_header(meta: RunMetadata) -> list[str]:
     add("")
     add(f"> {config.PRELIMINARY_DISCLAIMER}")
     add("")
+    # S3-08 (AC3 / FR2): the model-not-trained caveat, always shown wherever the
+    # reference comparison is presented.
+    add(f"> {config.MODEL_NOT_TRAINED_CAVEAT}")
+    add("")
     add(f"**Analysis resolution:** {config.ANALYSIS_RESOLUTION}.")
     add(
         "The ~5 km cell is the coarsest unit of this analysis; every result "
@@ -243,6 +247,19 @@ def _render_wind_farms(result: WindFarmCheckResult) -> list[str]:
     add(
         f"**Outcome ({_pass_label(outcome.passed)}):** "
         f"{outcome.observed} — expected: {outcome.expected}"
+    )
+    add("")
+
+    # S3-08: the top-ranked-band outcome (rank <= N), the framing the ticket
+    # asks for, alongside the existing Upper_Quartile outcome.
+    top_band = result.top_band_outcome
+    add(
+        f"**Top-ranked band outcome ({_pass_label(top_band.passed)}):** "
+        f"{top_band.observed} — expected: {top_band.expected}"
+    )
+    add(
+        f"_The top-ranked band is **rank ≤ {result.top_band_n}** (the shortlist "
+        f"band); a farm may be in-band yet below the rows shown on screen._"
     )
     add("")
 
@@ -385,10 +402,26 @@ def _render_distribution(result: DistributionCheckResult) -> list[str]:
     add("")
     add(f"- Latitude range: {_fmt_range(result.top_lat_range)}")
     add(f"- Longitude range: {_fmt_range(result.top_lon_range)}")
-    if result.rez_represented:
-        add(f"- REZs represented: {', '.join(result.rez_represented)}")
+    # S3-08: branch on the SAME three REZ states as the sidecar so an empty list
+    # is no longer confused with an absent column (design §4.5).
+    if not result.rez_column_joined:
+        # State 1 — REZ column not joined.
+        add("- REZs represented: — (REZ column not joined)")
+    elif not result.rez_represented and result.n_top_inside_rez == 0:
+        # State 2 — joined, no top cell is inside a REZ.
+        add("- REZs represented: — (no top cell is inside a REZ)")
     else:
-        add("- REZs represented: — (no REZ column available)")
+        # State 3 — joined, some top cells inside a REZ.
+        add(f"- REZs represented: {', '.join(result.rez_represented)}")
+    add("")
+
+    # S3-08: the REZ reference outcome (proportion of top cells inside a REZ)
+    # against the stated plausibility bar — reported, never a tuning target.
+    rez = result.rez_outcome
+    add(
+        f"**REZ representation among top cells ({_pass_label(rez.passed)}):** "
+        f"{rez.observed} — expected: {rez.expected}"
+    )
     add("")
 
     # Wind-versus-score correlation (5.4) — reported, never enforced.
@@ -625,6 +658,12 @@ def _sidecar_wind_farms(result: WindFarmCheckResult) -> dict:
         "n_upper_quartile": result.n_upper_quartile,
         "proportion_upper_quartile": result.proportion_upper_quartile,
         "outcome": _sidecar_outcome(result.outcome),
+        # S3-08 additive top-ranked-band framing (design §4.5). Nested INSIDE the
+        # known_wind_farm_comparison block so the existing outcome/table keys do
+        # not shift.
+        "top_band_outcome": _sidecar_outcome(result.top_band_outcome),
+        "n_in_top_band": result.n_in_top_band,
+        "top_band_n": result.top_band_n,
         "table": [
             {
                 "wind_farm": row.wind_farm,
@@ -633,6 +672,10 @@ def _sidecar_wind_farms(result: WindFarmCheckResult) -> dict:
                 "rank": row.rank,
                 "percentile": row.percentile,
                 "in_upper_quartile": row.in_upper_quartile,
+                # S3-08: the engine's per-row top-ranked-band membership (rank <=
+                # top_band_n), carried verbatim so the panel renders it under the
+                # "rank <= N" header without re-deriving band membership.
+                "in_top_band": row.in_top_band,
                 "notes": row.notes,
             }
             for row in result.rows
@@ -697,6 +740,12 @@ def _sidecar_distribution(result: DistributionCheckResult) -> dict:
         "top_lat_range": list(result.top_lat_range),
         "top_lon_range": list(result.top_lon_range),
         "rez_represented": list(result.rez_represented),
+        # S3-08 additive REZ reference outcome (design §4.5). Nested INSIDE the
+        # score_distribution block; the existing rez_represented key is kept and
+        # now fed real data.
+        "rez_outcome": _sidecar_outcome(result.rez_outcome),
+        "n_top_inside_rez": result.n_top_inside_rez,
+        "top_n_considered": result.top_n_considered,
         "wind_score_corr": result.wind_score_corr,
         "corr_method": result.corr_method,
         "corr_sign_expected_positive": result.corr_sign_expected_positive,
@@ -760,6 +809,9 @@ def build_sidecar(results: SanityResults, meta: RunMetadata | None = None) -> di
         ),
         "analysis_resolution": config.ANALYSIS_RESOLUTION,
         "preliminary_disclaimer": config.PRELIMINARY_DISCLAIMER,
+        # S3-08 (AC3 / FR2): the model-not-trained-to-reproduce caveat as a
+        # first-class top-level string so every consumer surfaces it.
+        "caveat": config.MODEL_NOT_TRAINED_CAVEAT,
     }
     if meta is not None:
         payload["run_metadata"] = {

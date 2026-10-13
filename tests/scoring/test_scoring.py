@@ -718,9 +718,12 @@ class TestValidation:
         from pipeline.scoring.validate import validate
 
         table, features, weights = self._valid()
+        # Cell A held rank 1; pushing it to 99 leaves ranks {99, 2, 3}, a gap
+        # in the 1..n sequence. Requirement 9.5 wants the rank-contiguity check
+        # itself to fail, not merely some check somewhere.
         table.loc[0, scfg.RANK_COLUMN] = 99
         result = validate(table, features, weights)
-        assert result["failed"] >= 1
+        assert any("contiguous" in n for n in result["failed_names"])
 
     def test_missing_row_fails(self):
         from pipeline.scoring.validate import validate
