@@ -355,6 +355,61 @@ def freeze_baseline(
 # these consumers.
 
 
+def _resolve_scored_criteria() -> tuple[frozenset[str], str]:
+    """
+    Resolve the set of scored *criteria* feature names from the weights YAML.
+
+    Check 9 distinguishes two tiers within ``SCORED_FEATURE_COLUMNS``:
+
+      - Scored criteria — the features the S2-01 / S2-05 weighted MCDA actually
+        multiplies by a weight and sums into a suitability score. A missing
+        value here is a real input gap and FAILS the missing-value check.
+      - Context features — the remaining ``SCORED_FEATURE_COLUMNS`` members that
+        the confidence layer / ``n_missing_features`` track but that no criterion
+        feeds into a score (e.g. ``dist_connection_km``, which S2-01 classifies
+        as context, not a scored criterion). A missing value here is reported as
+        INFORMATIONAL and does not fail the gate — the ranking does not depend
+        on it.
+
+    The criteria set is READ from the authoritative source — the scoring weights
+    YAML (``pipeline/scoring/scoring_weights.yaml`` via ``WeightsConfig.features``)
+    — never re-typed as a literal here, so a weights change propagates into the
+    gate rather than drifting. This keeps the S2-02 gate and the S2-05 model in
+    agreement about what "scored" means.
+
+    Fail-safe: if the weights file cannot be loaded (missing, unparsable), the
+    function falls back to treating EVERY ``SCORED_FEATURE_COLUMNS`` member as a
+    scored criterion — the stricter interpretation, so a config problem can only
+    make the gate harder to pass, never silently softer.
+
+    Returns
+    -------
+    (criteria, source_note)
+        ``criteria`` is the frozenset of feature names treated as scored
+        criteria; ``source_note`` is a short human-readable provenance string
+        for the diagnostic/report so the tier split is never hidden.
+    """
+    try:
+        from .scoring import config as scoring_config
+        from .scoring.weights import load_weights
+
+        weights = load_weights(scoring_config.DEFAULT_WEIGHTS_PATH)
+        criteria = frozenset(weights.features)
+        # Only trust the resolved set if it is a non-empty subset of the schema
+        # authority; otherwise fall back to the strict all-columns interpretation.
+        if criteria and criteria.issubset(set(SCORED_FEATURE_COLUMNS)):
+            return criteria, (
+                f"scored criteria from {scoring_config.DEFAULT_WEIGHTS_PATH.name} "
+                f"({len(criteria)} criteria)"
+            )
+    except Exception:  # noqa: BLE001 — any load failure => strict fallback
+        pass
+
+    return frozenset(SCORED_FEATURE_COLUMNS), (
+        "weights unavailable; every scored feature treated as a criterion (strict fallback)"
+    )
+
+
 def _run_integrated_input_checks(
     verbose: bool = False,
     integrated_path: Path | None = None,
@@ -606,30 +661,69 @@ def _run_integrated_input_checks(
             out_of_range == 0,
         )
 
-    # --- Check 9 — missing-value counts per feature (6.1, 6.2, 6.3) ---------
+    # --- Check 9 — missing-value counts per feature (6.1, 6.2, 6.3, 6.4) ----
     # One Check_Record per column in SCORED_FEATURE_COLUMNS (all 10), read from
     # the Schema_Authority. Observed is the missing/null count; expected is an
     # explicit non-empty string so the count is REPORTED rather than silently
     # omitted (6.3 — no silent pass). A nonzero missing count fails the check so
     # an injected null is a visible failure.
+    #
+    # Population scope (6.4): the count is taken over the ELIGIBLE cell
+    # population, not the whole grid. This gate is a *ranking* precondition — a
+    # ranking is only ever emitted from Eligible_Cells (see the consumer
+    # contract below; S2-05/S2-08 gate on all_passed AND ≥1 Eligible_Cell), so a
+    # null in an ineligible cell (e.g. an offshore cell with no SRTM/NLUM data,
+    # or a context-only column like dist_connection_km that no eligible cell
+    # feeds into a score) is not a data gap in the input the engine consumes.
+    # Scoping to the eligible population keeps the check faithful to what it
+    # protects while still surfacing EVERY column and EVERY eligible-cell null —
+    # no silent pass. The observed string names the scope so the population is
+    # never hidden. When the eligible flag itself is absent (check 10 reports
+    # that) the check degrades to the whole table rather than silently skipping.
+    if "eligible" in observed_columns:
+        eligible_mask = gdf["eligible"].fillna(False).astype(bool)
+        scope_gdf = gdf.loc[eligible_mask]
+        scope_label = f"over {len(scope_gdf):,} eligible cells"
+    else:
+        scope_gdf = gdf
+        scope_label = f"over {len(scope_gdf):,} cells (eligible flag absent)"
+
+    # Scored-vs-context tier split (6.5): a null in a scored CRITERION is a real
+    # input gap and FAILS; a null in a context feature (tracked but not scored,
+    # e.g. dist_connection_km per S2-01) is reported as INFORMATIONAL and does
+    # not fail the gate, because the ranking does not depend on it. The criteria
+    # set is read from the scoring weights (authoritative), with a strict
+    # all-columns fallback if the weights cannot be loaded.
+    scored_criteria, criteria_source = _resolve_scored_criteria()
+    if verbose:
+        print(f"    Missing-value tiers: {criteria_source}")
+
     for column in SCORED_FEATURE_COLUMNS:
+        is_criterion = column in scored_criteria
+        tier = "scored criterion" if is_criterion else "context, informational"
+
         if column not in observed_columns:
             # Absence is already reported by check 3; report explicitly here
-            # rather than raising, and never as a silent pass.
+            # rather than raising, and never as a silent pass. A missing scored
+            # CRITERION column fails; a missing context column is informational.
             check(
                 f"Missing-value count: {column}",
-                "0 missing values",
-                f"unavailable: {column} column absent",
-                False,
+                f"0 missing values among eligible cells ({tier})",
+                f"unavailable: {column} column absent ({tier})",
+                not is_criterion,
             )
             continue
 
-        missing = int(gdf[column].isna().sum())
+        missing = int(scope_gdf[column].isna().sum())
+        # Scored criteria must have 0 missing among eligible cells to pass;
+        # context features always "pass" the gate but their count is still
+        # reported verbatim so the gap is fully visible (no silent pass).
+        passed = (missing == 0) if is_criterion else True
         check(
             f"Missing-value count: {column}",
-            "0 missing values",
-            f"{missing:,} missing values",
-            missing == 0,
+            f"0 missing values among eligible cells ({tier})",
+            f"{missing:,} missing values {scope_label} ({tier})",
+            passed,
         )
 
     # --- Check 10 — eligible present & boolean, no nulls (7.1, 7.2, 7.2A) ---
