@@ -32,12 +32,15 @@ Use the real integrated NSW dataset and the approved backend decision engine thr
 | [S4-06](S4-06-Ranked-Shortlist.md) | Finalise the Ranked Shortlist | P0 |
 | [S4-07](S4-07-Validate-Screening-Results.md) | Validate the Screening Results | P1 |
 | [S4-08](S4-08-Sensitivity-Analysis.md) | Perform Sensitivity Analysis | P1 |
-| [S4-09](S4-09-End-to-End-and-Failure-Case-Testing.md) | Complete End-to-End and Failure-Case Testing | P0 |
+| [S4-09a](S4-09a-End-to-End-Workflow-Testing.md) | Complete End-to-End Workflow Testing (Happy Path) | P0 |
+| [S4-09b](S4-09b-Failure-Case-Testing.md) | Complete Failure-Case Testing | P0 |
 | [S4-10](S4-10-Methodology-and-Limitations.md) | Make Methodology and Limitations Visible | P1 |
 | [S4-11](S4-11-Results-Export.md) | Add Results Export | P2 |
-| [S4-12](S4-12-Documentation-and-Reproducibility.md) | Complete Documentation and Reproducibility | P0 |
+| [S4-12a](S4-12a-Setup-and-Installation-Documentation.md) | Complete Setup and Installation Documentation | P0 |
+| [S4-12b](S4-12b-Methodology-Documentation-and-Clean-Environment-Reproduction.md) | Methodology Documentation and Clean-Environment Reproduction | P0 |
 | [S4-13](S4-13-Architecture-and-Data-Flow-Diagram.md) | Prepare the Final Architecture and Data-Flow Diagram | P1 |
-| [S4-14](S4-14-Final-Client-Demonstration-and-Handover.md) | Final Client Demonstration and Handover | P0 |
+| [S4-14a](S4-14a-Final-Handover-Package.md) | Assemble the Final Handover Package | P0 |
+| [S4-14b](S4-14b-Live-Client-Demonstration.md) | Final Live Client Demonstration | P0 |
 
 The [Jira ticket index](Sprint-4-Jira-Tickets.md) supplies a proposed dependency plan. Each task file retains the client's objective, required work, acceptance criterion and deliverable. The source brief does not assign owners or story points; the team should agree those during planning.
 
@@ -51,7 +54,9 @@ All checkboxes start unchecked. Existing Sprint 2/3 implementations may satisfy 
 | P1 | Required final-quality work | Complete after the core integrated application is stable. |
 | P2 | Useful enhancement | Only complete if P0 and P1 work is stable and time remains. |
 
-There are 8 P0 tasks, 5 P1 tasks and 1 P2 task. S4-11 results export is conditional; it does not replace a P0/P1 acceptance requirement.
+After splitting S4-09, S4-12 and S4-14 into a/b, there are 11 P0 tickets, 5 P1 tickets and 1 P2 ticket (17 tickets total). S4-11 results export is conditional; it does not replace a P0/P1 acceptance requirement.
+
+> **Split note:** Three of the client's P0 backlog items were split for sizing and reviewability: S4-09 → S4-09a (happy-path E2E) + S4-09b (failure cases); S4-12 → S4-12a (setup/install docs) + S4-12b (methodology docs + clean-environment reproduction); S4-14 → S4-14a (handover package) + S4-14b (live demonstration). The split halves together cover the original client scope; S4-01 was left whole as its integration work is already complete.
 
 ## Definition of Done
 

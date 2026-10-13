@@ -6,7 +6,7 @@
 
 **Sprint goal and final acceptance:** [Sprint 4 README](README.md)
 
-The 14 tickets below preserve the client's numbered backlog and P0/P1/P2 priorities. Owners and story points are intentionally unassigned because the source brief does not provide them. All acceptance checkboxes remain unchecked pending evidence and review.
+The tickets below preserve the client's numbered backlog and P0/P1/P2 priorities. Three P0 items were split for sizing and reviewability — **S4-09 → S4-09a/S4-09b**, **S4-12 → S4-12a/S4-12b**, **S4-14 → S4-14a/S4-14b** — giving 17 tickets (11 P0, 5 P1, 1 P2); each split pair together covers the original client scope. Owners and story points are intentionally unassigned because the source brief does not provide them. All acceptance checkboxes remain unchecked pending evidence and review.
 
 ## Proposed Dependency Plan
 
@@ -22,18 +22,22 @@ This plan is inferred from the workflow and task interfaces for team planning. T
 | [S4-06](S4-06-Ranked-Shortlist.md) | P0 | S4-01, S4-02 |
 | [S4-07](S4-07-Validate-Screening-Results.md) | P1 | S4-01 |
 | [S4-08](S4-08-Sensitivity-Analysis.md) | P1 | S4-04, S4-05 |
-| [S4-09](S4-09-End-to-End-and-Failure-Case-Testing.md) | P0 | S4-02, S4-03, S4-04, S4-05, S4-06, S4-10 |
+| [S4-09a](S4-09a-End-to-End-Workflow-Testing.md) | P0 | S4-02, S4-03, S4-04, S4-05, S4-06, S4-10 |
+| [S4-09b](S4-09b-Failure-Case-Testing.md) | P0 | S4-09a |
 | [S4-10](S4-10-Methodology-and-Limitations.md) | P1 | S4-01 |
 | [S4-11](S4-11-Results-Export.md) | P2 | S4-04, S4-06 |
-| [S4-12](S4-12-Documentation-and-Reproducibility.md) | P0 | S4-01, S4-07, S4-08, S4-09, S4-10, S4-13 |
+| [S4-12a](S4-12a-Setup-and-Installation-Documentation.md) | P0 | S4-01 |
+| [S4-12b](S4-12b-Methodology-Documentation-and-Clean-Environment-Reproduction.md) | P0 | S4-12a, S4-07, S4-08, S4-09a, S4-09b, S4-10, S4-13 |
 | [S4-13](S4-13-Architecture-and-Data-Flow-Diagram.md) | P1 | S4-01 |
-| [S4-14](S4-14-Final-Client-Demonstration-and-Handover.md) | P0 | S4-01, S4-02, S4-03, S4-04, S4-05, S4-06, S4-07, S4-08, S4-09, S4-10, S4-12, S4-13 |
+| [S4-14a](S4-14a-Final-Handover-Package.md) | P0 | S4-01, S4-02, S4-03, S4-04, S4-05, S4-06, S4-07, S4-08, S4-09a, S4-09b, S4-10, S4-12a, S4-12b, S4-13 |
+| [S4-14b](S4-14b-Live-Client-Demonstration.md) | P0 | S4-14a |
 
 - Establish S4-01's integrated baseline first.
 - Complete map, controls and shortlist integration; connect site details and scenario comparison to the same analysis output.
 - Start validation, sensitivity analysis, methodology and architecture documentation as their inputs become stable.
-- Run final S4-09 tests on the integrated product, then complete clean-environment S4-12 reproduction and S4-14 client handover.
-- S4-11 may begin only after P0/P1 work is stable and time remains; if implemented, include its export tests and demonstration in S4-09/S4-14.
+- Run S4-09a happy-path tests on the integrated product, then S4-09b failure-case tests; complete S4-12a setup docs early and S4-12b methodology docs + clean-environment reproduction once inputs are stable.
+- Assemble the S4-14a handover package once P0/P1 work is stable, then run the S4-14b live demonstration against that frozen release.
+- S4-11 may begin only after P0/P1 work is stable and time remains; if implemented, include its export tests and demonstration in S4-09a/S4-09b and S4-14b.
 
 ## Ticket Worksheets
 
@@ -63,6 +67,11 @@ Create one stable application baseline before adding any final-sprint enhancemen
 ### Acceptance Criteria
 
 - [ ] A clean checkout can start the integrated application and execute the core analysis flow without manually running intermediate scripts.
+- [ ] Approved Sprint 2 and Sprint 3 work is merged in dependency order with no outstanding conflicts and all CI checks green.
+- [ ] Remaining web↔decision-service integration (analysis controls, map, click-to-inspect, ranked results) is wired to the backend engine.
+- [ ] The frontend uses the approved backend decision engine; no duplicated scoring/normalisation in the UI.
+- [ ] The integrated dataset and configuration version used for the baseline is recorded.
+- [ ] A release branch or tag marks the stable Sprint 4 baseline.
 
 ### Deliverable
 
@@ -96,6 +105,11 @@ Make the spatial screening results usable and understandable through the web int
 ### Acceptance Criteria
 
 - [ ] A user can visually distinguish eligible, excluded and relatively higher/lower suitability areas on the NSW map.
+- [ ] Eligible/excluded cells are visually distinct; relative suitability for eligible cells is shown on a continuous scale (excluded cells not presented as merely low-scoring).
+- [ ] A clear legend and meaningful labels explain the styling.
+- [ ] Zoom and pan work; the full NSW grid renders readably at the intended resolution.
+- [ ] Cell data, coordinates and eligibility/score values come from the engine output — no recomputation or reprojection in the UI.
+- [ ] The rendered layer represents the same engine output as the ranked shortlist.
 
 ### Deliverable
 
@@ -128,6 +142,10 @@ Allow a user to understand why a site is eligible, excluded, highly ranked or we
 ### Acceptance Criteria
 
 - [ ] Selecting a site from the map or shortlist opens a consistent, understandable site-detail view with traceable explanations.
+- [ ] For an eligible site: Site/Cell ID, suitability score, rank, wind value/score, demand proxy, infrastructure indicator(s), geographic/environmental indicator(s), criterion contributions, positive factors, weaknesses and data-quality/confidence are shown.
+- [ ] For an excluded site: Site/Cell ID, ineligible status, exclusion reason(s) and data-quality info are shown, with no normal rank.
+- [ ] Map selection and shortlist selection open the same site-detail view for the same cell.
+- [ ] Explanations come from the existing deterministic explanation engine (no LLM) and the same backend analysis results shown elsewhere.
 
 ### Deliverable
 
@@ -161,6 +179,11 @@ Allow users to configure and run screening scenarios without editing source code
 ### Acceptance Criteria
 
 - [ ] Changing valid weights or selecting a preset and running the analysis invokes the approved backend decision engine and can change the ranking.
+- [ ] Default criterion weights are provided and shown on load.
+- [ ] Named presets are selectable; custom weights can be set for Wind, Demand Proxy, Infrastructure and Geographic/Environmental.
+- [ ] User-entered weights are validated/normalised per the approved decision-engine specification.
+- [ ] Reset to Default and Run Analysis actions both work.
+- [ ] The active scenario/configuration is clearly displayed.
 
 ### Deliverable
 
@@ -192,6 +215,11 @@ Demonstrate that OPT-MINING supports decision exploration rather than presenting
 ### Acceptance Criteria
 
 - [ ] A user can rerun at least two materially different scenarios and observe/explain resulting ranking changes.
+- [ ] At least Default, Wind-focused and Infrastructure-focused/custom scenarios can be compared.
+- [ ] Where practical, score change, rank change and Top-N membership changes are shown.
+- [ ] Relatively stable sites across scenarios are identifiable.
+- [ ] Every scenario uses the same approved decision engine; no alternative frontend scoring.
+- [ ] The comparison output is reproducible from documented inputs.
 
 ### Deliverable
 
@@ -223,6 +251,11 @@ Provide a clear shortlist of eligible candidate sites synchronised with the map.
 ### Acceptance Criteria
 
 - [ ] The shortlist and map remain synchronised and show consistent scores, ranks and site identifiers.
+- [ ] Each row shows Rank, Site ID, suitability score and key criterion information.
+- [ ] A practical Top-N option (e.g. Top 10/25/50) is available where useful.
+- [ ] Selecting a ranked result locates/highlights the corresponding map cell and opens its detail view.
+- [ ] The shortlist comes from the backend decision-engine output, not recalculated in the UI.
+- [ ] Only eligible sites appear in the ranked shortlist.
 
 ### Deliverable
 
@@ -255,6 +288,11 @@ Assess whether the model output is geographically and practically plausible with
 ### Acceptance Criteria
 
 - [ ] The team can explain whether the spatial screening pattern appears credible and clearly document important limitations.
+- [ ] The external reference information used (known NSW wind developments and/or REZs) is named and cited.
+- [ ] The comparison method is documented and reproducible.
+- [ ] Areas of agreement and disagreement are identified, with plausible reasons for disagreement.
+- [ ] Results are not tuned to make known developments rank highly, and this is stated.
+- [ ] Supporting outputs are reproducible from documented commands and name the dataset/config version.
 
 ### Deliverable
 
@@ -287,6 +325,11 @@ Show how dependent the shortlist is on decision preferences and weights.
 ### Acceptance Criteria
 
 - [ ] The team demonstrates how preference changes affect recommendations and identifies important sensitivity in the ranking.
+- [ ] Several meaningful weighting scenarios are run and documented.
+- [ ] Top-N sites are compared across scenarios with reported rank/score changes.
+- [ ] Relatively robust and highly weight-sensitive sites are identified.
+- [ ] The report interprets the results, not only tables.
+- [ ] Outputs are reproducible from documented commands and name the dataset/config version.
 
 ### Deliverable
 
@@ -294,7 +337,7 @@ Concise sensitivity-analysis report and reproducible outputs.
 
 ---
 
-## S4-09: Complete End-to-End and Failure-Case Testing
+## S4-09a: Complete End-to-End Workflow Testing (Happy Path)
 
 **Type:** Task
 
@@ -302,29 +345,72 @@ Concise sensitivity-analysis report and reproducible outputs.
 
 **Status:** Backlog
 
-**Worksheet:** [S4-09-End-to-End-and-Failure-Case-Testing.md](S4-09-End-to-End-and-Failure-Case-Testing.md)
+**Worksheet:** [S4-09a-End-to-End-Workflow-Testing.md](S4-09a-End-to-End-Workflow-Testing.md)
+
+> Split from the former S4-09. S4-09a verifies the happy-path workflow; S4-09b (below) exercises failure and edge cases.
 
 ### Objective
 
-Verify the whole product, not only individual backend functions.
+Verify the whole product on the intended end-to-end workflow, not only individual backend functions.
 
 ### Required Work
 
 - [ ] Test the full workflow from application launch through scenario selection, analysis, map, shortlist, site inspection and rerun.
-- [ ] Test invalid weights and extreme weight combinations.
+- [ ] Confirm the frontend exercises the approved backend decision engine throughout (no UI-side scoring).
+- [ ] Capture the test as a repeatable script/checklist, run against a clean checkout of the Sprint 4 baseline.
+- [ ] Record the environment, dataset/config version and commands used so the run is reproducible.
+
+### Acceptance Criteria
+
+- [ ] A documented end-to-end test exercises launch → scenario/weights → run analysis → NSW map → eligible/excluded cells → ranked shortlist → site inspection → change scenario → rerun → compare, and passes on a clean checkout.
+- [ ] Map, shortlist and site-detail views show consistent cell IDs, scores and ranks sourced from the same backend analysis output.
+- [ ] A rerun with changed weights produces an observably different ranking.
+- [ ] The test is reproducible from documented commands and names the dataset/config version used.
+- [ ] Automated coverage exists where practical; any manual step is explicitly recorded as such.
+
+### Deliverable
+
+End-to-end (happy-path) test script/checklist plus evidence of a passing run, and automated tests where appropriate.
+
+---
+
+## S4-09b: Complete Failure-Case Testing
+
+**Type:** Task
+
+**Priority:** P0
+
+**Status:** Backlog
+
+**Worksheet:** [S4-09b-Failure-Case-Testing.md](S4-09b-Failure-Case-Testing.md)
+
+> Split from the former S4-09. Blocked by S4-09a.
+
+### Objective
+
+Verify the product fails safely: common invalid inputs, edge cases and backend failures produce clear user-facing messages rather than silent or misleading results.
+
+### Required Work
+
+- [ ] Test invalid weights and extreme weight combinations (all-zero, negative, single-criterion, out-of-range).
 - [ ] Test missing/invalid input and missing criterion values.
 - [ ] Test excluded-site selection.
 - [ ] Test empty/no-result filters.
-- [ ] Test backend/API failure handling where applicable.
+- [ ] Test backend/API failure handling where applicable (service down, timeout, malformed response).
 - [ ] Ensure failures produce clear user-facing messages rather than silent or misleading results.
 
 ### Acceptance Criteria
 
-- [ ] The complete application flow passes documented tests and common failure cases are handled safely.
+- [ ] Invalid and extreme weight inputs are rejected or normalised per the decision-engine specification, with a clear message; the app does not crash or show a misleading ranking.
+- [ ] Missing/invalid inputs and missing criterion values have a documented safe outcome rather than a silent failure.
+- [ ] Selecting an excluded site shows its ineligible status and exclusion reason, never a normal rank.
+- [ ] An empty/no-result filter shows an explicit "no results" state rather than a blank or stale view.
+- [ ] Backend/API failure produces a clear user-facing error and leaves the app recoverable.
+- [ ] Each failure case is documented with trigger, expected behaviour and observed result; automated coverage exists where practical.
 
 ### Deliverable
 
-Final test report/checklist and automated tests where appropriate.
+Final failure-case test report/checklist and automated tests where appropriate.
 
 ---
 
@@ -353,6 +439,11 @@ Ensure users understand what the application results do and do not mean.
 ### Acceptance Criteria
 
 - [ ] A non-developer user can understand the interpretation and major limitations of the displayed results.
+- [ ] The UI states the suitability score is a relative screening score under the selected data, criteria, assumptions and weights.
+- [ ] The score is never described as a probability of success or as proof of the objectively best site.
+- [ ] Cell-level demand is identified as a spatial demand proxy, not measured local consumption.
+- [ ] Relevant data-quality/confidence caveats are accessible in the application.
+- [ ] Terminology is consistent across UI, documentation and final presentation.
 
 ### Deliverable
 
@@ -383,6 +474,10 @@ Allow useful downstream use of the screening shortlist if time permits.
 ### Acceptance Criteria
 
 - [ ] The exported file reproduces the currently displayed analysis results and identifies the active scenario/configuration.
+- [ ] The CSV contains the named fields (cell_id, rank, suitability_score and the four criterion groups or key values).
+- [ ] Exported rows/values match the on-screen ranked eligible results for the active scenario.
+- [ ] The active scenario/configuration is identified in the file.
+- [ ] Export is implemented only after P0/P1 work is stable.
 
 ### Deliverable
 
@@ -390,7 +485,7 @@ CSV export function.
 
 ---
 
-## S4-12: Complete Documentation and Reproducibility
+## S4-12a: Complete Setup and Installation Documentation
 
 **Type:** Task
 
@@ -398,11 +493,13 @@ CSV export function.
 
 **Status:** Backlog
 
-**Worksheet:** [S4-12-Documentation-and-Reproducibility.md](S4-12-Documentation-and-Reproducibility.md)
+**Worksheet:** [S4-12a-Setup-and-Installation-Documentation.md](S4-12a-Setup-and-Installation-Documentation.md)
+
+> Split from the former S4-12. S4-12a covers install/run; S4-12b (below) covers methodology docs + clean-environment reproduction.
 
 ### Objective
 
-Enable another developer or assessor to understand, install and run the final system.
+Enable another developer or assessor to understand, install and start the final system.
 
 ### Required Work
 
@@ -410,18 +507,55 @@ Enable another developer or assessor to understand, install and run the final sy
 - [ ] Document system architecture and repository structure.
 - [ ] Document dependencies and installation.
 - [ ] Document how to start backend/service components and the web application.
-- [ ] Document data sources, data pipeline and CRS/spatial methodology.
-- [ ] Document hard exclusions, criteria/features, normalisation, weighting/scoring and ranking.
-- [ ] Document the demand-proxy methodology, explainability, scenario analysis, validation, testing and known limitations.
-- [ ] Test the instructions from a clean environment.
 
 ### Acceptance Criteria
 
-- [ ] A technically competent user can follow the documentation and reproduce the final application without undocumented manual intervention.
+- [ ] The README states project purpose and scope in terms a non-developer can follow.
+- [ ] Repository structure and the main components are described and match the actual tree.
+- [ ] Dependencies/versions are listed with installation steps for the supported platform(s).
+- [ ] Documented start commands bring up the backend/service and web app, naming required environment variables.
+- [ ] Documented versions/commands match the Sprint 4 baseline recorded in S4-01.
 
 ### Deliverable
 
-Final README/setup guide and supporting technical documentation.
+Final README/setup guide covering purpose, architecture, dependencies and start-up.
+
+---
+
+## S4-12b: Methodology Documentation and Clean-Environment Reproduction
+
+**Type:** Task
+
+**Priority:** P0
+
+**Status:** Backlog
+
+**Worksheet:** [S4-12b-Methodology-Documentation-and-Clean-Environment-Reproduction.md](S4-12b-Methodology-Documentation-and-Clean-Environment-Reproduction.md)
+
+> Split from the former S4-12. Blocked by S4-12a and the validation/testing/diagram inputs.
+
+### Objective
+
+Document the methodology and known limitations, and prove the final system reproduces from a clean environment with no undocumented manual steps.
+
+### Required Work
+
+- [ ] Document data sources, data pipeline and CRS/spatial methodology.
+- [ ] Document hard exclusions, criteria/features, normalisation, weighting/scoring and ranking.
+- [ ] Document the demand-proxy methodology, explainability, scenario analysis, validation, testing and known limitations.
+- [ ] Test the full install-and-run instructions from a clean environment.
+
+### Acceptance Criteria
+
+- [ ] Methodology docs cover data sources, pipeline and CRS/spatial handling, consistent with the implementation.
+- [ ] Hard exclusions, criteria/features, normalisation, weighting/scoring and ranking match the approved decision-engine specification.
+- [ ] Demand-proxy methodology, explainability, scenario analysis, validation, testing and limitations are documented; the demand proxy is clearly a spatial proxy, not measured consumption.
+- [ ] A clean-environment reproduction is performed and recorded (environment, dataset/config version, commands, resulting state).
+- [ ] The reproduction succeeds without undocumented manual intervention; gaps are fixed and re-tested or recorded as limitations.
+
+### Deliverable
+
+Supporting technical/methodology documentation plus a recorded clean-environment reproduction result.
 
 ---
 
@@ -448,6 +582,9 @@ Provide one clear representation of how all project components fit together.
 ### Acceptance Criteria
 
 - [ ] The diagram accurately reflects the implemented system rather than an aspirational architecture.
+- [ ] The full flow is shown: Data Sources → Data Processing & Integration → NSW Analysis Cells → Validation → Hard Exclusions → Normalisation → MCDA Scoring & Ranking → Explanation & Scenario Analysis → Decision-Service API → Web Application → Map/Shortlist/Site Details.
+- [ ] Terminology on the diagram matches the final implementation.
+- [ ] The diagram is included in the project documentation and the final presentation.
 
 ### Deliverable
 
@@ -455,7 +592,7 @@ Final architecture/data-flow diagram.
 
 ---
 
-## S4-14: Final Client Demonstration and Handover
+## S4-14a: Assemble the Final Handover Package
 
 **Type:** Task
 
@@ -463,11 +600,49 @@ Final architecture/data-flow diagram.
 
 **Status:** Backlog
 
-**Worksheet:** [S4-14-Final-Client-Demonstration-and-Handover.md](S4-14-Final-Client-Demonstration-and-Handover.md)
+**Worksheet:** [S4-14a-Final-Handover-Package.md](S4-14a-Final-Handover-Package.md)
+
+> Split from the former S4-14. S4-14a assembles the reproducible handover package; S4-14b (below) is the live demonstration.
 
 ### Objective
 
-Demonstrate and hand over the completed MVP in a reproducible state.
+Produce a complete, reproducible handover package: the final release of the MVP with all supporting material.
+
+### Required Work
+
+- [ ] Create the final release/tag of the Sprint 4 baseline.
+- [ ] Hand over the final repository, documentation, tests, reports (validation + sensitivity), diagrams and presentation/demo material.
+- [ ] Confirm the released build runs the documented end-to-end workflow against the real integrated NSW dataset.
+- [ ] Cross-check the handover against the Final Handover Checklist.
+
+### Acceptance Criteria
+
+- [ ] A final release/tag exists and corresponds to the verified Sprint 4 baseline (dataset/config version recorded).
+- [ ] The package contains the working web app, repository, setup + methodology docs, automated tests + E2E evidence, validation report, sensitivity results, architecture/data-flow diagram and presentation/demo material (export if S4-11 done).
+- [ ] Every Final Handover Checklist item is present and linked, or explicitly marked not-done with a reason.
+- [ ] The client can reproduce the documented end-to-end workflow from the package without modifying source code.
+
+### Deliverable
+
+Final release/handover package.
+
+---
+
+## S4-14b: Final Live Client Demonstration
+
+**Type:** Task
+
+**Priority:** P0
+
+**Status:** Backlog
+
+**Worksheet:** [S4-14b-Live-Client-Demonstration.md](S4-14b-Live-Client-Demonstration.md)
+
+> Split from the former S4-14. Blocked by S4-14a; runs against the frozen release.
+
+### Objective
+
+Demonstrate the completed MVP live, running the actual application end-to-end from the handed-over release.
 
 ### Required Work
 
@@ -481,12 +656,15 @@ Demonstrate and hand over the completed MVP in a reproducible state.
 - [ ] Change the scenario/weights, rerun and demonstrate ranking changes.
 - [ ] Present validation and sensitivity-analysis findings.
 - [ ] Demonstrate export if implemented.
-- [ ] Hand over the final repository, documentation, tests, reports, diagrams and presentation/demo material.
 
 ### Acceptance Criteria
 
-- [ ] The client can reproduce the demonstrated workflow from the handed-over repository and documentation.
+- [ ] The demonstration runs the live application (not screenshots/mock-ups) from the S4-14a release.
+- [ ] The full workflow is shown: map + active weights → run → eligible/excluded cells → ranked shortlist → eligible-site explanation → excluded-site reason → scenario change + rerun showing ranking change.
+- [ ] Validation and sensitivity-analysis findings are presented, and export is demonstrated if S4-11 was implemented.
+- [ ] A successful rehearsal is recorded separately from the client's final acceptance.
+- [ ] The client can reproduce the demonstrated workflow from the handed-over package.
 
 ### Deliverable
 
-Final release/handover package and live demonstration.
+Live demonstration and its recorded rehearsal evidence.

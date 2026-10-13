@@ -20,6 +20,11 @@ Assess whether the model output is geographically and practically plausible with
 ## Acceptance Criteria
 
 - [ ] The team can explain whether the spatial screening pattern appears credible and clearly document important limitations.
+- [ ] The external reference information used (e.g. known NSW wind developments and/or REZs) is named and cited.
+- [ ] The comparison method is documented and reproducible.
+- [ ] Areas of agreement and disagreement are identified, with plausible reasons for disagreement (data limitations, criteria, exclusions, modelling assumptions).
+- [ ] Results are not tuned merely to make known developments rank highly, and this is stated.
+- [ ] Supporting outputs are reproducible from documented commands and name the dataset/config version used.
 
 ## Deliverable
 

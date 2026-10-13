@@ -20,6 +20,11 @@ Ensure users understand what the application results do and do not mean.
 ## Acceptance Criteria
 
 - [ ] A non-developer user can understand the interpretation and major limitations of the displayed results.
+- [ ] The UI states that the suitability score is a relative screening score under the selected data, criteria, assumptions and weights.
+- [ ] The score is never described as a probability of project success or as proof that a location is objectively the best site.
+- [ ] Cell-level demand is identified as a spatial demand proxy, not measured local electricity consumption.
+- [ ] Relevant data-quality/confidence caveats are accessible within the application.
+- [ ] Terminology is consistent across the UI, documentation and final presentation.
 
 ## Deliverable
 

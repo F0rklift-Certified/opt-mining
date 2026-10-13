@@ -19,6 +19,11 @@ Demonstrate that OPT-MINING supports decision exploration rather than presenting
 ## Acceptance Criteria
 
 - [ ] A user can rerun at least two materially different scenarios and observe/explain resulting ranking changes.
+- [ ] At least Default, Wind-focused and Infrastructure-focused/custom scenarios can be compared.
+- [ ] Where practical, the comparison shows score change, rank change and changes in Top-N membership.
+- [ ] Sites that stay relatively stable across scenarios are identifiable.
+- [ ] Every scenario is scored by the same approved decision engine; no alternative frontend scoring is used.
+- [ ] The comparison output is reproducible from documented inputs (scenarios/weights and dataset/config version).
 
 ## Deliverable
 

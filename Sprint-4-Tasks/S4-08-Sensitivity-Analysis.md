@@ -20,6 +20,11 @@ Show how dependent the shortlist is on decision preferences and weights.
 ## Acceptance Criteria
 
 - [ ] The team demonstrates how preference changes affect recommendations and identifies important sensitivity in the ranking.
+- [ ] Several meaningful weighting scenarios are run, and the scenarios used are documented.
+- [ ] Top-N sites are compared across scenarios with reported rank/score changes.
+- [ ] Relatively robust sites and highly weight-sensitive sites are identified.
+- [ ] The report interprets the results (what the sensitivity means for recommendations), not only tables.
+- [ ] Outputs are reproducible from documented commands and name the dataset/config version used.
 
 ## Deliverable
 

@@ -21,6 +21,11 @@ Create one stable application baseline before adding any final-sprint enhancemen
 ## Acceptance Criteria
 
 - [ ] A clean checkout can start the integrated application and execute the core analysis flow without manually running intermediate scripts.
+- [ ] Approved Sprint 2 and Sprint 3 work is merged in dependency order with no outstanding merge conflicts and all CI checks green.
+- [ ] The remaining web↔decision-service integration (analysis controls, map rendering, click-to-inspect, ranked results) is wired to the backend engine.
+- [ ] The frontend uses the approved backend decision engine; there is no duplicated scoring/normalisation logic in the UI.
+- [ ] The integrated dataset and configuration version used for the baseline is recorded in the repository.
+- [ ] A release branch or tag marks the stable Sprint 4 baseline.
 
 ## Deliverable
 

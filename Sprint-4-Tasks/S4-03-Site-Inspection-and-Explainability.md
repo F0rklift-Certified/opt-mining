@@ -20,6 +20,10 @@ Allow a user to understand why a site is eligible, excluded, highly ranked or we
 ## Acceptance Criteria
 
 - [ ] Selecting a site from the map or shortlist opens a consistent, understandable site-detail view with traceable explanations.
+- [ ] For an eligible site the view shows Site/Cell ID, suitability score, rank, wind value/score, demand proxy, infrastructure indicator(s), geographic/environmental indicator(s), criterion contributions, positive factors, weaknesses and data-quality/confidence information.
+- [ ] For an excluded site the view shows Site/Cell ID, ineligible status, exclusion reason(s) and relevant data-quality information, and does **not** show a normal suitability rank.
+- [ ] Map selection and shortlist selection open the same site-detail view for the same cell (interchangeable selection contract).
+- [ ] Explanations are produced by the existing deterministic explanation engine (no LLM) and derived from the same backend analysis results shown elsewhere in the app.
 
 ## Deliverable
 

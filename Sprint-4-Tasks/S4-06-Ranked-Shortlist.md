@@ -19,6 +19,11 @@ Provide a clear shortlist of eligible candidate sites synchronised with the map.
 ## Acceptance Criteria
 
 - [ ] The shortlist and map remain synchronised and show consistent scores, ranks and site identifiers.
+- [ ] Each row shows Rank, Site ID, suitability score and key criterion information.
+- [ ] A practical Top-N option (e.g. Top 10/25/50) is available where useful.
+- [ ] Selecting a ranked result locates/highlights the corresponding map cell and opens its site-detail view.
+- [ ] The shortlist is generated from the backend decision-engine output, not recalculated in the UI.
+- [ ] Only eligible sites appear in the ranked shortlist (excluded sites are not assigned a normal rank).
 
 ## Deliverable
 

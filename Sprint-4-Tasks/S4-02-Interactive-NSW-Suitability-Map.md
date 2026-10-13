@@ -21,6 +21,11 @@ Make the spatial screening results usable and understandable through the web int
 ## Acceptance Criteria
 
 - [ ] A user can visually distinguish eligible, excluded and relatively higher/lower suitability areas on the NSW map.
+- [ ] Eligible and excluded cells are visually distinct, and relative suitability for eligible cells is shown on a continuous scale (excluded cells are not presented as merely low-scoring).
+- [ ] A clear legend and meaningful labels explain the styling.
+- [ ] Zoom and pan work, and the full NSW grid renders readably (not visually overwhelmed) at the intended resolution.
+- [ ] Cell data, coordinates and eligibility/score values come from the decision-service engine output — no recomputation or reprojection in the UI.
+- [ ] The rendered layer represents the same engine output as the ranked shortlist (consistent IDs/scores/eligibility).
 
 ## Deliverable
 

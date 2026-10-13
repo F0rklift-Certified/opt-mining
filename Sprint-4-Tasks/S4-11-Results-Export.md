@@ -18,6 +18,10 @@ Allow useful downstream use of the screening shortlist if time permits.
 ## Acceptance Criteria
 
 - [ ] The exported file reproduces the currently displayed analysis results and identifies the active scenario/configuration.
+- [ ] The CSV contains the named fields (cell_id, rank, suitability_score and the four criterion groups or their key values).
+- [ ] The exported rows and values match the on-screen ranked eligible results for the active scenario (no separate recomputation).
+- [ ] The active scenario/configuration is identified in the exported file.
+- [ ] Export is implemented only after P0/P1 work is stable (per the priority gate below).
 
 ## Deliverable
 

@@ -21,6 +21,11 @@ Allow users to configure and run screening scenarios without editing source code
 ## Acceptance Criteria
 
 - [ ] Changing valid weights or selecting a preset and running the analysis invokes the approved backend decision engine and can change the ranking.
+- [ ] Default criterion weights are provided and shown on load.
+- [ ] Named scenario presets are selectable, and custom weights can be set for Wind, Demand Proxy, Infrastructure and Geographic/Environmental criteria.
+- [ ] User-entered weights are validated or normalised consistently with the approved decision-engine specification (invalid/extreme inputs handled per spec, not silently accepted).
+- [ ] Reset to Default and Run Analysis actions both work.
+- [ ] The currently active scenario/configuration is clearly displayed.
 
 ## Deliverable
 

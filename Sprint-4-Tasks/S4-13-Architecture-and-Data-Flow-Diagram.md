@@ -18,6 +18,9 @@ Provide one clear representation of how all project components fit together.
 ## Acceptance Criteria
 
 - [ ] The diagram accurately reflects the implemented system rather than an aspirational architecture.
+- [ ] The full flow is shown: Data Sources → Data Processing & Integration → NSW Analysis Cells → Validation → Hard Exclusions → Normalisation → MCDA Scoring & Ranking → Explanation & Scenario Analysis → Decision-Service API → Web Application → Map/Shortlist/Site Details.
+- [ ] Terminology on the diagram matches the final implementation (component and interface names).
+- [ ] The diagram is included in the project documentation and the final presentation.
 
 ## Deliverable
 
