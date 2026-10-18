@@ -23,10 +23,11 @@ cost, an LCOE, an energy-yield estimate or an engineering-grade assessment.
   population on each run (min-max), so a score is relative to the candidate set
   actually compared, not a portable absolute rating. A score of 0.91 is "near
   the top of this run", not a physical quantity.
-- **Demand is a proxy.** The `demand_proxy` layer is a NEM-region annual-mean
-  operational-demand figure allocated **uniformly** to every cell in a region.
-  It is a proxy indicator; it is **not** measured or actual local demand, so it
-  discriminates only coarsely between regions and not at all within a region.
+- **Demand is a proxy.** The `demand_proxy` layer distributes each NEM region's
+  annual-mean operational-demand figure across its cells by urban footprint
+  (ABS UCL 2021). It is a proxy indicator; it is **not** measured or actual local
+  demand. It now varies within a region (urban cells score higher than rural)
+  but stays coarse between regions.
   See [`DATA/electricity-demand/demand_feature_method.md`](../../DATA/electricity-demand/demand_feature_method.md).
 - **Linear normalisation.** A single linear min-max per criterion, with no
   piecewise thresholds, diminishing returns or interaction terms.

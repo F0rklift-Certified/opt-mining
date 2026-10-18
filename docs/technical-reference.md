@@ -20,10 +20,10 @@ source document and this page links to it; this page does not fork a second copy
 > [§1.4 Screening language commitment](../Sprint-2-Tasks/decision_engine_specification.md).
 
 > ⚠️ **The electricity demand layer is a PROXY.** `demand_proxy` is a normalized
-> proxy *indicator*, **never** measured or actual local demand. It is a NEM-region
-> annual-mean operational demand figure allocated **uniformly** to every cell in
-> the region, so it discriminates only coarsely between regions and not at all
-> within a region. See the method report,
+> proxy *indicator*, **never** measured or actual local demand. Each NEM region's
+> annual-mean operational demand figure is distributed across its cells by urban
+> footprint (ABS UCL 2021), so the proxy **varies within a region** (urban cells
+> score higher than rural) while remaining coarse between regions. See the method report,
 > [`DATA/electricity-demand/demand_feature_method.md`](../DATA/electricity-demand/demand_feature_method.md),
 > and data specification §4.2.3. It is described as a proxy everywhere it appears.
 
@@ -191,9 +191,10 @@ read with any result:
 - **Relative scores.** Normalisation is min-max over the eligible population, so a
   cell's score is **relative to the candidate set** and is not a portable absolute
   rating; it changes if the eligible population changes.
-- **Demand is a proxy.** `demand_proxy` is a uniform NEM-region allocation (never
-  measured local demand), so it discriminates only coarsely between regions and
-  not within a region; the ranking is driven mostly by the other five criteria.
+- **Demand is a proxy.** `demand_proxy` distributes each NEM region's demand by
+  urban footprint (ABS UCL 2021; never measured local demand), so it now varies
+  within a region (urban > rural) but stays coarse between regions; the ranking
+  is driven mostly by the other five criteria.
 - **Linear normalisation.** Distance criteria are normalised linearly; a
   logarithmic transform is defensible but is an explicit future modelling choice.
 - **No cost/yield/engineering grade.** The score is a strategic screening

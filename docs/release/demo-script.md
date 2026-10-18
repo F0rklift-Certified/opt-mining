@@ -46,9 +46,10 @@ the sum of applied weights, so they sum to 1.00 only for readability.
 | `slope_deg` | lower is better | 0.10 | 0.05 | 0.05 |
 | `inside_rez` | higher is better | 0.10 | 0.10 | 0.15 |
 
-The `demand_proxy` row is a proxy indicator — a NEM-region annual-mean figure
-allocated uniformly; it is **not** measured or actual local demand, so it
-discriminates between regions, not within a region.
+The `demand_proxy` row is a proxy indicator — each NEM region's annual-mean
+figure distributed across its cells by urban footprint (ABS UCL 2021); it is
+**not** measured or actual local demand. It now varies within a region (urban >
+rural) as well as between regions.
 
 ---
 

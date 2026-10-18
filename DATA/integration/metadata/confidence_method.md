@@ -66,7 +66,7 @@ be labelled "estimated"; 0.50 severe (reserved). Bases (S1-01 data
 specification sections):
 
 - `wind_speed` — resolution 1: spec 3 / 4.1.1 - 0.0025 deg native pixels, exact 20x20 nesting per cell; limitation 0.95: spec 4.1.1 - modelled ERA5 2008-2017 ten-year mean; no interannual variability; ocean pixels carry values
-- `demand_proxy` — resolution 0.5: spec 4.2 - one NEM-region annual mean allocated UNIFORMLY to every cell (region is far coarser than the cell); limitation 0.75: spec 4.2 / 4.2.1 - single year 2025-26, must be labelled 'estimated'; spec 6 temporal gap vs wind 2008-2017
+- `demand_proxy` — resolution 0.5: spec 4.2 - each NEM-region annual mean distributed across cells by urban footprint (ABS UCL 2021), so it varies within a region (urban > rural) but the region is still far coarser than the cell; limitation 0.75: spec 4.2 / 4.2.1 - single year 2025-26, must be labelled 'estimated'; spec 6 temporal gap vs wind 2008-2017
 - `dist_transmission_km` — resolution 1: spec 4.3.1 - exact vector lines; centroid distance in EPSG:3577; limitation 0.95: spec 4.3.1 - screening-level; Euclidean not network distance; proximity is not spare capacity; source dates mostly missing
 - `dist_substation_km` — resolution 1: spec 4.3.2 - exact vector points; centroid distance in EPSG:3577; limitation 0.95: spec 4.3.2 - screening-level; 48 substations lack voltage; source dates mostly missing
 - `dist_connection_km` — resolution 1: spec 4.3.3 - would be an exact point distance; null for every cell in the 2026 snapshot (AEMO KCI has no coordinates); limitation 0.95: spec 4.3 / 4.3.3 - same screening caveats as the GA distances; the factor only applies once the source is geocoded

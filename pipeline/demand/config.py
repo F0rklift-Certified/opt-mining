@@ -48,16 +48,55 @@ INSPECTION_SUMMARY_NAME = "inspection_summary.txt"
 # --- Demand feature layer (S1-04) ---
 GRID_PATH = PROJECT_ROOT / "DATA" / "grid" / "nsw_analysis_grid.gpkg"
 NEM_REGIONS_PATH = PROJECT_ROOT / "DATA" / "geographic" / "derived" / "nem_regions_asgs2021_national.geojson"
+# ABS UCL 2021 (NSW) urban-centre/locality polygons used as the spatial weight
+# for urban-footprint demand allocation (same extract the geographic feature
+# stage uses for urban_area).
+URBAN_WEIGHTS_PATH = PROJECT_ROOT / "DATA" / "geographic" / "urban" / "abs_ucl_2021_nsw.geojson"
 FEATURE_TABLE_NAME = "aemo_demand-proxy_2026_nsw.gpkg"
 FEATURE_TABLE_LAYER = "demand_proxy"
 METHOD_REPORT_NAME = "demand_feature_method.md"
 FEATURE_MANIFEST_NAME = "download_manifest.json"
 STORAGE_CRS = "EPSG:4326"
 COMPUTATION_CRS = "EPSG:3577"
-DEFAULT_ALLOCATION_METHOD = "uniform"
+# Allocation methods: "uniform" (legacy equal-share) and "urban_weighted"
+# (ABS UCL urban-footprint weighting). urban_weighted is the default.
+DEFAULT_ALLOCATION_METHOD = "urban_weighted"
+ALLOCATION_METHODS = ("uniform", "urban_weighted")
 CONFIDENCE_LEVELS = ("high", "medium", "low")
 DEMAND_INPUT_COLUMN = "MEAN_DEMAND_MW"
 CONSERVATION_TOLERANCE_MW = 1e-6
+
+# --- Urban-footprint weighting (ABS UCL 2021) ---
+# ABS UCL "Section of State" codes to DROP before the overlap. Code "13" is
+# "Rural Balance" — a single catch-all polygon covering everything outside every
+# real urban centre/locality, which would swamp the weighting. Codes 10/11/12
+# (Major Urban / Other Urban / Bounded Locality) are genuine urban areas, kept.
+URBAN_EXCLUDE_SOS_CODES = {"13"}
+# Every assigned cell receives this floor weight (in addition to any urban
+# overlap area) so that no assigned cell can carry zero weight and each region's
+# demand is still conserved. This is a modelling choice: cells with no urban
+# overlap are allocated purely on the floor and flagged `medium`.
+DEMAND_WEIGHT_FLOOR = 0.05
+# Ordinal multiplier applied to the urban-overlap area per ABS UCL
+# `sosr_name_2021` population band. All bands are set to 1.0 for now
+# (footprint-only baseline); these are tunable later without a schema change.
+SOSR_WEIGHT_MULTIPLIERS = {
+    "1 million or more": 1.0,
+    "250,000 to 999,999": 1.0,
+    "100,000 to 249,999": 1.0,
+    "50,000 to 99,999": 1.0,
+    "20,000 to 49,999": 1.0,
+    "10,000 to 19,999": 1.0,
+    "5,000 to 9,999": 1.0,
+    "4,999 or less": 1.0,
+    "1,000 to 4,999": 1.0,
+    "500 or more": 1.0,
+    "499 or less": 1.0,
+    "200 to 499": 1.0,
+    "Remainder of State/Territory": 1.0,
+}
+# Default multiplier for any band not present in SOSR_WEIGHT_MULTIPLIERS.
+SOSR_DEFAULT_MULTIPLIER = 1.0
 
 # --- Pipeline stages (in execution order) ---
 STAGES = ["download", "validate", "inspect", "aggregate", "feature"]

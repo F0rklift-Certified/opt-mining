@@ -15,10 +15,11 @@ and a thin web client.
 > at the analysis-grid resolution and indicate only *where to look next*.
 
 > ⚠️ **The electricity demand layer is a PROXY.** `demand_proxy` is a normalized
-> proxy *indicator* — a NEM-region annual-mean operational demand figure
-> allocated **uniformly** to every cell in the region. It is **never** measured
-> or actual local demand, so it discriminates only coarsely between regions and
-> not at all within a region. See
+> proxy *indicator* — each NEM region's annual-mean operational demand figure
+> distributed across its cells by **urban footprint** (ABS UCL 2021), so the
+> proxy now **varies within a region** (urban cells score higher than rural).
+> It is **never** measured or actual local demand, and it remains coarse between
+> regions. See
 > [`DATA/electricity-demand/demand_feature_method.md`](DATA/electricity-demand/demand_feature_method.md).
 
 The architecture follows a strict **data → criteria → scoring → presentation**
@@ -234,8 +235,9 @@ distance (continuous penalty, no hard exclusion).
   a "best site" claim, a site approval or an engineering assessment.
 - **Relative scores** — min-max over the eligible population; a score is relative
   to the candidate set, not a portable absolute rating.
-- **Demand is a proxy** — uniform NEM-region allocation, coarse between regions
-  and not discriminating within a region.
+- **Demand is a proxy** — NEM-region demand distributed by urban footprint
+  (ABS UCL 2021); it varies within a region (urban > rural) but stays coarse
+  between regions and is never measured local demand.
 - **Linear normalisation**, **no cost/yield/engineering-grade modelling**, at
   **~5 km resolution** (mean-wind aggregation buries sub-cell ridge signals).
 
