@@ -162,6 +162,13 @@ SCORED_CSV_FILENAME = _scoring_config.CSV_FILENAME
 SCORED_LAYER = _scoring_config.OUTPUT_LAYER
 RUN_MANIFEST_FILENAME = "run.json"
 
+# Probabilities at which `get_run_cells` reports the eligible population's
+# suitability_score (CONTRACT.md §5 `CellCollection.score_quantiles`, v1.2.2).
+# The map places its continuous colour stops here so the bulk of the
+# distribution is not squeezed into one colour band (S4-02). Display metadata
+# only: changing these changes no score, rank or eligibility.
+MAP_SCORE_QUANTILES = (0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0)
+
 # Length of the hex run id derived from the resolved weights identity. 16 hex
 # chars (64 bits) is collision-safe for the handful of runs a session creates
 # while staying short enough to sit in a URL path segment.

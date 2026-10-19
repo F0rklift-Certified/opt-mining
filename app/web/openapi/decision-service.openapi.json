@@ -15,6 +15,13 @@
             "title": "Run Id",
             "type": "string"
           },
+          "score_quantiles": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreQuantile"
+            },
+            "title": "Score Quantiles",
+            "type": "array"
+          },
           "type": {
             "const": "FeatureCollection",
             "title": "Type",
@@ -666,6 +673,25 @@
           "cell_id"
         ],
         "title": "ScenarioComparisonRow",
+        "type": "object"
+      },
+      "ScoreQuantile": {
+        "description": "One point of the map colour scale (CONTRACT.md \u00a75, \u00a74.7; added v1.2.2).\n\nThe eligible population's `suitability_score` at probability `quantile`.\nDisplay metadata only \u2014 it changes no score, rank or eligibility.",
+        "properties": {
+          "quantile": {
+            "title": "Quantile",
+            "type": "number"
+          },
+          "suitability_score": {
+            "title": "Suitability Score",
+            "type": "number"
+          }
+        },
+        "required": [
+          "quantile",
+          "suitability_score"
+        ],
+        "title": "ScoreQuantile",
         "type": "object"
       },
       "SiteDetail": {

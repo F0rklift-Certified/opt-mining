@@ -205,6 +205,11 @@ _ALLOWED_SERVICE_DEFINITIONS = {
     # verdict is the engine's own, the service invents no pass/fail arithmetic
     # (design §5, NFR1-safe).
     "_exclusion_summary_item",
+    # results.py — DISPLAY metadata for the map colour scale (S4-02, contract
+    # v1.2.2): numpy quantiles of the eligible cells' SERVED scores. It reads
+    # scores already in the Scored_Table and changes no score, rank or
+    # eligibility; flagged only because its name starts with "score".
+    "_score_quantiles",
     # models.py dataclasses/methods carry no arithmetic.
 }
 

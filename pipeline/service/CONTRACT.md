@@ -1,6 +1,6 @@
 # Decision_Service Contract (S2-08)
 
-**Status: FROZEN at the Sprint 2 / Sprint 3 boundary. Current version: 1.2.1**
+**Status: FROZEN at the Sprint 2 / Sprint 3 boundary. Current version: 1.2.2**
 (frozen at **1.0**; amended to **1.1** by S3-03a — the `get_run_cells` geometry
 operation; amended to **1.2** by S3-08 — the `get_sanity_check` operation; both
 under the §8 change-control process; see the [Change log](#8-change-log)).
@@ -285,7 +285,9 @@ show one engine output — §7 P1).
 **Request:** `run_id` (path).
 
 **Response — `CellCollection`** (see §5): a `FeatureCollection` whose `features`
-hold one `CellFeature` per Scored_Table row, in the table's own row order.
+hold one `CellFeature` per Scored_Table row, in the table's own row order, plus
+`score_quantiles` (v1.2.2) — the eligible scores at fixed probabilities, used
+only to place the map's colour stops.
 
 **Errors:** an unknown Run returns an error naming the missing Run (`404`); a
 Scored_Table that is missing/unreadable, or that lacks a required centroid
@@ -450,6 +452,14 @@ cell of a Run, plus the `run_id` the cells belong to.
 | `type` | `"FeatureCollection"` | GeoJSON discriminator (constant). |
 | `run_id` | `string` | The Run these cells belong to. |
 | `features` | `[CellFeature]` | One Point Feature per Scored_Table cell, in the table's row order. |
+| `score_quantiles` | `[ScoreQuantile]` | Map colour-scale metadata (added v1.2.2, S4-02): the **eligible** cells' `suitability_score` at each probability in `config.MAP_SCORE_QUANTILES` (0, 0.1, 0.25, 0.5, 0.75, 0.9, 1), ascending. A descriptive statistic of the served scores — no score, rank or eligibility is changed. Empty when the Run has no eligible cell. |
+
+`ScoreQuantile`:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `quantile` | `number` | Probability in [0, 1] (0 = eligible minimum, 1 = maximum). |
+| `suitability_score` | `number` | The eligible population's score at that probability (numpy linear interpolation). |
 
 `CellFeature`:
 
@@ -583,6 +593,7 @@ returned as empty sets with a `200`, **never** as an error (Requirement 7.4).
 | 1.1 | S3-03a | Added the seventh operation `get_run_cells` (`GET /runs/{run_id}/cells`) returning a GeoJSON `CellCollection` of per-cell EPSG:4326 centroids (one Point Feature per cell, eligible and excluded alike; centroids carried verbatim, no reprojection; §1 clause, §2 row 1.7, §4.7, §5 `CellCollection`/`CellFeature`/`CellGeometry`/`CellProperties`, §7 P1 set-equality). No change to the v1.0 operations or their semantics. | Decision_Engine_Spec §8 change-control; propagated to the generated client (S3-01b). |
 | 1.2 | 2026-10-12 (S3-08) | Added the eighth operation `get_sanity_check` (`GET /sanity-check`) returning a `SanityCheck` that projects the S1-12 Results_Sidecar verbatim (per-check outcomes incl. a synthesized exclusion summary, the known-wind-farm table, the full `issues_for_sprint_2` contradictions, the always-on model-not-trained caveat, and the lineage `run_metadata`; §2 row 1.8, §4.8, §5 `SanityCheck`/`SanityCheckItem`/`SanityContradiction`/`SanityWindFarmRow`/`SanityRunMetadata`). Reuses the existing `EngineOutputError` -> 503 mapping; no change to the v1.0/v1.1 operations or their semantics. | Decision_Engine_Spec §8 change-control; propagated to the generated client (S3-08). |
 | 1.2.1 | 2026-10-12 (S3-08) | Additive field: `SanityWindFarmRow.in_top_band` (`boolean`, default `false`) — the engine's per-row top-ranked-band membership (`rank <= top_band_n`), carried verbatim so the sanity panel renders the "rank <= N" column from an engine-computed field rather than reusing `in_upper_quartile` (the two diverge; §5 `SanityWindFarmRow`). Backward-compatible addition to the v1.2 `get_sanity_check` response; no operation added or removed, no other field changed. | Decision_Engine_Spec §8 change-control; OpenAPI snapshot + generated client regenerated (S3-08). |
+| 1.2.2 | 2026-10-19 (S4-02) | Additive field: `CellCollection.score_quantiles` (`[ScoreQuantile]`, default `[]`) — the eligible cells' `suitability_score` at fixed probabilities, so the map can place continuous colour stops across the real score distribution without sorting in the UI (§4.7, §5 `CellCollection`/`ScoreQuantile`). Descriptive display metadata only; backward-compatible addition to the v1.1 `get_run_cells` response; no operation added or removed, no other field changed. | Decision_Engine_Spec §8 change-control; OpenAPI snapshot + generated client regenerated (S4-02). |
 
 Any post-freeze change to this contract or the published OpenAPI schema follows
 the Decision_Engine_Spec §8 change-control process, bumps the version above, and

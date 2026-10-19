@@ -313,10 +313,19 @@ class CellCollection:
     features :
         One `CellFeature` per Scored_Table row, in the table's own row order,
         carried through verbatim.
+    score_quantiles :
+        Display metadata for the map's colour scale (added v1.2.2, S4-02): the
+        eligible population's `suitability_score` at each probability in
+        `config.MAP_SCORE_QUANTILES`, as ``(quantile, suitability_score)``
+        pairs in ascending quantile order. A descriptive statistic of the
+        engine's own scores — it changes no score, rank or eligibility — served
+        so the UI can place its colour stops without sorting (scope guard).
+        Empty when the Run has no eligible cell.
     """
 
     run_id: str
     features: list[CellFeature] = field(default_factory=list)
+    score_quantiles: list[tuple[float, float]] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         """Serialise to the CONTRACT.md §5 GeoJSON `CellCollection` shape."""
@@ -324,6 +333,10 @@ class CellCollection:
             "type": "FeatureCollection",
             "run_id": self.run_id,
             "features": [feature.to_dict() for feature in self.features],
+            "score_quantiles": [
+                {"quantile": quantile, "suitability_score": score}
+                for quantile, score in self.score_quantiles
+            ],
         }
 
 

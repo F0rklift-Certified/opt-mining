@@ -218,6 +218,17 @@ class CellFeature(BaseModel):
     properties: CellProperties
 
 
+class ScoreQuantile(BaseModel):
+    """One point of the map colour scale (CONTRACT.md §5, §4.7; added v1.2.2).
+
+    The eligible population's `suitability_score` at probability `quantile`.
+    Display metadata only — it changes no score, rank or eligibility.
+    """
+
+    quantile: float
+    suitability_score: float
+
+
 class CellCollection(BaseModel):
     """A Run's cells as a GeoJSON FeatureCollection (CONTRACT.md §5, §4.7).
 
@@ -229,6 +240,7 @@ class CellCollection(BaseModel):
     type: Literal["FeatureCollection"]
     run_id: str
     features: list[CellFeature] = Field(default_factory=list)
+    score_quantiles: list[ScoreQuantile] = Field(default_factory=list)
 
 
 class SanityCheckItem(BaseModel):

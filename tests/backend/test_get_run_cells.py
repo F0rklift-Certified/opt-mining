@@ -29,6 +29,7 @@ import sys
 from pathlib import Path
 
 import geopandas as gpd
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 from shapely.geometry import Point
@@ -223,6 +224,56 @@ def test_empty_table_returns_empty_but_valid_collection(runs_store):
     # excluded cells; but the eligible subset is empty-but-valid, not an error.
     assert payload["type"] == "FeatureCollection"
     assert [f["properties"]["eligible"] for f in payload["features"]] == [False]
+    # No eligible cell -> no colour scale (empty-but-valid, not an error).
+    assert payload["score_quantiles"] == []
+
+
+# --------------------------------------------------------------------------- #
+# score_quantiles — map colour-scale metadata (v1.2.2, S4-02).                 #
+# --------------------------------------------------------------------------- #
+
+
+def test_score_quantiles_describe_only_the_eligible_scores(runs_store):
+    rows = [
+        {"cell_id": f"c{i}", "suitability_score": score, "rank": i + 1,
+         LAT_COL: -30.0 - i * 0.05, LON_COL: 150.0}
+        for i, score in enumerate([0.9, 0.7, 0.65, 0.6, 0.42])
+    ] + [
+        {"cell_id": "cX", "suitability_score": None, "rank": None,
+         LAT_COL: -32.0, LON_COL: 152.0},
+    ]
+    _materialise_cells_run(runs_store, "runcellsquant001", rows)
+
+    quantiles = get_run_cells("runcellsquant001").to_dict()["score_quantiles"]
+
+    eligible_scores = [r["suitability_score"] for r in rows if r["rank"] is not None]
+    expected = np.quantile(eligible_scores, service_config.MAP_SCORE_QUANTILES)
+    assert [q["quantile"] for q in quantiles] == list(service_config.MAP_SCORE_QUANTILES)
+    assert [q["suitability_score"] for q in quantiles] == pytest.approx(list(expected))
+    # The ends are the eligible min and max; the excluded cell plays no part.
+    assert quantiles[0]["suitability_score"] == min(eligible_scores)
+    assert quantiles[-1]["suitability_score"] == max(eligible_scores)
+    values = [q["suitability_score"] for q in quantiles]
+    assert values == sorted(values)
+
+
+def test_score_quantiles_leave_features_unchanged(runs_store):
+    """Adding the colour scale must not alter any served score or rank."""
+    rows = [
+        {"cell_id": "c1", "suitability_score": 0.9, "rank": 1,
+         LAT_COL: -30.0, LON_COL: 150.0},
+        {"cell_id": "c2", "suitability_score": 0.4, "rank": 2,
+         LAT_COL: -31.0, LON_COL: 151.0},
+    ]
+    _materialise_cells_run(runs_store, "runcellsquant002", rows)
+
+    by_cell = {
+        f["properties"]["cell_id"]: f["properties"]
+        for f in get_run_cells("runcellsquant002").to_dict()["features"]
+    }
+    assert by_cell["c1"]["suitability_score"] == 0.9
+    assert by_cell["c2"]["suitability_score"] == 0.4
+    assert [by_cell["c1"]["rank"], by_cell["c2"]["rank"]] == [1, 2]
 
 
 # --------------------------------------------------------------------------- #

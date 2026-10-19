@@ -206,6 +206,8 @@ export interface components {
             features?: components["schemas"]["CellFeature"][];
             /** Run Id */
             run_id: string;
+            /** Score Quantiles */
+            score_quantiles?: components["schemas"]["ScoreQuantile"][];
             /**
              * Type
              * @constant
@@ -537,6 +539,19 @@ export interface components {
             rank_b?: number | null;
             /** Rank Delta */
             rank_delta?: number | null;
+        };
+        /**
+         * ScoreQuantile
+         * @description One point of the map colour scale (CONTRACT.md §5, §4.7; added v1.2.2).
+         *
+         *     The eligible population's `suitability_score` at probability `quantile`.
+         *     Display metadata only — it changes no score, rank or eligibility.
+         */
+        ScoreQuantile: {
+            /** Quantile */
+            quantile: number;
+            /** Suitability Score */
+            suitability_score: number;
         };
         /**
          * SiteDetail
