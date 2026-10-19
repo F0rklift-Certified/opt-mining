@@ -77,7 +77,7 @@ BASELINE_CRITERIA = [
     {"feature": "dist_transmission_km", "weight": 0.20, "direction": "lower_is_better",
      "rationale": "Connection cost is a major capex component and scales with distance to the nearest >=132 kV line."},
     {"feature": "demand_proxy", "weight": 0.15, "direction": "higher_is_better",
-     "rationale": "Proximity to electrical demand improves offtake prospects (a NEM-region annual mean proxy)."},
+     "rationale": "Proximity to existing network load improves offtake prospects (a NEM-region annual-mean total distributed within each region by urban footprint, or by real zone-substation maximum demand under load_weighted; a proxy, not measured local demand or a guarantee of spare capacity or offtake)."},
     {"feature": "dist_substation_km", "weight": 0.10, "direction": "lower_is_better",
      "rationale": "Substation proximity reduces interconnection complexity; weighted below transmission distance because the two are partly collinear."},
     {"feature": "slope_deg", "weight": 0.10, "direction": "lower_is_better",

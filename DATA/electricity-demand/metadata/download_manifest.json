@@ -4,5 +4,41 @@
     "bytes": 14131200,
     "utc": "2026-10-18T23:51:07+00:00",
     "derived_proxy": true
+  },
+  "nsw_zone_substation_load_points.gpkg": {
+    "sha256": "b865bac68bacaa5863776404946d986ade71cc9b14db78fbbc3b628602c5bea4",
+    "bytes": 163840,
+    "utc": "2026-10-19T02:15:14+00:00",
+    "derived_proxy": true,
+    "generated_by": "pipeline.demand.geocode_load",
+    "match_rate": 0.5451,
+    "matched": 296,
+    "unmatched": 247,
+    "load_rows": 543,
+    "inputs": {
+      "load_csv": "load/nsw_zone_substation_max_demand.csv",
+      "ga_substations": "../infrastructure/substations/ga_substations_2026_nsw.geojson"
+    }
+  },
+  "load/nsw_zone_substation_max_demand.csv": {
+    "sha256": "2eb1e68bca33455b22cfd73dce81866d11dade0172495b88809a44ee6a449023",
+    "licence": "NSW DNSP DAPR — not open; disclaimers restrict purpose; INTERNAL-USE accepted (see load/SOURCES.md)",
+    "note": "543 NSW zone substations, max demand in MVA; Ausgrid recorded (177) + Essential POE50 forecast (366); Endeavour 0 rows"
+  },
+  "load/raw/essential/DAPR 2025 BSP, ZS and Lines Extract Summary - V2.xlsx": {
+    "sha256": "eefd0606de5936cea772c3df696360126d401f667605072517cb3d4fbcc225b5",
+    "bytes": 225487,
+    "source_url": "https://dapr.essentialenergy.com.au/DAPR%202025%20BSP,%20ZS%20and%20Lines%20Extract%20Summary%20-%20V2.xlsx"
+  },
+  "load/raw/ausgrid/Ausgrid_Substation_Capacity_and_Demand_Forecast_2025.xlsx": {
+    "sha256": "f9f1d537fa3d39e0223c3fb99408be7d9605d7e04ca6306292f18e0895a8fbda",
+    "bytes": 105538,
+    "source_url": "https://aopt-p-001.sitecorecontenthub.cloud/api/public/content/2f1a73b7329b4496bac54d39bbc02e9c?v=ecf15b51"
+  },
+  "load/raw/endeavour/DAPR 2025.pdf": {
+    "sha256": "2a958edda1c244f9d48784a00a20fc54e0edd12de946b69e57e71e072162b717",
+    "bytes": 2469600,
+    "source_url": "https://dapr.endeavourenergy.com.au/endeavour_data/DAPR%202025.pdf",
+    "note": "inspected only; no zone-substation demand table; supplied 0 rows"
   }
 }

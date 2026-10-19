@@ -9,10 +9,13 @@ from pipeline.demand.feature import (
     assign_confidence,
     assign_source_region,
     compute_cell_weights,
+    compute_load_cell_weights,
+    load_load_weights,
     load_urban_weights,
     normalise_proxy,
     validate_feature_table as validate_in_memory_feature_table,
 )
+from pipeline.demand.geocode_load import normalise_substation_name
 from pipeline.demand.validate import validate_feature_table as validate_persisted_feature_table
 
 
@@ -194,3 +197,130 @@ def test_compute_cell_weights_is_deterministic():
     first = compute_cell_weights(grid, urban, source)
     second = compute_cell_weights(grid, urban, source)
     assert first.equals(second)
+
+
+# ---------------------------------------------------------------------------
+# Load-weighted allocation (real NSW zone-substation max demand) tests
+# ---------------------------------------------------------------------------
+
+from shapely.geometry import Point  # noqa: E402
+
+
+def _load_grid():
+    """Three NSW1 cells + one outside cell, sized against the search radius.
+
+    Cell 'a' (centroid 5 km) holds the substation. Cell 'b' is placed with its
+    centroid BEYOND ``LOAD_SEARCH_RADIUS_M`` from the substation so it receives
+    only the floor (assigned-but-no-coverage). Cell 'c' is far away and outside
+    the region (null source).
+    """
+    far = demand_config.LOAD_SEARCH_RADIUS_M + 50_000  # well beyond the cutoff
+    grid = gpd.GeoDataFrame(
+        {"cell_id": ["a", "b", "c"]},
+        geometry=[
+            box(0, 0, 10_000, 10_000),
+            box(far, 0, far + 10_000, 10_000),
+            box(2_000_000, 2_000_000, 2_010_000, 2_010_000),
+        ],
+        crs=demand_config.COMPUTATION_CRS,
+    )
+    source = pd.Series(["NSW1", "NSW1", pd.NA], index=grid.index)
+    return grid, source
+
+
+def _load_points(loads=(100.0,)):
+    """Load points at the centroid of cell 'a' (5000, 5000)."""
+    return gpd.GeoDataFrame(
+        {demand_config.LOAD_MVA_COLUMN: list(loads)},
+        geometry=[Point(5_000, 5_000) for _ in loads],
+        crs=demand_config.COMPUTATION_CRS,
+    )
+
+
+def test_load_weighted_allocation_conserves_region_demand():
+    grid, source = _load_grid()
+    weights = compute_load_cell_weights(grid, _load_points(), source)
+    raw = allocate_demand(source, pd.Series({"NSW1": 100.0}), "load_weighted", weights)
+    # Conservation: the NSW1 cells' raw demand sums exactly to the region total.
+    assert pytest.approx(float(raw.loc[source == "NSW1"].sum()), abs=1e-6) == 100.0
+    # The outside-region cell gets no demand.
+    assert pd.isna(raw.iloc[2])
+
+
+def test_load_weighted_proxy_varies_within_region():
+    grid, source = _load_grid()
+    weights = compute_load_cell_weights(grid, _load_points(), source)
+    raw = allocate_demand(source, pd.Series({"NSW1": 100.0}), "load_weighted", weights)
+    proxy = normalise_proxy(raw, source)
+    # The cell holding the substation carries strictly more weight than the
+    # neighbouring cell, so the proxy is not constant within the region.
+    assert weights.loc[grid.index[0]] > weights.loc[grid.index[1]]
+    assert proxy.loc[source == "NSW1"].nunique() > 1
+    assert proxy.max() == pytest.approx(1.0, abs=1e-9)
+
+
+def test_load_weighted_floored_cells_medium_null_cells_low():
+    # A substation whose influence reaches cell 'a' but not cell 'b' (beyond the
+    # search radius). Cell 'b' is assigned but floored -> medium; cell 'c' is
+    # outside the region -> low.
+    grid, source = _load_grid()
+    weights = compute_load_cell_weights(grid, _load_points(), source)
+    raw = allocate_demand(source, pd.Series({"NSW1": 100.0}), "load_weighted", weights)
+    proxy = normalise_proxy(raw, source)
+    floored = list(
+        weights.index[weights.notna() & (weights <= demand_config.DEMAND_WEIGHT_FLOOR)]
+    )
+    conf = assign_confidence(source, proxy, boundary_indices=None, floored_indices=floored)
+    assert conf.iloc[0] == "high"    # near the real substation
+    assert conf.iloc[1] == "medium"  # assigned but beyond the decay radius (floor only)
+    assert conf.iloc[2] == "low"     # outside region / null proxy
+
+
+def test_load_weighted_zero_load_rows_are_ignored():
+    # The documented Pindari = 0 row contributes no shape; a zero-load point
+    # leaves every assigned cell on the floor (degrades to uniform-within-region).
+    grid, source = _load_grid()
+    weights = compute_load_cell_weights(grid, _load_points(loads=(0.0,)), source)
+    assert weights.loc[grid.index[0]] == pytest.approx(demand_config.DEMAND_WEIGHT_FLOOR)
+    assert weights.loc[grid.index[1]] == pytest.approx(demand_config.DEMAND_WEIGHT_FLOOR)
+
+
+def test_missing_load_source_raises(tmp_path):
+    missing = tmp_path / "does_not_exist.gpkg"
+    with pytest.raises(RuntimeError, match="missing"):
+        load_load_weights(missing)
+
+
+def test_compute_load_cell_weights_is_deterministic():
+    grid, source = _load_grid()
+    points = _load_points(loads=(100.0, 40.0))
+    first = compute_load_cell_weights(grid, points, source)
+    second = compute_load_cell_weights(grid, points, source)
+    assert first.equals(second)
+
+
+# ---------------------------------------------------------------------------
+# Geocoding name-normalisation unit tests (voltage-suffix stripping, case,
+# punctuation) on a small fixture.
+# ---------------------------------------------------------------------------
+
+
+def test_normalise_strips_voltage_suffixes():
+    assert normalise_substation_name("Terranora 110/66kV") == "terranora"
+    assert normalise_substation_name("Lismore 132/66kV") == "lismore"
+    assert normalise_substation_name("Cudgen 11kV") == "cudgen"
+    assert normalise_substation_name("Ballina 132kV") == "ballina"
+    assert normalise_substation_name("Yanco 33/11kV") == "yanco"
+
+
+def test_normalise_case_and_punctuation():
+    assert normalise_substation_name("OLYMPIC PARK") == "olympic park"
+    assert normalise_substation_name("St. Mary's") == "st marys"
+    assert normalise_substation_name("  Glen   Innes  ") == "glen innes"
+    assert normalise_substation_name(None) == ""
+    assert normalise_substation_name("") == ""
+
+
+def test_normalise_voltage_split_rows_collapse_to_same_site():
+    # "Cudgen 11kV" and "Cudgen 33kV" are one physical site split by voltage.
+    assert normalise_substation_name("Cudgen 11kV") == normalise_substation_name("Cudgen 33kV")

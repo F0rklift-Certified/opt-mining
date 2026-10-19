@@ -45,7 +45,7 @@ export const FEATURE_SOURCES: Record<string, string> = {
   dist_transmission_km:
     "Source: Geoscience Australia transmission lines (≥132 kV) — straight-line distance from each cell centroid in EPSG:3577 (Australian Albers).",
   demand_proxy:
-    "Source: AEMO demand aggregate allocated across NEM region geometry — a regional annual-mean proxy, not measured local demand.",
+    "Source: AEMO regional annual-mean demand distributed within each NEM region by a weighting surface — ABS UCL 2021 urban footprint (default) or, under the load_weighted method, real NSW zone-substation maximum demand (DNSP DAPR, geocoded, distance-decay). A proxy for nearness to existing network load, not measured local demand and not a guarantee of spare capacity or offtake.",
   dist_substation_km:
     "Source: Geoscience Australia substations — straight-line distance from each cell centroid in EPSG:3577 (Australian Albers).",
   slope_deg:
@@ -71,7 +71,7 @@ export const FEATURE_INTERPRETATION: Record<string, string> = {
   dist_transmission_km:
     "Sites closer to a transmission line score higher — a shorter connection to the grid means lower build cost.",
   demand_proxy:
-    "Sites nearer to electricity demand score higher — being close to where power is used makes it easier to sell.",
+    "Sites nearer to existing network load score higher — a regional demand total is spread within each NEM region by urban footprint (default) or, under load_weighted, by real zone-substation maximum demand, so cells near where power is already used rate higher. A proxy for an easier market, not a guarantee of spare capacity or offtake.",
   dist_substation_km:
     "Sites closer to a substation score higher — a nearby connection point keeps hook-up simpler and cheaper.",
   slope_deg:
@@ -147,7 +147,7 @@ export const BASELINE_CRITERIA: Criterion[] = [
     weight: 0.15,
     direction: "higher_is_better",
     rationale:
-      "Proximity to electrical demand improves offtake prospects (a NEM-region annual mean proxy).",
+      "Proximity to existing network load improves offtake prospects (a NEM-region annual-mean total distributed within each region by urban footprint, or by real zone-substation maximum demand under load_weighted; a proxy, not measured local demand or a guarantee of spare capacity or offtake).",
   },
   {
     feature: "dist_substation_km",
@@ -191,7 +191,7 @@ const WIND_LED_CRITERIA: Criterion[] = [
     weight: 0.1,
     direction: "higher_is_better",
     rationale:
-      "Proximity to electrical demand improves offtake prospects (a NEM-region annual mean proxy).",
+      "Proximity to existing network load improves offtake prospects (a NEM-region annual-mean total distributed within each region by urban footprint, or by real zone-substation maximum demand under load_weighted; a proxy, not measured local demand or a guarantee of spare capacity or offtake).",
   },
   {
     feature: "dist_substation_km",
@@ -234,7 +234,7 @@ const GRID_LED_CRITERIA: Criterion[] = [
     weight: 0.1,
     direction: "higher_is_better",
     rationale:
-      "Proximity to electrical demand improves offtake prospects (a NEM-region annual mean proxy).",
+      "Proximity to existing network load improves offtake prospects (a NEM-region annual-mean total distributed within each region by urban footprint, or by real zone-substation maximum demand under load_weighted; a proxy, not measured local demand or a guarantee of spare capacity or offtake).",
   },
   {
     feature: "dist_substation_km",

@@ -198,6 +198,122 @@ def compute_cell_weights(grid_3577: gpd.GeoDataFrame, urban_3577: gpd.GeoDataFra
     return weights
 
 
+def load_load_weights(path: Path) -> gpd.GeoDataFrame:
+    """Load the geocoded zone-substation load-point layer for ``load_weighted``.
+
+    Mirrors :func:`load_urban_weights`: a missing or unreadable source **halts
+    loudly** naming the path, so a missing geocoded layer can never silently
+    fall back to another method. The layer must carry the configured load-metric
+    column (``config.LOAD_MVA_COLUMN``, max demand in MVA); its absence is a hard
+    error. The returned GeoDataFrame is point geometry in its stored CRS
+    (EPSG:4326); the caller reprojects to EPSG:3577 for the distance-decay.
+    """
+    path = Path(path)
+    if not path.exists():
+        raise RuntimeError(
+            f"Load-weighting (geocoded zone-substation) source is missing: {path}. "
+            f"Run `python -m pipeline.demand.geocode_load` to build it from the NSW "
+            f"DNSP DAPR max-demand extract; allocation is never silently defaulted "
+            f"for a missing source."
+        )
+    try:
+        gdf = gpd.read_file(path, layer=config.LOAD_POINTS_LAYER)
+    except Exception as exc:  # unreadable / corrupt / missing layer
+        raise RuntimeError(
+            f"Load-weighting source could not be read: {path} ({exc})"
+        ) from exc
+    if config.LOAD_MVA_COLUMN not in gdf.columns:
+        raise RuntimeError(
+            f"Load-weighting source {path} is missing the load column "
+            f"{config.LOAD_MVA_COLUMN!r}; got {list(gdf.columns)}"
+        )
+    return gdf
+
+
+def compute_load_cell_weights(grid_3577: gpd.GeoDataFrame, load_points_3577: gpd.GeoDataFrame, source_region: pd.Series) -> pd.Series:
+    """Per-cell distance-decay weight for ``load_weighted`` allocation.
+
+    Implements the chosen model (findings.md §4):
+
+        w_cell = Σ_s  load_mva_s · exp(-d(cell, s) / LOAD_DECAY_LENGTH_M)
+
+    over geocoded substations ``s`` within ``config.LOAD_SEARCH_RADIUS_M`` of the
+    cell centroid (distances in EPSG:3577 metres), plus
+    ``config.DEMAND_WEIGHT_FLOOR`` on every **assigned** cell (``source_region``
+    not null) so no assigned cell has zero weight.
+
+    Candidate substations per cell are found with a spatial index (buffer the
+    cell centroids by the search radius and ``gpd.sjoin`` against the points),
+    then the decay is summed in a fixed ``(cell_id, substation order)`` order so
+    the floating-point result is reproducible. Only the RELATIVE shape matters:
+    the per-region rescale in :func:`allocate_demand` absorbs the MVA units and
+    the forecast-vs-recorded mismatch, conserving each region's total exactly.
+
+    Returns a float Series indexed like ``grid_3577``/``source_region``: ``NaN``
+    for outside-region cells, otherwise ``decay_sum + floor`` (>= floor).
+    """
+    index = grid_3577.index
+    assigned_mask = source_region.notna()
+    weights = pd.Series(float("nan"), index=index, dtype="float64")
+    weights.loc[assigned_mask] = float(config.DEMAND_WEIGHT_FLOOR)
+
+    if len(load_points_3577) == 0:
+        return weights
+
+    load = load_points_3577[[config.LOAD_MVA_COLUMN, "geometry"]].copy()
+    load = load[load[config.LOAD_MVA_COLUMN].notna()].reset_index(drop=True)
+    # Drop zero/negative loads (e.g. the documented Pindari = 0 row): they add no
+    # shape and an exp-decay of zero load is a no-op.
+    load = load[load[config.LOAD_MVA_COLUMN].astype(float) > 0.0].reset_index(drop=True)
+    if len(load) == 0:
+        return weights
+    load["load_index"] = load.index
+    load["load_mva"] = load[config.LOAD_MVA_COLUMN].astype(float)
+
+    decay = float(config.LOAD_DECAY_LENGTH_M)
+    radius = float(config.LOAD_SEARCH_RADIUS_M)
+
+    # Candidate (cell, substation) pairs within the search radius: buffer the
+    # cell centroids by `radius` and intersect with the substation points via the
+    # spatial index, then compute the exact centroid-to-point distance.
+    centroids = grid_3577.geometry.centroid
+    cell_buffers = gpd.GeoDataFrame(
+        {"cell_id": grid_3577["cell_id"].to_numpy(), "cell_index": index},
+        geometry=centroids.buffer(radius),
+        crs=grid_3577.crs,
+    )
+    candidates = gpd.sjoin(
+        cell_buffers,
+        load[["load_index", "load_mva", "geometry"]],
+        how="inner",
+        predicate="intersects",
+    )
+    if len(candidates) == 0:
+        return weights
+
+    # Deterministic accumulation order (cell_id, then substation index).
+    candidates = candidates.sort_values(["cell_id", "load_index"], kind="mergesort")
+
+    load_geoms = load.geometry
+    decay_sum = pd.Series(0.0, index=index, dtype="float64")
+    for row in candidates.itertuples(index=False):
+        cell_idx = row.cell_index
+        dist = float(centroids.loc[cell_idx].distance(load_geoms.loc[row.load_index]))
+        if dist > radius:
+            continue
+        decay_sum.loc[cell_idx] += float(row.load_mva) * _exp_decay(dist, decay)
+
+    weights.loc[assigned_mask] = weights.loc[assigned_mask] + decay_sum.loc[assigned_mask]
+    return weights
+
+
+def _exp_decay(distance_m: float, decay_length_m: float) -> float:
+    """Distance-decay kernel ``exp(-d/d0)`` (module-level for testability)."""
+    import math
+
+    return math.exp(-distance_m / decay_length_m)
+
+
 def allocate_demand(source_region: pd.Series, region_demand: pd.Series, method: str = "uniform", weights=None) -> pd.Series:
     if method not in config.ALLOCATION_METHODS:
         raise NotImplementedError(
@@ -211,11 +327,13 @@ def allocate_demand(source_region: pd.Series, region_demand: pd.Series, method: 
                 result.loc[source_region == region] = float(region_demand.loc[region]) / count
         return result
 
-    # urban_weighted: distribute each region's demand by per-cell weight,
+    # Weighted (urban_weighted / load_weighted): distribute each region's demand
+    # by per-cell weight,
     #   raw[cell] = weights[cell] / sum(weights in region) * region_demand[region]
-    # which conserves each region's total exactly.
+    # which conserves each region's total exactly regardless of how the weights
+    # were derived (urban-overlap area or real-load distance-decay).
     if weights is None:
-        raise ValueError("urban_weighted allocation requires a per-cell weights Series")
+        raise ValueError(f"{method} allocation requires a per-cell weights Series")
     for region in source_region.dropna().unique():
         if region not in region_demand.index:
             continue
@@ -318,6 +436,55 @@ def write_method_report(stats: dict, path: Path) -> None:
             "- Boundary assignments use centroid containment, then greatest overlap and lexicographic REGIONID tie-break.",
             f"- Aggregate regions outside this grid scope are explicitly reported: `{json.dumps(stats['unassigned_regions'])}`.",
         ]
+    elif method == "load_weighted":
+        method_block = [
+            "## Method", "Measured/forecast zone-substation load weighted allocation (NSW DNSP DAPR).", "",
+            "`raw_cell_demand_MW = (w_cell / Σ w_region) × MEAN_DEMAND_MW_region`", "",
+            "where `w_cell = Σ_s load_mva_s · exp(-d(cell, s) / d0) + floor`, summed over",
+            "geocoded zone substations `s` within the search radius of the cell centroid",
+            "(distance-decay around real substation points, distances in EPSG:3577).",
+            "Real zone-substation max demand sets the within-region SHAPE; the AEMO regional",
+            "aggregate sets the LEVEL. The per-region rescale conserves each region's total",
+            "exactly and absorbs the MVA-vs-MW and forecast-vs-recorded mismatch because only",
+            "the RELATIVE shape is used.", "",
+            "`demand_proxy` is the per-region max-normalised `raw_cell_demand_MW`; it is a",
+            "normalized proxy indicator of nearness to existing network load, not measured",
+            "local demand, not spare capacity and not a guarantee of offtake.", "",
+            "## Assumptions and limitations",
+            "- Max demand is LOAD, not spare capacity and not a guarantee of future offtake — a cell near real load is likely an easier market, nothing more.",
+            "- The weight is MVA used directly (no MVA→MW conversion); the per-region rescale makes only the relative shape matter, so units never affect conservation.",
+            "- The input MIXES Essential POE50 FORECAST demand (366 substations, 2025/26 summer) with Ausgrid RECORDED actuals (177 substations, 2024/25 summer). Both are MVA and are used only for relative shape, but this is a real like-with-unlike limitation.",
+            "- Sub-transmission and voltage-split rows (e.g. `Terranora 110/66kV`, `Cudgen 11kV`/`Cudgen 33kV`) are KEPT as load points — they still mark real load locations; voltage suffixes are stripped only for name-matching.",
+            "- Endeavour Energy has 0 rows (no published zone-substation demand table), so Greater Western Sydney / Blue Mountains / Illawarra / South Coast have no direct load points; those cells and other areas beyond every substation's search radius fall back to the floor and are flagged `medium`.",
+            "- Substations are geocoded by deterministic name-matching against the Geoscience Australia NSW substation layer; unmatched substations are DROPPED (coordinates never invented) and listed in `DATA/electricity-demand/load/unmatched_substations.csv`.",
+            "- LICENCE: the three NSW DNSP DAPRs are NOT published under an open licence; their disclaimers restrict purpose. Their use here is a documented, knowingly-accepted INTERNAL-USE decision — this is not a grant of an open licence.",
+            "- NSW1 represents NSW and ACT under the NEM convention; regions other than NSW1 have no NSW load points and degrade to uniform-within-region on the floor.",
+            "- Cells outside all NEM polygons receive null demand and low confidence.", "",
+            "## Inputs",
+            f"- Demand aggregate: `{stats['aggregate_path']}`; column `MEAN_DEMAND_MW` (MW).",
+            f"- NEM region geometry: `{stats['regions_path']}`.",
+            f"- Analysis grid: `{stats['grid_path']}`.",
+            f"- Geocoded load points (NSW zone-substation max demand, MVA): `{stats.get('weighting_path', '')}` (sha256 `{stats.get('weighting_sha256', '')}`).",
+            "- Raw DNSP DAPR sources (see `DATA/electricity-demand/load/SOURCES.md` for full provenance and SHAs):",
+            "  - Essential Energy `DAPR 2025 BSP, ZS and Lines Extract Summary - V2.xlsx` (sha256 `eefd0606de5936cea772c3df696360126d401f667605072517cb3d4fbcc225b5`).",
+            "  - Ausgrid `Ausgrid_Substation_Capacity_and_Demand_Forecast_2025.xlsx` (sha256 `f9f1d537fa3d39e0223c3fb99408be7d9605d7e04ca6306292f18e0895a8fbda`).",
+            "  - Endeavour `DAPR 2025.pdf` (sha256 `2a958edda1c244f9d48784a00a20fc54e0edd12de946b69e57e71e072162b717`) — inspected only; supplied 0 rows.",
+            f"- Geocoding substation reference: Geoscience Australia NSW substation points (`{_repo_relative(config.GA_SUBSTATIONS_PATH)}`).", "",
+            "## Reproducibility and checks",
+            f"- Storage CRS: {config.STORAGE_CRS}; computation CRS: {config.COMPUTATION_CRS}.",
+            f"- CRS transform: grid and load points {config.STORAGE_CRS} → {config.COMPUTATION_CRS} for distance-decay and allocation; output stored in {config.STORAGE_CRS}.",
+            f"- Distance-decay length d0: {stats.get('load_decay_length_m')} m; search radius: {stats.get('load_search_radius_m')} m; load metric column: `{stats.get('load_mva_column')}` (MVA).",
+            f"- Non-coverage weight floor: {stats.get('demand_weight_floor')}.",
+            f"- Geocoding match rate: {stats.get('geocode_matched')} of {stats.get('geocode_load_rows')} substations matched ({stats.get('geocode_unmatched')} unmatched, dropped and listed).",
+            f"- Per-region demand_proxy spread (min/median/max, nunique): `{json.dumps(stats.get('proxy_spread', {}), sort_keys=True)}`.",
+            f"- Floored (no-coverage) assigned cells: {stats.get('floored_cell_count', 0)}.",
+            f"- Cells: {stats['n_cells']}; outside-region: {stats['n_outside_region']}; boundary/tie-break candidates: {stats['boundary_cell_count']}.",
+            f"- Per-region counts: `{json.dumps(stats['per_region_counts'], sort_keys=True)}`.",
+            f"- Confidence counts: `{json.dumps(stats['confidence_counts'], sort_keys=True)}`.",
+            "- Confidence definitions: high = assigned cell near real load (within a substation's decay radius) with valid proxy; medium = deterministic boundary-overlap fallback OR floored (no-coverage) assigned cell; low = outside/unmatched region or null proxy.",
+            "- Boundary assignments use centroid containment, then greatest overlap and lexicographic REGIONID tie-break.",
+            f"- Aggregate regions outside this grid scope are explicitly reported: `{json.dumps(stats['unassigned_regions'])}`.",
+        ]
     else:
         method_block = [
             "## Method", "Uniform regional allocation.", "", "`raw_cell_demand_MW = MEAN_DEMAND_MW_region / N_cells_region`", "",
@@ -366,6 +533,9 @@ def record_provenance(feature_path: Path, stats: dict) -> None:
     if method_label == "urban_weighted":
         method_cell = "Urban-footprint weighted allocation (ABS UCL 2021)"
         inputs_cell = "AEMO demand aggregate + NEM region geometry + ABS UCL 2021 urban footprint"
+    elif method_label == "load_weighted":
+        method_cell = "Measured/forecast zone-substation load weighted allocation (NSW DNSP DAPR; internal-use)"
+        inputs_cell = "AEMO demand aggregate + NEM region geometry + geocoded NSW zone-substation max demand (DNSP DAPR)"
     else:
         method_cell = "Uniform allocation"
         inputs_cell = "AEMO demand aggregate + NEM region geometry"
@@ -420,7 +590,12 @@ def run(verbose: bool = False, allocation_method: str | None = None, grid_path: 
     grid_path = Path(grid_path or config.GRID_PATH)
     aggregate_path = Path(aggregate_path or (config.OUTPUT_DIR / config.AGGREGATED_CSV_NAME))
     nem_regions_path = Path(nem_regions_path or config.NEM_REGIONS_PATH)
-    weighting_path = Path(weighting_path or config.URBAN_WEIGHTS_PATH)
+    if weighting_path is not None:
+        weighting_path = Path(weighting_path)
+    elif allocation_method == "load_weighted":
+        weighting_path = Path(config.LOAD_WEIGHTS_PATH)
+    else:
+        weighting_path = Path(config.URBAN_WEIGHTS_PATH)
     grid = load_grid(grid_path)
     aggregate = load_aggregate(aggregate_path)
     regions = load_nem_regions(nem_regions_path)
@@ -436,14 +611,24 @@ def run(verbose: bool = False, allocation_method: str | None = None, grid_path: 
 
     weights = None
     floored_indices = None
-    urban_weights_sha = None
+    weights_sha = None
     if allocation_method == "urban_weighted":
         urban_gdf = load_urban_weights(weighting_path)  # hard-fail if missing
-        urban_weights_sha = hashlib.sha256(Path(weighting_path).read_bytes()).hexdigest()
+        weights_sha = hashlib.sha256(Path(weighting_path).read_bytes()).hexdigest()
         urban_3577 = urban_gdf.to_crs(config.COMPUTATION_CRS)
         weights = compute_cell_weights(grid_3577, urban_3577, source)
         # Floored cells: assigned (not null weight) but carrying only the floor
         # (no real urban overlap) -> weakly supported, downgraded to medium.
+        assigned = weights.notna()
+        floored_mask = assigned & (weights <= float(config.DEMAND_WEIGHT_FLOOR))
+        floored_indices = list(weights.index[floored_mask])
+    elif allocation_method == "load_weighted":
+        load_gdf = load_load_weights(weighting_path)  # hard-fail if missing
+        weights_sha = hashlib.sha256(Path(weighting_path).read_bytes()).hexdigest()
+        load_3577 = load_gdf.to_crs(config.COMPUTATION_CRS)
+        weights = compute_load_cell_weights(grid_3577, load_3577, source)
+        # Cells beyond every substation's search radius carry only the floor ->
+        # weakly supported (Endeavour gap / far-from-substation) -> medium.
         assigned = weights.notna()
         floored_mask = assigned & (weights <= float(config.DEMAND_WEIGHT_FLOOR))
         floored_indices = list(weights.index[floored_mask])
@@ -460,10 +645,30 @@ def run(verbose: bool = False, allocation_method: str | None = None, grid_path: 
     stats = {"grid_path": _repo_relative(grid_path), "aggregate_path": _repo_relative(aggregate_path), "regions_path": _repo_relative(nem_regions_path), "allocation_method": allocation_method, "n_cells": len(table), "n_outside_region": int(source.isna().sum()), "boundary_cell_count": len(boundary_indices), "per_region_counts": {str(k): int(v) for k, v in source.value_counts(dropna=True).items()}, "confidence_counts": {str(k): int(v) for k, v in confidence.value_counts().items()}, "unassigned_regions": sorted(set(aggregate["REGIONID"].astype(str)) - assigned_regions), "proxy_spread": _proxy_spread(proxy, source)}
     if allocation_method == "urban_weighted":
         stats["weighting_path"] = _repo_relative(weighting_path)
-        stats["weighting_sha256"] = urban_weights_sha
+        stats["weighting_sha256"] = weights_sha
         stats["demand_weight_floor"] = float(config.DEMAND_WEIGHT_FLOOR)
         stats["sosr_weight_multipliers"] = dict(config.SOSR_WEIGHT_MULTIPLIERS)
         stats["floored_cell_count"] = len(floored_indices) if floored_indices is not None else 0
+    elif allocation_method == "load_weighted":
+        stats["weighting_path"] = _repo_relative(weighting_path)
+        stats["weighting_sha256"] = weights_sha
+        stats["demand_weight_floor"] = float(config.DEMAND_WEIGHT_FLOOR)
+        stats["load_decay_length_m"] = float(config.LOAD_DECAY_LENGTH_M)
+        stats["load_search_radius_m"] = float(config.LOAD_SEARCH_RADIUS_M)
+        stats["load_mva_column"] = config.LOAD_MVA_COLUMN
+        stats["floored_cell_count"] = len(floored_indices) if floored_indices is not None else 0
+        # Carry the geocoding provenance from the layer's manifest entry (built
+        # by geocode_load) so the method report can state the match rate.
+        manifest_path = config.OUTPUT_DIR / "metadata" / config.FEATURE_MANIFEST_NAME
+        if manifest_path.exists():
+            try:
+                entry = json.loads(manifest_path.read_text()).get(Path(weighting_path).name, {})
+                stats["geocode_match_rate"] = entry.get("match_rate")
+                stats["geocode_matched"] = entry.get("matched")
+                stats["geocode_unmatched"] = entry.get("unmatched")
+                stats["geocode_load_rows"] = entry.get("load_rows")
+            except (json.JSONDecodeError, OSError):
+                pass
     write_feature_table(table, output_path)
     from .validate import validate_feature_table as validate_persisted_feature_table
     persisted_validation = validate_persisted_feature_table(output_path, grid_path, aggregate_path)

@@ -60,12 +60,13 @@ def test_property_3_demand_conservation(n, total):
 @given(
     st.lists(st.floats(min_value=0.01, max_value=1000, allow_nan=False), min_size=1, max_size=12),
     st.floats(min_value=0.01, max_value=10000, allow_nan=False),
+    st.sampled_from(["urban_weighted", "load_weighted"]),
 )
-def test_property_3b_urban_weighted_conservation(weight_values, total):
+def test_property_3b_weighted_conservation(weight_values, total, method):
     n = len(weight_values)
     source = pd.Series(["NSW1"] * n)
     weights = _weights(weight_values)
-    raw = allocate_demand(source, pd.Series({"NSW1": total}), "urban_weighted", weights)
+    raw = allocate_demand(source, pd.Series({"NSW1": total}), method, weights)
     assert math.isclose(float(raw.sum()), total, rel_tol=0, abs_tol=1e-6)
 
 
@@ -132,7 +133,7 @@ def test_property_10_storage_crs(n):
 
 
 @settings(max_examples=100, deadline=None)
-@given(st.integers(min_value=1, max_value=12), st.sampled_from(["uniform", "urban_weighted"]))
+@given(st.integers(min_value=1, max_value=12), st.sampled_from(["uniform", "urban_weighted", "load_weighted"]))
 def test_property_11_constant_allocation_method(n, method):
     grid = _grid(n)
     source = pd.Series(["NSW1"] * n)

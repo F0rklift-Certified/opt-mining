@@ -123,6 +123,8 @@ def parse_args() -> argparse.Namespace:
             "Demand allocation method for the feature stage "
             f"(default: {config.DEFAULT_ALLOCATION_METHOD}). 'urban_weighted' "
             "distributes each region's demand by ABS UCL urban footprint; "
+            "'load_weighted' distributes it by real NSW zone-substation max demand "
+            "(distance-decay around geocoded DNSP DAPR substations); "
             "'uniform' gives every assigned cell an equal share."
         ),
     )

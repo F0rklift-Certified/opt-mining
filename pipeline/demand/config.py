@@ -52,16 +52,29 @@ NEM_REGIONS_PATH = PROJECT_ROOT / "DATA" / "geographic" / "derived" / "nem_regio
 # for urban-footprint demand allocation (same extract the geographic feature
 # stage uses for urban_area).
 URBAN_WEIGHTS_PATH = PROJECT_ROOT / "DATA" / "geographic" / "urban" / "abs_ucl_2021_nsw.geojson"
+# Geoscience Australia NSW substation point layer, used by
+# pipeline.demand.geocode_load to give the name-only DNSP load rows coordinates.
+GA_SUBSTATIONS_PATH = PROJECT_ROOT / "DATA" / "infrastructure" / "substations" / "ga_substations_2026_nsw.geojson"
+# Geocoded real zone-substation load points (built by geocode_load from the NSW
+# DNSP DAPR max-demand extract). Stored EPSG:4326; carries `max_demand` (MVA).
+LOAD_WEIGHTS_PATH = PROJECT_ROOT / "DATA" / "electricity-demand" / "load" / "nsw_zone_substation_load_points.gpkg"
+LOAD_POINTS_LAYER = "load_points"
+# The load metric column (maximum demand, MVA) in both the raw CSV and the
+# geocoded layer. Used directly as a relative-shape weight; no MVA->MW
+# conversion is done (the per-region rescale absorbs units — see feature.py).
+LOAD_MVA_COLUMN = "max_demand"
 FEATURE_TABLE_NAME = "aemo_demand-proxy_2026_nsw.gpkg"
 FEATURE_TABLE_LAYER = "demand_proxy"
 METHOD_REPORT_NAME = "demand_feature_method.md"
 FEATURE_MANIFEST_NAME = "download_manifest.json"
 STORAGE_CRS = "EPSG:4326"
 COMPUTATION_CRS = "EPSG:3577"
-# Allocation methods: "uniform" (legacy equal-share) and "urban_weighted"
-# (ABS UCL urban-footprint weighting). urban_weighted is the default.
+# Allocation methods: "uniform" (legacy equal-share), "urban_weighted" (ABS UCL
+# urban-footprint weighting) and "load_weighted" (real NSW zone-substation
+# max-demand distance-decay). urban_weighted stays the default; load_weighted is
+# opt-in until the real-data surface is validated by the user.
 DEFAULT_ALLOCATION_METHOD = "urban_weighted"
-ALLOCATION_METHODS = ("uniform", "urban_weighted")
+ALLOCATION_METHODS = ("uniform", "urban_weighted", "load_weighted")
 CONFIDENCE_LEVELS = ("high", "medium", "low")
 DEMAND_INPUT_COLUMN = "MEAN_DEMAND_MW"
 CONSERVATION_TOLERANCE_MW = 1e-6
@@ -97,6 +110,23 @@ SOSR_WEIGHT_MULTIPLIERS = {
 }
 # Default multiplier for any band not present in SOSR_WEIGHT_MULTIPLIERS.
 SOSR_DEFAULT_MULTIPLIER = 1.0
+
+# --- Real load weighting (NSW zone-substation max demand, "load_weighted") ---
+# Each geocoded substation spreads its max-demand (MVA) over nearby cells with a
+# distance-decay kernel computed in EPSG:3577 (metres):
+#   w_cell = Σ_s  load_mva_s · exp(-d(cell, s) / LOAD_DECAY_LENGTH_M)
+#            over substations s within LOAD_SEARCH_RADIUS_M of the cell,
+#            + DEMAND_WEIGHT_FLOOR for every assigned cell.
+# These are modelling choices (documented like DEMAND_WEIGHT_FLOOR). The decay
+# length sets how sharply demand concentrates near real substations; the search
+# radius caps how far a substation's influence reaches (cells beyond it fall
+# back to the floor -> medium confidence). The per-region rescale in
+# allocate_demand's weighted branch makes only the RELATIVE shape matter, so the
+# MVA-vs-MW and forecast-vs-recorded mismatches never affect conservation.
+# 15 km decay / 40 km cutoff concentrate demand around substations while keeping
+# the ~5 km analysis grid smooth and leaving sparsely-covered areas on the floor.
+LOAD_DECAY_LENGTH_M = 15_000.0
+LOAD_SEARCH_RADIUS_M = 40_000.0
 
 # --- Pipeline stages (in execution order) ---
 STAGES = ["download", "validate", "inspect", "aggregate", "feature"]
