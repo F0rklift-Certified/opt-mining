@@ -138,6 +138,14 @@ _ALLOWED_ENGINE_IMPORTS = {
     "WeightsConfig",
     "Criterion",
     "ScoringConfigError",
+    # pipeline.explanation.* — the S2-06 stage's own assembler, templates and
+    # writer, driven by runs.py to materialise each Run's explanations with
+    # that Run's weights (S4-03). Reused, never reimplemented.
+    "assemble_explanation_inputs",
+    "read_extra_columns",
+    "load_templates",
+    "build_explanations",
+    "write_json",
     # config modules imported wholesale for paths/column names (composed, not
     # re-typed) — these carry NO arithmetic.
     "config",

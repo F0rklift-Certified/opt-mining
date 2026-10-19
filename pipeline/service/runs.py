@@ -43,6 +43,7 @@ import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
+from threading import Lock
 
 import geopandas as gpd
 import pandas as pd
@@ -56,8 +57,20 @@ from ..scoring.scenarios import load_scenarios
 from ..scoring.score import eligible_mask, score_and_rank
 from ..scoring.weights import ScoringConfigError, WeightsConfig, parse_weights
 from ..scoring.write import build_scored_table, write_scored_table
+from ..explanation import config as _explanation_config
+from ..explanation.load import assemble_explanation_inputs, read_extra_columns
+from ..explanation.templates import load_templates
+from ..explanation.write import build_explanations, write_json
 from . import config
 from .models import RunHandle
+
+# Uvicorn's default single process dispatches sync handlers to worker threads,
+# so two identical first POST /runs (e.g. React's dev double-mount) could race
+# the writers' shared temporary paths and fail one request with a 500.
+# Serialise first materialisations; reads of an existing Run stay outside the
+# lock. A multi-process deployment would need an inter-process lock instead.
+# Ported from S3-10 6fe88a3 (S4-03).
+_MATERIALISATION_LOCK = Lock()
 
 
 def _canonical_weights_bytes(weights: WeightsConfig) -> bytes:
@@ -87,17 +100,28 @@ def _canonical_weights_bytes(weights: WeightsConfig) -> bytes:
     return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
-def _run_id_for(weights: WeightsConfig, scenario: str | None) -> str:
+def _run_id_for(
+    weights: WeightsConfig, scenario: str | None, input_sha: str = ""
+) -> str:
     """
     Stable `run_id` for a resolved Run.
 
     Content-addressed on the resolved weights (and the scenario name, when the
     Run came from one, so the same weight set requested two ways stays
-    distinguishable in its handle without materialising twice). Deterministic:
-    the same request yields the same id across sessions.
+    distinguishable in its handle without materialising twice), the integrated
+    input's sha256 and the explanation templates' sha256. Binding the inputs
+    means a Run materialised from an older frozen table, or with older
+    explanation wording, is never silently reused after the data changes
+    (S4-03; ported from S3-10 6fe88a3). Deterministic: the same request over
+    the same inputs yields the same id across sessions.
     """
     digest = hashlib.sha256()
     digest.update(_canonical_weights_bytes(weights))
+    if input_sha:
+        digest.update(input_sha.encode("ascii"))
+        digest.update(
+            sha256_file(_explanation_config.DEFAULT_TEMPLATES_PATH).encode("ascii")
+        )
     if scenario is not None:
         digest.update(b"\x00scenario=")
         digest.update(scenario.encode("utf-8"))
@@ -192,6 +216,21 @@ def _materialise(
     csv_path = target / config.SCORED_CSV_FILENAME
     write_scored_table(table, gpkg_path, csv_path)
 
+    # The S2-06 explanations for THIS Run's weights, through the stage's own
+    # reconciliation, bands and templates — so a cell's positive factors and
+    # weaknesses always match the contributions this Run scored (S4-03). Written
+    # before the manifest, so a published Run is always complete.
+    inputs = assemble_explanation_inputs(
+        table, features, weights, read_extra_columns(integrated_path),
+        gpkg_path, integrated_path,
+    )
+    explanations = build_explanations(
+        inputs.cells,
+        load_templates(_explanation_config.DEFAULT_TEMPLATES_PATH),
+        inputs.excluded_cells,
+    )
+    write_json(explanations, target / config.RUN_EXPLANATIONS_FILENAME)
+
     manifest = {
         "run_id": run_id,
         "weights_id": weights_id,
@@ -201,6 +240,7 @@ def _materialise(
             for c in weights.criteria
         ],
         "confidence_discount": weights.confidence_discount,
+        "explanations_json": config.RUN_EXPLANATIONS_FILENAME,
         "scored_table_gpkg": config.SCORED_GPKG_FILENAME,
         "scored_table_csv": config.SCORED_CSV_FILENAME,
         "scored_table_layer": config.SCORED_LAYER,
@@ -253,31 +293,53 @@ def materialise_run(
     weights/scenario, creating no Run (Requirement 4.4).
     """
     resolved, scenario_key, weights_id = resolve_weights(weights, scenario)
-    run_id = _run_id_for(resolved, scenario_key)
+    run_id = _run_id_for(
+        resolved, scenario_key, sha256_file(Path(config.INTEGRATED_PATH))
+    )
+    handle = RunHandle(run_id=run_id, weights_id=weights_id, scenario=scenario_key)
 
+    if _reusable(run_id, verbose):
+        return handle
+    with _MATERIALISATION_LOCK:
+        # Another request may have finished this Run while we waited.
+        if _reusable(run_id, verbose):
+            return handle
+        return _materialise(run_id, resolved, scenario_key, weights_id, verbose)
+
+
+def _reusable(run_id: str, verbose: bool) -> bool:
+    """
+    Whether an existing materialisation of ``run_id`` is complete and readable.
+
+    Reuse an existing materialisation ONLY when its Scored_Table is actually
+    READABLE and its per-Run explanations exist. A momentarily read-only run
+    store can leave a TRUNCATED .gpkg on disk while run.json still got written;
+    the files-exist check alone would then reuse that corrupt artefact forever,
+    wedging every later read behind an honest-but-permanent 503. Probing
+    readability turns such a partial write into a cache MISS so the Run
+    self-heals by re-materialising over it (the writer's tmp-sibling +
+    os.replace makes the overwrite safe). The content-addressed idempotency for
+    a healthy Run is unchanged: a valid existing output is still reused without
+    re-scoring.
+    """
     target = run_dir(run_id)
-    manifest_path = target / config.RUN_MANIFEST_FILENAME
-    gpkg_path = target / config.SCORED_GPKG_FILENAME
-    # Reuse an existing materialisation ONLY when its Scored_Table is actually
-    # READABLE. A momentarily read-only run store can leave a TRUNCATED .gpkg on
-    # disk while run.json still got written; the files-exist check alone would
-    # then reuse that corrupt artefact forever, wedging every later read behind
-    # an honest-but-permanent 503. Probing readability turns such a partial
-    # write into a cache MISS so the Run self-heals by re-materialising over it
-    # (the writer's tmp-sibling + os.replace makes the overwrite safe). The
-    # content-addressed idempotency for a healthy Run is unchanged: a valid
-    # existing output is still reused without re-scoring.
-    if manifest_path.exists() and gpkg_path.exists():
-        if _scored_table_readable(run_id):
-            if verbose:
-                print(f"  reusing materialised run {run_id}")
-            return RunHandle(
-                run_id=run_id, weights_id=weights_id, scenario=scenario_key
-            )
+    complete = all(
+        (target / name).exists()
+        for name in (
+            config.RUN_MANIFEST_FILENAME,
+            config.SCORED_GPKG_FILENAME,
+            config.RUN_EXPLANATIONS_FILENAME,
+        )
+    )
+    if not complete:
+        return False
+    if _scored_table_readable(run_id):
         if verbose:
-            print(f"  re-materialising run {run_id}: existing output unreadable")
-
-    return _materialise(run_id, resolved, scenario_key, weights_id, verbose)
+            print(f"  reusing materialised run {run_id}")
+        return True
+    if verbose:
+        print(f"  re-materialising run {run_id}: existing output unreadable")
+    return False
 
 
 def _scored_table_readable(run_id: str) -> bool:
@@ -445,6 +507,15 @@ def load_integrated_table(run_id: str) -> gpd.GeoDataFrame:
             f"{integrated_path}. The engine input the Run scored is absent; "
             f"regenerate the integrated table or re-run the analysis."
         )
+    # Never mix versions: a Run's site detail must read the SAME frozen input
+    # it scored (S4-03; ported from S3-10 6fe88a3).
+    expected_sha = manifest.get("integrated_sha256")
+    if expected_sha and sha256_file(integrated_path) != expected_sha:
+        raise EngineOutputError(
+            f"Run {run_id!r} was scored from a different integrated feature "
+            f"table than the one now at {integrated_path}; the input baseline "
+            f"has changed. Re-run the analysis."
+        )
     try:
         table = gpd.read_file(integrated_path, layer=integrated_layer)
     except Exception as exc:  # noqa: BLE001 — any read failure is fatal and named
@@ -460,16 +531,18 @@ def load_integrated_table(run_id: str) -> gpd.GeoDataFrame:
     return table
 
 
-def load_explanations() -> dict[str, dict]:
+def load_explanations(run_id: str | None = None) -> dict[str, dict]:
     """
     Load the materialised S2-06 Explanation_Structure records, keyed by cell_id.
 
-    Reads the explanation JSON artefact the S2-06 stage wrote
-    (`config.EXPLANATION_PATH`) and returns a mapping from `cell_id` to the
-    record CARRIED THROUGH VERBATIM — the service neither recomputes an
-    explanation nor renames/reorders any field (CONTRACT.md §1, §5). The
-    explanation output is a screening-level artefact shared across Runs; the
-    service resolves it by `cell_id` and serves it unchanged.
+    With a ``run_id``, reads the explanations that Run materialised with ITS
+    OWN weights (manifest key ``explanations_json``, S4-03), so a cell's
+    positive factors and weaknesses agree with the contributions the Run
+    scored. A Run materialised before S4-03 has no such file and falls back to
+    the S2-06 stage's packaged artefact (`config.EXPLANATION_PATH`, built with
+    the default weights). Either way the mapping from `cell_id` to the record
+    is CARRIED THROUGH VERBATIM — the service neither recomputes an explanation
+    nor renames/reorders any field (CONTRACT.md §1, §5).
 
     Raises
     ------
@@ -479,6 +552,10 @@ def load_explanations() -> dict[str, dict]:
         fabricating a result (Requirement 7.3).
     """
     path = Path(config.EXPLANATION_PATH)
+    if run_id is not None:
+        filename = load_run_manifest(run_id).get("explanations_json")
+        if filename:
+            path = run_dir(run_id) / filename
     if not path.exists():
         raise EngineOutputError(
             f"Explanation output is missing: {path}. Run "

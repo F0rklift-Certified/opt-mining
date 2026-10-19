@@ -68,6 +68,10 @@ def _write_integrated_table(path: Path) -> None:
             scoring_config.CONFIDENCE_COLUMN: ["high", "high", "high", "high"],
             LAT_COL: [-30.0, -31.0, -32.0, -33.0],
             LON_COL: [150.0, 151.0, 152.0, 153.0],
+            # S2-06b inputs: each Run now materialises its own explanations.
+            "triggered_rules": [None, None, None, "protected_area"],
+            "exclusion_reason": [None, None, None, "Inside a protected area"],
+            "confidence_notes": ["", "", "", ""],
         },
         geometry=[Point(lon, lat) for lon, lat in
                   zip([150.0, 151.0, 152.0, 153.0], [-30.0, -31.0, -32.0, -33.0])],
