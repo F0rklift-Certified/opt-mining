@@ -2,11 +2,21 @@
 """Deterministic geocoding of NSW zone-substation max-demand rows.
 
 The real NSW DNSP DAPR extract
-(``DATA/electricity-demand/load/nsw_zone_substation_max_demand.csv``) lists 543
-zone substations by name only — ``latitude``/``longitude``/``locality`` are
-blank for every row (see that directory's ``SOURCES.md``). To use the data as a
-spatial weight it must be given coordinates. This module does that by matching
-each substation name against the Geoscience Australia substation point layer
+(``DATA/electricity-demand/load/nsw_zone_substation_max_demand.csv``) lists NSW
+zone substations. Most rows (Essential + Ausgrid) are **name-only** —
+``latitude``/``longitude``/``locality`` are blank — and must be given
+coordinates by name-matching (below). The Endeavour rows (appended from
+``load/endeavour_portal/endeavour_zone_substation_max_demand.csv``) instead
+arrive **with** precise WGS84 coordinates from the Endeavour DAPR portal
+pop-ups; those rows take a **coordinates-already-present fast-path** — any row
+whose ``latitude``/``longitude`` is non-empty and inside the NSW bounding box
+(``config.NSW_BBOX_*``) is emitted directly as a precise point with
+``coord_source="portal"`` and GA-precise confidence, bypassing the
+GA->OSM->Nominatim name-geocoding entirely (re-geocoding a point we already have
+by name would be lossy). Only the name-only rows run the name-matching tiers.
+
+For the name-only rows, this module assigns coordinates by matching each
+substation name against the Geoscience Australia substation point layer
 (``DATA/infrastructure/substations/ga_substations_2026_nsw.geojson``), which
 carries ``feature_name``, ``locality``, ``latitude`` and ``longitude`` for 586
 NSW points.
@@ -58,7 +68,7 @@ Matched substations become a clean load-point layer
 ``DATA/electricity-demand/load/nsw_zone_substation_load_points.gpkg`` (EPSG:4326
 storage, carrying ``max_demand`` in MVA, ``dnsp``, ``data_year``, the matched
 source feature name/locality/voltage, plus ``coord_source``
-("ga"/"osm"/"nominatim") and the booleans ``osm_low_confidence`` and
+("portal"/"ga"/"osm"/"nominatim") and the booleans ``osm_low_confidence`` and
 ``nominatim_low_confidence``). The match rate is reported.
 
 Run from the repository root::
@@ -328,6 +338,49 @@ def _match_needed_abbrev(load_name: str | None) -> bool:
     return with_abbrev != without_abbrev
 
 
+def _present_coordinate(value) -> float | None:
+    """Return a finite float for a non-empty numeric cell, else ``None``.
+
+    A blank string, ``None`` or ``NaN`` (the name-only Essential/Ausgrid rows)
+    returns ``None``; a parseable finite number is returned as a float. Used by
+    the "coordinates already present" fast-path so a row that arrives with
+    coordinates (the Endeavour portal extract) can be told apart from the
+    name-only rows that still need GA->OSM->Nominatim geocoding.
+    """
+    if value is None:
+        return None
+    if isinstance(value, float) and pd.isna(value):
+        return None
+    s = str(value).strip()
+    if s == "":
+        return None
+    try:
+        f = float(s)
+    except (TypeError, ValueError):
+        return None
+    if f != f or f in (float("inf"), float("-inf")):  # NaN / inf guard
+        return None
+    return f
+
+
+def _valid_present_coords(lat, lon) -> tuple[float, float] | None:
+    """Return ``(lat, lon)`` if both are present and inside the NSW bbox.
+
+    Returns ``None`` when either coordinate is missing/non-numeric or falls
+    outside ``config.NSW_BBOX_*`` (so a stray/out-of-area coordinate is NOT
+    trusted and the row falls back to name-geocoding).
+    """
+    flat = _present_coordinate(lat)
+    flon = _present_coordinate(lon)
+    if flat is None or flon is None:
+        return None
+    if not (config.NSW_BBOX_LAT_MIN <= flat <= config.NSW_BBOX_LAT_MAX):
+        return None
+    if not (config.NSW_BBOX_LON_MIN <= flon <= config.NSW_BBOX_LON_MAX):
+        return None
+    return flat, flon
+
+
 def geocode(
     load_csv: Path,
     ga_geojson: Path,
@@ -385,6 +438,7 @@ def geocode(
     matched_records: list[dict] = []
     unmatched_rows: list[dict] = []
     collisions_hit = 0
+    matched_portal = 0
     matched_ga = 0
     matched_osm = 0
     matched_nominatim = 0
@@ -399,6 +453,38 @@ def geocode(
             norm_bucket_sizes[norm] = norm_bucket_sizes.get(norm, 0) + 1
 
     for _, row in load.iterrows():
+        # --- Coordinates already present (fast-path, bypass name-geocoding) ---
+        # A demand row that arrives WITH a valid in-NSW-bbox latitude/longitude
+        # (the Endeavour DAPR portal extract carries precise WGS84 positions for
+        # all its rows) is a PRECISE point and must NOT be re-geocoded by name
+        # against GA/OSM/Nominatim (that would be lossy and could relocate the
+        # point). Emit it directly with coord_source="portal" and GA-precise
+        # confidence (never the osm/nominatim low-confidence flags). Rows without
+        # coordinates (Essential/Ausgrid, name-only) fall through unchanged.
+        present = _valid_present_coords(row.get("latitude"), row.get("longitude"))
+        if present is not None:
+            plat, plon = present
+            matched_portal += 1
+            matched_records.append(
+                {
+                    "dnsp": row["dnsp"],
+                    "substation_name": row["substation_name"],
+                    "normalised_name": normalise_substation_name(row["substation_name"]),
+                    config.LOAD_MVA_COLUMN: float(row[config.LOAD_MVA_COLUMN]),
+                    "max_demand_unit": row.get("max_demand_unit"),
+                    "data_year": row.get("data_year"),
+                    "ga_feature_name": None,
+                    "ga_locality": None,
+                    "ga_voltage_kv": None,
+                    "latitude": plat,
+                    "longitude": plon,
+                    "coord_source": "portal",
+                    "osm_low_confidence": False,
+                    "nominatim_low_confidence": False,
+                }
+            )
+            continue
+
         # --- GA first (unchanged logic/order) ---
         ga_norm = normalise_substation_name(row["substation_name"])
         ga_hit = ga_lookup.get(ga_norm)
@@ -537,6 +623,7 @@ def geocode(
     stats = {
         "load_rows": int(len(load)),
         "matched": int(len(matched_layer)),
+        "matched_portal": int(matched_portal),
         "matched_ga": int(matched_ga),
         "matched_osm": int(matched_osm),
         "matched_nominatim": int(matched_nominatim),
@@ -569,8 +656,8 @@ def main() -> int:
     print(
         f"  matched {stats['matched']}/{stats['load_rows']} "
         f"({stats['match_rate'] * 100:.1f}%) "
-        f"(GA {stats['matched_ga']} + OSM {stats['matched_osm']} "
-        f"+ Nominatim {stats['matched_nominatim']}); "
+        f"(portal {stats['matched_portal']} + GA {stats['matched_ga']} "
+        f"+ OSM {stats['matched_osm']} + Nominatim {stats['matched_nominatim']}); "
         f"OSM low-confidence {stats['osm_low_confidence']}; "
         f"Nominatim (all low-confidence PLACE centroids) {stats['matched_nominatim']}; "
         f"unmatched {stats['unmatched']}; "
@@ -619,6 +706,7 @@ def main() -> int:
         "generated_by": "pipeline.demand.geocode_load",
         "match_rate": stats["match_rate"],
         "matched": stats["matched"],
+        "matched_portal": stats["matched_portal"],
         "matched_ga": stats["matched_ga"],
         "matched_osm": stats["matched_osm"],
         "matched_nominatim": stats["matched_nominatim"],
@@ -639,6 +727,18 @@ def main() -> int:
                 "sha256": nominatim_sha,
                 "role": "third",
                 "licence": "ODbL 1.0 - (c) OpenStreetMap contributors",
+            },
+            "endeavour_portal/endeavour_zone_substation_max_demand.csv": {
+                "sha256": "553e1233fb24be42075f61b387569d11eb814a8f0995195a0d61651db62fff96",
+                "role": "coordinates-present (portal fast-path)",
+                "note": (
+                    "166 Endeavour zone substations with precise WGS84 positions "
+                    "from the Endeavour DAPR Mapping Portal pop-ups; bypass "
+                    "GA/OSM/Nominatim name-geocoding (coord_source='portal'). "
+                    "Coordinates from the Endeavour portal (NOT OSM); demand "
+                    "magnitudes restricted DNSP DAPR, internal-use "
+                    "(see load/endeavour_portal/SOURCES_endeavour.md)."
+                ),
             },
         },
     }

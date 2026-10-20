@@ -11,30 +11,45 @@ geocoding and the model.
 
 | File | What it is |
 |---|---|
-| `nsw_zone_substation_max_demand.csv` | The raw extract: 543 zone substations by name. `max_demand` is in **MVA**; `latitude`/`longitude`/`locality` are **blank for every row** (name-only). |
-| `nsw_zone_substation_load_points.gpkg` (layer `load_points`) | Derived, geocoded load points (EPSG:4326) — the weighting surface for `load_weighted`. Built by `pipeline.demand.geocode_load`. Carries `coord_source` (`ga`/`osm`/`nominatim`) and the booleans `osm_low_confidence` and `nominatim_low_confidence` alongside the existing columns. |
-| `unmatched_substations.csv` | The substations that could NOT be geocoded by **any** of the three sources and were **dropped** (never given invented coordinates). Listed for review. |
+| `nsw_zone_substation_max_demand.csv` | The canonical extract: **709** zone substations. `max_demand` is in **MVA**. The 543 Essential+Ausgrid rows are **name-only** (`latitude`/`longitude`/`locality` blank); the 166 appended Endeavour rows carry **precise portal coordinates** (blank `locality`). |
+| `endeavour_portal/` | The Endeavour DAPR portal pop-up extraction: `endeavour_zone_substation_max_demand.csv` (166 rows, project schema, WITH coordinates), `endeavour_zone_substation_full_panel_detail.csv` (reference), `SOURCES_endeavour.md` (full provenance, licence, 10-row re-verification) and `screenshots/`. |
+| `nsw_zone_substation_load_points.gpkg` (layer `load_points`) | Derived, geocoded load points (EPSG:4326) — the weighting surface for `load_weighted`. Built by `pipeline.demand.geocode_load`. Carries `coord_source` (`portal`/`ga`/`osm`/`nominatim`) and the booleans `osm_low_confidence` and `nominatim_low_confidence` alongside the existing columns. |
+| `unmatched_substations.csv` | The **name-only** substations that could NOT be geocoded by any of the three name sources and were **dropped** (never given invented coordinates). Portal rows never appear here. Listed for review. |
 | `raw/` | The unmodified source workbooks/PDFs (Essential, Ausgrid, Endeavour). SHAs in `SOURCES.md`. |
 
 ## Coverage & the data as it stands (honest summary)
 
 - **Ausgrid — 177 rows**: *recorded* peak demand, summer 2024/25 (MVA).
 - **Essential — 366 rows**: POE50 **forecast** peak demand, summer 2025/26 (MVA). Essential publishes no recorded per-substation maximum.
-- **Endeavour — 0 rows**: no published zone-substation demand table (figures live only in map pop-ups), so Greater Western Sydney / Blue Mountains / Illawarra / South Coast have **no direct load points**.
+- **Endeavour — 166 rows**: *recorded* actual peak demand, higher of summer/winter 2025 `Actual (MVA)` (MVA), extracted from the Endeavour DAPR portal map pop-ups and appended with **precise portal coordinates**. This closes the last real coverage gap — Greater Western Sydney / Blue Mountains / Illawarra / South Coast now carry **direct load points** (previously 0). The 20 proposed/no-recorded-demand Endeavour substations are **excluded at source** and never enter the CSV (see `endeavour_portal/SOURCES_endeavour.md`).
 
-The file therefore **mixes forecast and recorded** figures and includes some
+The file therefore **mixes forecast and recorded** figures (Essential is
+forecast; Ausgrid and Endeavour are recorded) and includes some
 **sub-transmission / voltage-split** rows (e.g. `Terranora 110/66kV`,
-`Cudgen 11kV`/`Cudgen 33kV`). Both are MVA and both are kept; the model uses only
+`Cudgen 11kV`/`Cudgen 33kV`). All are MVA and all are kept; the model uses only
 the *relative* shape (see below), but the forecast-vs-recorded mix is a real
-like-with-unlike limitation.
+like-with-unlike limitation. The Endeavour **season-year label** is ambiguous
+(the DAPR PDF reads 2025 as both 2024/25 and 2025/26 in different places — see
+`endeavour_portal/SOURCES_endeavour.md`); this is **immaterial to the
+shape-based model**, which uses only the relative MVA magnitudes.
 
 ## Geocoding (how the points got coordinates)
 
-The raw rows have no coordinates, so `pipeline.demand.geocode_load` gives each
-substation a coordinate from three sources, **GA primary + OSM second +
-Nominatim third**, all deterministic and all name-only (load rows carry no
-locality):
+`pipeline.demand.geocode_load` gives each substation a coordinate. Rows that
+**already carry** a valid coordinate (the 166 Endeavour portal rows) take a
+**coordinates-already-present fast-path** and are emitted directly; the name-only
+rows (Essential/Ausgrid) are geocoded from three sources, **GA primary + OSM
+second + Nominatim third**, all deterministic and all name-only (those load rows
+carry no locality):
 
+0. **Portal fast-path (coordinates already present).** Any demand row whose
+   `latitude`/`longitude` is non-empty and inside the NSW bounding box
+   (`config.NSW_BBOX_*`) is a **precise** point and is emitted directly with
+   `coord_source="portal"` and GA-precise confidence — it **bypasses**
+   GA/OSM/Nominatim entirely (re-geocoding a point we already have by name would
+   be lossy and could relocate it). These are the Endeavour DAPR portal
+   positions (WGS84). A row with blank/non-numeric/out-of-NSW coordinates is
+   **not** trusted and falls through to the name tiers below.
 1. **Geoscience Australia (primary).** Match the substation name against the GA
    NSW substation point layer
    (`DATA/infrastructure/substations/ga_substations_2026_nsw.geojson`, 586
@@ -75,9 +90,10 @@ locality):
 4. **Unmatched by all three sources are dropped** (coordinates are never
    invented) and written to `unmatched_substations.csv`.
 
-**Match rate: 511 of 543 substations matched (≈94.1%) — GA 296 + OSM 160 +
-Nominatim 55; 21 OSM matches and all 55 Nominatim matches flagged
-low-confidence; 32 unmatched/dropped.** OSM closes the Sydney-metro gap the GA
+**Match rate: 677 of 709 substations matched (≈95.5%) — portal 166 + GA 296 +
+OSM 160 + Nominatim 55; 21 OSM matches and all 55 Nominatim matches flagged
+low-confidence; 32 unmatched/dropped.** The 166 Endeavour rows match via the
+portal fast-path (precise, never low-confidence). OSM closes the Sydney-metro gap the GA
 transmission layer lacked (Campsie, City South, Chatswood, Mascot, Manly,
 Miranda, Lidcombe, Darling Harbour, Port Botany …, operator-confirmed as
 Ausgrid). Nominatim then recovers the Ausgrid Hunter/Newcastle distribution
@@ -104,9 +120,11 @@ this credit; the Nominatim snapshot manifest records the search URL, per-name
 query, the safeguard thresholds, SHA, this credit, and a pointer to the
 [Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/)
 (≤1 req/sec, cached snapshot, never re-queried at run time). Note the provenance
-split: **coordinates come from OSM/Nominatim (open, ODbL)**, while **demand
-magnitudes come from the DNSP DAPR data (restricted, internal-use — see
-`SOURCES.md`)**; the two carry different reuse rights.
+split: **coordinates come from OSM(ODbL) + Nominatim(ODbL) + GA(open) +
+Endeavour-portal** (the Endeavour coordinates are precise substation positions
+from the Endeavour DAPR portal, **NOT** OSM), while **demand magnitudes come
+from the DNSP DAPR data (restricted, internal-use — see `SOURCES.md` and
+`endeavour_portal/SOURCES_endeavour.md`)**; the two carry different reuse rights.
 
 ## The model (`load_weighted`)
 
@@ -126,26 +144,30 @@ affect conservation. Decay length and search radius are documented config
 constants (`pipeline/demand/config.py`). Cells beyond every substation's radius
 fall back to the floor and are flagged `medium`.
 
-**Geocoding closes the coordinate gap, not the Endeavour demand gap.** OSM
-carries Endeavour substation *locations* (Greater Western Sydney / Blue Mountains
-/ Illawarra / South Coast), but Endeavour still contributes **0 demand rows**
-(`SOURCES.md`: its figures live only in DAPR map pop-ups, with no exportable
-table), and geocoding cannot invent demand. So those regions gain **no** load
-points from this change — they continue to fall back to the floor / `medium`.
-Adding the Nominatim third tier moved a further **~1,250 cells** off the floor
-and up to `high` (floored no-coverage cells fell from 23,017 to 21,764 under
-`load_weighted`), concentrated in the **Hunter/Newcastle** suburbs that now sit
-near a recovered Ausgrid substation centroid. Those cells are near a
-*lower-confidence* PLACE centroid (a few km off), so an analyst may wish to
-down-weight or audit them via the `nominatim_low_confidence` flag.
+**The Endeavour demand gap is now closed.** Endeavour contributes **166
+recorded-actual demand rows** with precise portal coordinates, so Greater
+Western Sydney / Blue Mountains / Illawarra / South Coast — previously with **0**
+Endeavour demand rows — now carry direct load points. Under `load_weighted` this
+moved **574 cells** off the no-coverage floor and up to `high`
+(floored no-coverage cells fell from 21,764 to 21,190), with the drop
+**concentrated almost entirely (564 of 574) in the Endeavour footprint**: the
+Illawarra/South-Coast band went from 202 floored cells to **0**, and the Blue
+Mountains / outer-west fringe also improved. Much of the inner Greater Western
+Sydney metro was already off the floor via nearby Ausgrid points (whose 40 km
+radius reached west), so the new coverage is dominated by the peripheral regions
+Ausgrid did not reach. The portal points are **precise** (not low-confidence),
+so no down-weighting flag applies to them.
 
 ## Licence (internal use — documented decision)
 
 None of the three NSW DNSPs publishes this data under an open licence; their DAPR
-disclaimers restrict the purpose (see `SOURCES.md`). Use here is a **knowingly
-accepted INTERNAL-USE decision by the project owner**, recorded honestly. This is
-**not** a grant of an open licence, and max demand is **load, not spare capacity
-and not a guarantee of offtake**.
+disclaimers restrict the purpose (see `SOURCES.md`, and
+`endeavour_portal/SOURCES_endeavour.md` for Endeavour's verbatim disclaimer,
+published under **NER clause 5.13.2** "should only be used for that purpose").
+Use here is a **knowingly accepted INTERNAL-USE decision by the project owner**,
+consistent with the Essential and Ausgrid treatment and recorded honestly. This
+is **not** a grant of an open licence, and max demand is **load, not spare
+capacity and not a guarantee of offtake**.
 
 ## Reproduce
 

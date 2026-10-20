@@ -146,5 +146,16 @@ SOSR_DEFAULT_MULTIPLIER = 1.0
 LOAD_DECAY_LENGTH_M = 15_000.0
 LOAD_SEARCH_RADIUS_M = 40_000.0
 
+# NSW bounding box used by geocode_load to validate coordinates that arrive
+# WITH a demand row (the Endeavour portal extract carries precise WGS84
+# positions). A row whose latitude/longitude is non-empty and falls inside this
+# box bypasses the GA->OSM->Nominatim name-geocoding entirely and is emitted as a
+# precise point with coord_source="portal". The box matches the Nominatim
+# acquisition safeguard (see load/SOURCES.md).
+NSW_BBOX_LAT_MIN = -37.51
+NSW_BBOX_LAT_MAX = -28.16
+NSW_BBOX_LON_MIN = 141.0
+NSW_BBOX_LON_MAX = 153.7
+
 # --- Pipeline stages (in execution order) ---
 STAGES = ["download", "validate", "inspect", "aggregate", "feature"]

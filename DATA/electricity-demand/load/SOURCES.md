@@ -1,6 +1,6 @@
 # NSW zone-substation maximum demand — sources, method and licence notes
 
-Prepared 19 October 2026 (Australia/Sydney). Output: `nsw_zone_substation_max_demand.csv` (543 rows).
+Prepared 19 October 2026 (Australia/Sydney); Endeavour added 21 October 2026. Output: `nsw_zone_substation_max_demand.csv` (**709 rows**).
 
 ## Coverage at a glance
 
@@ -8,9 +8,13 @@ Prepared 19 October 2026 (Australia/Sydney). Output: `nsw_zone_substation_max_de
 |---|---|---|---|
 | ausgrid | 177 | **Recorded** peak demand, summer 2024/25, MVA | Complete |
 | essential | 366 | **POE50 forecast** peak demand, summer 2025/26, MVA. Essential publishes no recorded per-substation maximum demand | Complete, but forecast, not recorded. See caveat 1 |
-| endeavour | 0 | — | **Missing.** See "Endeavour: why it is missing" |
+| endeavour | 166 | **Recorded** actual peak demand, higher of summer/winter 2025 `Actual (MVA)`, MVA | **Complete** (portal pop-up extraction). See "Endeavour: now extracted" and `endeavour_portal/SOURCES_endeavour.md` |
 
-No source gives coordinates or a town/suburb per substation, so `latitude`, `longitude` and `locality` are blank for every row.
+The 543 Essential+Ausgrid rows give no coordinates or locality, so their
+`latitude`/`longitude`/`locality` are blank. The 166 Endeavour rows carry
+**precise WGS84 coordinates** from the portal pop-ups (`locality` still blank).
+The 543 original rows are preserved **byte-for-byte**; the 166 Endeavour rows are
+appended after them.
 
 ## Download log
 
@@ -63,19 +67,29 @@ The 10 rows were chosen by `random.sample` with seed 20261019. Each was re-check
 
 Extra checks: `Pindari` = 0 confirmed the same way. Every column header used was asserted in code before extraction ("Forecast (MVA)"/"25/26"; "Summer"/"2024/25 (MVA)").
 
-## Endeavour: why it is missing
+## Endeavour: now extracted (was previously missing)
 
-The Endeavour DAPR 2025 PDF (sections 6.0 and 6.5, PDF pp. 33 and 40) says the zone-substation capacity and demand forecasts are published **only** in the DAPR Mapping Portal. The portal's exportable tables, with Copy/CSV/Excel buttons, are the DAPR Template (RIT-D projects), Feeder Overload and Historic Load Trace. **None of them is a zone-substation demand table.** Substation figures appear only in individual map pop-ups. A link to a substation spreadsheet was not found on endeavourenergy.com.au either. Following the brief, no approximate numbers were produced. To get the data, ask Endeavour (see licence notes) or decide whether a pop-up-by-pop-up transcription is acceptable.
+The Endeavour DAPR 2025 PDF (sections 6.0 and 6.5, PDF pp. 33 and 40) says the zone-substation capacity and demand figures are published **only** in the DAPR Mapping Portal — none of the portal's exportable tables (DAPR Template, Feeder Overload, Historic Load Trace) is a zone-substation demand table, and substation figures appear only in individual map pop-ups. The owner has since made a knowing **INTERNAL-USE** decision (consistent with Essential/Ausgrid) to extract those pop-ups.
+
+**Result:** 166 recorded-actual zone substations were transcribed from the portal's rendered "Report Data for X" panels (readable HTML table text, not pixels), each with its map-marker WGS84 position. The full acquisition log — 186 markers inspected (166 with recorded demand, 20 excluded as proposed/no-recorded-demand and listed by name), the exact demand field chosen (higher of summer/winter `Actual (MVA)` 2025), SHA-256s, a 10-row live re-verification, the flagged rows, the season-year label ambiguity, and the verbatim NER 5.13.2 disclaimer — is in **`endeavour_portal/SOURCES_endeavour.md`**. The 166 rows are appended to `nsw_zone_substation_max_demand.csv`; they bypass name-geocoding and are emitted with `coord_source="portal"`.
 
 ## Coordinates: OpenStreetMap (ODbL) — separate from the demand magnitudes
 
-The 543 rows carry demand **magnitudes** but no coordinates. Coordinates are
-added separately by `pipeline.demand.geocode_load` from three point layers:
-Geoscience Australia (primary, already in-repo, open), **OpenStreetMap-Overpass
-(second)** and **Nominatim OSM place-geocoding (third, lower-confidence)**. OSM
-supplies the urban distribution zone substations the GA transmission layer lacks;
-Nominatim supplies suburb/locality centroids for the names neither of the first
-two carries (chiefly the Ausgrid Hunter/Newcastle block).
+The 543 Essential+Ausgrid rows carry demand **magnitudes** but no coordinates.
+Coordinates are added separately by `pipeline.demand.geocode_load` from three
+point layers: Geoscience Australia (primary, already in-repo, open),
+**OpenStreetMap-Overpass (second)** and **Nominatim OSM place-geocoding (third,
+lower-confidence)**. OSM supplies the urban distribution zone substations the GA
+transmission layer lacks; Nominatim supplies suburb/locality centroids for the
+names neither of the first two carries (chiefly the Ausgrid Hunter/Newcastle
+block).
+
+The 166 **Endeavour** rows are different: they arrive **already carrying precise
+WGS84 coordinates** from the Endeavour DAPR portal map markers, so they take the
+**coordinates-already-present fast-path** in `geocode_load` — emitted directly
+with `coord_source="portal"`, GA-precise confidence, **bypassing** GA/OSM/
+Nominatim. These Endeavour coordinates come from the Endeavour portal (NOT OSM)
+and are precise substation positions; they are **not** ODbL-licensed OSM data.
 
 - **OSM acquisition.** `scripts/_acquire_osm_substations_nsw.py` makes one
   read-only Overpass POST for named `power=substation` nodes/ways inside the NSW
@@ -148,9 +162,11 @@ two carries (chiefly the Ausgrid Hunter/Newcastle block).
   obligation is attribution; share-alike attaches only to a *distributed*
   derived database, not to internal use. Content was rephrased for compliance
   with licensing restrictions.
-- **Provenance split — different reuse rights.** **Coordinates come from OSM
-  (Overpass features and Nominatim place centroids — open, ODbL, attributed).**
-  **Demand magnitudes come from the DNSP DAPR data
+- **Provenance split — different reuse rights.** **Coordinates come from
+  OSM(ODbL) + Nominatim(ODbL) + GA(open) + the Endeavour DAPR portal** (the
+  Endeavour coordinates are precise substation positions from the portal, NOT
+  OSM, and are covered by Endeavour's DAPR disclaimer, not ODbL). **Demand
+  magnitudes come from the DNSP DAPR data
   (restricted, internal-use only — see the licence findings below).** These are
   recorded as separate provenances because they carry different redistribution
   rights: the coordinates could be redistributed under ODbL with attribution,
@@ -177,6 +193,6 @@ None of the three DNSPs publishes the data under an open licence such as CC-BY. 
 
 **Endeavour Energy**
 - Where the text is: DAPR 2025 PDF p. 2; the "DAPR Portal Disclaimer" pop-up at https://dapr.endeavourenergy.com.au/ (in-page, no separate URL).
-- What it says: published under NER clause 5.13.2; "should only be used for that purpose"; intended for general information only. No warranty is given.
-- Reuse in a third-party screening model: not granted. Permission would be needed. The same request would also be the practical way to get the missing substation table.
+- What it says: published under NER clause 5.13.2; "should only be used for that purpose"; intended for general information only. No warranty is given. The verbatim disclaimer and a note on the browse-wrap term are in `endeavour_portal/SOURCES_endeavour.md`.
+- Reuse in a third-party screening model: not granted by the published text. The project owner has nonetheless made a **knowing INTERNAL-USE decision** to extract and use the portal zone-substation demand (pop-up transcription), **consistent with the Essential and Ausgrid treatment**. This log records that decision; it does not decide the terms. No "accept" gate was clicked, no form was submitted and no email was sent.
 - Contact: consultation@endeavourenergy.com.au; Enterprise Portfolio Management Office, GPO Box 811 Seven Hills NSW 1730. The Network Data Request form mentioned in the brief is **not linked from the portal**, and I did not locate it.

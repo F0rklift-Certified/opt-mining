@@ -6,19 +6,20 @@
     "derived_proxy": true
   },
   "nsw_zone_substation_load_points.gpkg": {
-    "sha256": "74f48d9fef7f700d5ec23ef3c3f758d6c9804434d2cde3c193a87d625abe107a",
-    "bytes": 221184,
-    "utc": "2026-10-20T02:06:46+00:00",
+    "sha256": "233b09204c5d61aaf2a3aa1f4936f7efb9edb337fa132b4f901d56c84c4b45de",
+    "bytes": 270336,
+    "utc": "2026-10-20T23:34:38+00:00",
     "derived_proxy": true,
     "generated_by": "pipeline.demand.geocode_load",
-    "match_rate": 0.9411,
-    "matched": 511,
+    "match_rate": 0.9549,
+    "matched": 677,
+    "matched_portal": 166,
     "matched_ga": 296,
     "matched_osm": 160,
     "matched_nominatim": 55,
     "osm_low_confidence": 21,
     "unmatched": 32,
-    "load_rows": 543,
+    "load_rows": 709,
     "sources": {
       "ga_substations_2026_nsw.geojson": {
         "sha256": "a949c857f90142f7eb4a5a9adf0a65c0490006c36242c6704ef5d1ed9cf75104",
@@ -33,13 +34,18 @@
         "sha256": "e49f39e5a015a934e818f703395420e0c15cc6f777b8cf4229dcf2980a51681b",
         "role": "third",
         "licence": "ODbL 1.0 - (c) OpenStreetMap contributors"
+      },
+      "endeavour_portal/endeavour_zone_substation_max_demand.csv": {
+        "sha256": "553e1233fb24be42075f61b387569d11eb814a8f0995195a0d61651db62fff96",
+        "role": "coordinates-present (portal fast-path)",
+        "note": "166 Endeavour zone substations with precise WGS84 positions from the Endeavour DAPR Mapping Portal pop-ups; bypass GA/OSM/Nominatim name-geocoding (coord_source='portal'). Coordinates from the Endeavour portal (NOT OSM); demand magnitudes restricted DNSP DAPR, internal-use (see load/endeavour_portal/SOURCES_endeavour.md)."
       }
     }
   },
   "load/nsw_zone_substation_max_demand.csv": {
-    "sha256": "2eb1e68bca33455b22cfd73dce81866d11dade0172495b88809a44ee6a449023",
+    "sha256": "7208a8c7f64cb2e4023400be8ae2837f17c4a58e677108e6913e5930477ff4f6",
     "licence": "NSW DNSP DAPR \u2014 not open; disclaimers restrict purpose; INTERNAL-USE accepted (see load/SOURCES.md)",
-    "note": "543 NSW zone substations, max demand in MVA; Ausgrid recorded (177) + Essential POE50 forecast (366); Endeavour 0 rows"
+    "note": "709 NSW zone substations, max demand in MVA; Ausgrid recorded (177) + Essential POE50 forecast (366) + Endeavour recorded (166, DAPR portal pop-up extraction, WITH precise portal coordinates). Existing 543 rows preserved byte-for-byte; Endeavour appended. See load/SOURCES.md and load/endeavour_portal/SOURCES_endeavour.md."
   },
   "load/raw/essential/DAPR 2025 BSP, ZS and Lines Extract Summary - V2.xlsx": {
     "sha256": "eefd0606de5936cea772c3df696360126d401f667605072517cb3d4fbcc225b5",
@@ -56,5 +62,16 @@
     "bytes": 2469600,
     "source_url": "https://dapr.endeavourenergy.com.au/endeavour_data/DAPR%202025.pdf",
     "note": "inspected only; no zone-substation demand table; supplied 0 rows"
+  },
+  "load/endeavour_portal/endeavour_zone_substation_max_demand.csv": {
+    "sha256": "553e1233fb24be42075f61b387569d11eb814a8f0995195a0d61651db62fff96",
+    "source_url": "https://dapr.endeavourenergy.com.au/ (DAPR Mapping Portal, Zone-Substations_Endeavour layer pop-ups)",
+    "licence": "Endeavour DAPR \u2014 NER 5.13.2, not open; disclaimer restricts purpose; INTERNAL-USE accepted (see load/endeavour_portal/SOURCES_endeavour.md)",
+    "note": "166 recorded-actual zone substations WITH precise WGS84 portal coordinates; 20 proposed/no-recorded-demand substations excluded at source. coord_source='portal' in the geocoded layer (bypasses name-geocoding)."
+  },
+  "load/endeavour_portal/endeavour_zone_substation_full_panel_detail.csv": {
+    "sha256": "56398b495d56396dc6d4255666e5c7547001f78cdc627bdfa4e20aa52814cb42",
+    "source_url": "https://dapr.endeavourenergy.com.au/ (DAPR Mapping Portal, all 186 marker panels)",
+    "note": "Reference only: every value from all 186 panels (specs, all seasons/years, PF), with in_main_csv flag. Not consumed by the pipeline."
   }
 }
