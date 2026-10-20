@@ -55,6 +55,12 @@ URBAN_WEIGHTS_PATH = PROJECT_ROOT / "DATA" / "geographic" / "urban" / "abs_ucl_2
 # Geoscience Australia NSW substation point layer, used by
 # pipeline.demand.geocode_load to give the name-only DNSP load rows coordinates.
 GA_SUBSTATIONS_PATH = PROJECT_ROOT / "DATA" / "infrastructure" / "substations" / "ga_substations_2026_nsw.geojson"
+# OpenStreetMap named power=substation points for NSW (ODbL, built by
+# scripts/_acquire_osm_substations_nsw.py). Used by pipeline.demand.geocode_load
+# as the SECOND coordinate source for load rows the GA transmission layer lacks
+# (urban distribution zone substations). Licence: ODbL 1.0, (c) OpenStreetMap
+# contributors; attribution required wherever these coordinates are surfaced.
+OSM_SUBSTATIONS_PATH = PROJECT_ROOT / "DATA" / "infrastructure" / "substations" / "osm_substations_nsw.geojson"
 # Geocoded real zone-substation load points (built by geocode_load from the NSW
 # DNSP DAPR max-demand extract). Stored EPSG:4326; carries `max_demand` (MVA).
 LOAD_WEIGHTS_PATH = PROJECT_ROOT / "DATA" / "electricity-demand" / "load" / "nsw_zone_substation_load_points.gpkg"

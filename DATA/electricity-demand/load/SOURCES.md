@@ -67,6 +67,49 @@ Extra checks: `Pindari` = 0 confirmed the same way. Every column header used was
 
 The Endeavour DAPR 2025 PDF (sections 6.0 and 6.5, PDF pp. 33 and 40) says the zone-substation capacity and demand forecasts are published **only** in the DAPR Mapping Portal. The portal's exportable tables, with Copy/CSV/Excel buttons, are the DAPR Template (RIT-D projects), Feeder Overload and Historic Load Trace. **None of them is a zone-substation demand table.** Substation figures appear only in individual map pop-ups. A link to a substation spreadsheet was not found on endeavourenergy.com.au either. Following the brief, no approximate numbers were produced. To get the data, ask Endeavour (see licence notes) or decide whether a pop-up-by-pop-up transcription is acceptable.
 
+## Coordinates: OpenStreetMap (ODbL) — separate from the demand magnitudes
+
+The 543 rows carry demand **magnitudes** but no coordinates. Coordinates are
+added separately by `pipeline.demand.geocode_load` from two point layers:
+Geoscience Australia (primary, already in-repo, open) and **OpenStreetMap
+(second)**. OSM supplies the urban distribution zone substations the GA
+transmission layer lacks.
+
+- **OSM acquisition.** `scripts/_acquire_osm_substations_nsw.py` makes one
+  read-only Overpass POST for named `power=substation` nodes/ways inside the NSW
+  admin area, drops `substation=traction`/`rail`, and writes
+  `DATA/infrastructure/substations/osm_substations_nsw.geojson` (EPSG:4326). The
+  snapshot manifest (`DATA/infrastructure/metadata/download_manifest.json`)
+  records the dataset, Overpass URL, the **exact query string**, retrieval time,
+  feature count, bytes, SHA-256, CRS, and the licence credit below. The pipeline
+  reads the frozen snapshot, never the live API.
+- **Overpass query (recorded verbatim in the manifest):**
+  ```
+  [out:json][timeout:120];
+  area["ISO3166-2"="AU-NSW"][admin_level=4]->.nsw;
+  (
+    node["power"="substation"]["name"](area.nsw);
+    way["power"="substation"]["name"](area.nsw);
+  );
+  out tags center;
+  ```
+- **Licence.** OpenStreetMap data is **© OpenStreetMap contributors, licensed
+  under the Open Database License (ODbL) 1.0**
+  ([openstreetmap.org/copyright](https://www.openstreetmap.org/copyright);
+  [ODbL summary](https://opendatacommons.org/licenses/odbl/summary/)). Baseline
+  obligation is attribution; share-alike attaches only to a *distributed*
+  derived database, not to internal use. Content was rephrased for compliance
+  with licensing restrictions.
+- **Provenance split — different reuse rights.** **Coordinates come from OSM
+  (open, ODbL, attributed).** **Demand magnitudes come from the DNSP DAPR data
+  (restricted, internal-use only — see the licence findings below).** These are
+  recorded as separate provenances because they carry different redistribution
+  rights: the coordinates could be redistributed under ODbL with attribution,
+  whereas the demand figures are accepted here as a knowing internal-use
+  decision and are **not** licensed for third-party redistribution. If a derived
+  substation *database* built on the OSM coordinates were ever published, that
+  database would need to be offered under ODbL.
+
 ## Licence / terms findings (reported, not decided)
 
 None of the three DNSPs publishes the data under an open licence such as CC-BY. I'm not a lawyer, so treat the following as a summary of what each document says, not legal advice. **No terms were accepted, no data request was submitted and no email was sent.**

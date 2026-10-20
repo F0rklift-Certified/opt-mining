@@ -1,248 +1,88 @@
 dnsp,substation_name,normalised_name,max_demand,max_demand_unit,data_year,reason
-ausgrid,ADAMSTOWN,adamstown,32.08,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,AUBURN,auburn,31.57,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,AVONDALE,avondale,13.62,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,BAERAMI,baerami,0.67,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,BASS HILL,bass hill,19.0,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,BEACON HILL,beacon hill,18.45,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,BLAKEHURST,blakehurst,23.64,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,BOTANY,botany,26.52,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,BRANXTON,branxton,17.8,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,BROADMEADOW,broadmeadow,27.0,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,BROOKVALE,brookvale,41.32,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,CAMPBELL ST,campbell st,48.53,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,CAMPERDOWN,camperdown,28.7,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,CAMPSIE,campsie,66.72,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,CARDIFF,cardiff,23.79,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,CAREEL BAY,careel bay,11.96,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,CARINGBAH,caringbah,23.84,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,CESSNOCK SOUTH,cessnock south,29.13,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,CHARLESTOWN,charlestown,36.84,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,CHATSWOOD,chatswood,43.81,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,CITY SOUTH,city south,102.84,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,CONCORD,concord,45.04,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,CROUDACE BAY,croudace bay,25.2,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,DALLEY ST,dalley st,13.55,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,DARLING HARBOUR,darling harbour,53.34,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,DARLINGHURST,darlinghurst,26.7,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,DEE WHY WEST,dee why west,39.49,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,DENMAN,denman,5.86,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,EDGEWORTH,edgeworth,31.94,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,EMPIRE BAY,empire bay,12.94,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,GATESHEAD,gateshead,20.28,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,GORE HILL,gore hill,44.9,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,GRAVING DOCK NO 1,graving dock no 1,11.05,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,GRAVING DOCK NO 2,graving dock no 2,11.07,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,GREENACRE,greenacre,64.62,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,HARBORD,harbord,21.48,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,JANNALI,jannali,27.67,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,JEWELLS,jewells,18.13,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,KILLARNEY,killarney,14.65,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,KOTARA,kotara,22.72,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,KURNELL SOUTH,kurnell south,5.29,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,LEIGHTONFIELD,leightonfield,21.21,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,LEMINGTON,lemington,2.62,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,LIDCOMBE,lidcombe,24.27,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,LISAROW,lisarow,22.2,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,LUCAS HEIGHTS,lucas heights,14.4,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,MAITLAND,maitland,28.88,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,MANLY,manly,14.32,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,MASCOT,mascot,32.74,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,MATRAVILLE,matraville,27.34,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,MAYFIELD WEST,mayfield west,22.19,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,MEDOWIE,medowie,18.61,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,MERRIWA,merriwa,1.65,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,METFORD,metford,48.08,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,MIRANDA,miranda,30.93,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,MITCHELL LINE,mitchell line,8.46,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,MITCHELLS FLAT,mitchells flat,1.83,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,MONA VALE,mona vale,34.46,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,MOONAN,moonan,0.77,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,MORTDALE,mortdale,43.07,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,MOUNT HUTTON,mount hutton,21.44,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,MOUNT THORLEY,mount thorley,5.81,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,NARRABEEN,narrabeen,12.85,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,NELSON BAY,nelson bay,25.26,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,NEW LAMBTON,new lambton,18.9,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,NEWCASTLE CBD,newcastle cbd,49.34,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,NEWDELL,newdell,2.46,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,NEWPORT,newport,13.71,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,NORAVILLE,noraville,22.75,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,NORTH HEAD,north head,15.5,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,NORTH SYDNEY,north sydney,60.15,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,NULKABA,nulkaba,18.41,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,PADDINGTON,paddington,32.27,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,PAXTON,paxton,7.39,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,PEATS RIDGE,peats ridge,11.57,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,PELICAN,pelican,12.62,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,PORT BOTANY,port botany,14.01,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,PUNCHBOWL,punchbowl,39.98,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,PYMBLE,pymble,36.32,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,RAYMOND TERRACE,raymond terrace,24.04,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,RIVERWOOD,riverwood,29.62,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,RNS HOSPITAL,rns hospital,11.05,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,ROUCHEL,rouchel,1.36,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,RUTHERFORD,rutherford,33.08,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,SANS SOUCI,sans souci,19.22,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,SINGLETON NORTH,singleton north,18.48,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,SOMERSBY,somersby,16.14,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,ST IVES,st ives,43.08,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,STOCKTON,stockton,10.06,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,STRATHFIELD SOUTH,strathfield south,29.23,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,SUMMER HILL,summer hill,43.4,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,SWANSEA,swansea,15.57,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,TANILBA BAY,tanilba bay,12.04,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,TARRO,tarro,20.26,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,TELARAH,telarah,18.12,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,TERREY HILLS,terrey hills,15.69,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,THORNTON,thornton,39.23,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,TIGHES HILL,tighes hill,23.46,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,TOMALPIN,tomalpin,1.86,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,TOMAREE,tomaree,15.6,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,TURRAMURRA,turramurra,36.15,MVA,2024/25 summer (recorded actual),no GA substation name match
-ausgrid,WILLIAMTOWN,williamtown,5.48,MVA,2024/25 summer (recorded actual),no GA substation name match
-essential,Ashley,ashley,1.38,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Beelbangera,beelbangera,11.66,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Bendick Murrell,bendick murrell,1.64,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Bermagui,bermagui,2.55,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Bethungra,bethungra,0.73,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Blue Cow,blue cow,0.2,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Bodalla,bodalla,1.14,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Bonalbo,bonalbo,0.87,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Booral,booral,1.73,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Bootawa,bootawa,3.75,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Boronia St,boronia st,19.07,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Borthwick St,borthwick st,20.47,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Bulahdelah,bulahdelah,3.88,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Bulgary,bulgary,0.19,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Bullocks Flat,bullocks flat,0.37,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Bullocks Portal,bullocks portal,0.11,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Buronga Town,buronga town,17.41,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Burraga,burraga,0.36,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Byabarra,byabarra,1.37,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Byrock,byrock,0.1,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Caroona,caroona,1.0,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Carrathool,carrathool,0.83,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Clearwater Cr,clearwater cr,19.54,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Clinton Street,clinton street,12.94,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Cobar CSA,cobar csa,24.57,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Cobar Elura,cobar elura,4.36,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Cobar Peak,cobar peak,14.06,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Cobar Town,cobar town,6.62,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Colly Blue,colly blue,1.13,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Coonabarabran,coonabarabran,7.85,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Coopernook,coopernook,2.93,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Crescent Head,crescent head,1.61,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Dubbo Phillip St,dubbo phillip st,21.21,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Dunedoo,dunedoo,5.09,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Dungog,dungog,8.92,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Eden South,eden south,4.03,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Egansford,egansford,1.14,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Euberta,euberta,1.38,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Eulomogo,eulomogo,21.14,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Finley Town,finley town,13.6,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Forbes Town,forbes town,13.63,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Galloway St,galloway st,8.7,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Ganmurra,ganmurra,0.57,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Gilgandra,gilgandra,7.55,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Ginkgo,ginkgo,0.48,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Girilambone,girilambone,1.64,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Gloucester,gloucester,8.77,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Goondiwindi 22kV,goondiwindi,18.14,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Goondiwindi 33kV,goondiwindi,6.51,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Gresford,gresford,2.63,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Gundagai South,gundagai south,5.99,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Gunning,gunning,1.0,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Hallidays Point 11kV,hallidays point,8.46,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Hanwood,hanwood,14.55,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Harrington,harrington,3.85,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Hastings Point,hastings point,12.19,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Hawks Nest 132/33kV,hawks nest,8.45,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Hay Town,hay town,4.88,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Herons Creek,herons creek,13.0,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Ivanhoe,ivanhoe,1.06,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Jindabyne East,jindabyne east,1.83,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Johns River,johns river,0.91,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Junee Reefs,junee reefs,0.23,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Kanangra Dr,kanangra dr,11.84,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Keepit Dam,keepit dam,0.26,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Koree Island,koree island,2.6,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Kywong,kywong,0.41,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Lake Cathie,lake cathie,6.13,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Leeton,leeton,19.41,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Lismore Uni,lismore uni,22.08,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Madgwick Dr,madgwick dr,7.29,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Maher Street 66/11kV,maher street,12.82,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Maher Street 66/33kV,maher street,3.86,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Mallanganee,mallanganee,1.22,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Marilba,marilba,1.24,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Martins Creek,martins creek,3.89,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Mates Gully,mates gully,0.51,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Miller St,miller st,6.65,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Monteagle,monteagle,0.85,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Morrow St,morrow st,11.47,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Moruya Town,moruya town,5.63,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Mossy Point,mossy point,6.2,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Mt Gipps 33kV,mt gipps,1.29,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Mt Gipps 6.6kV,mt gipps 6,0.43,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Munga,munga,1.57,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Murrami,murrami,1.35,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Murrurundi,murrurundi,2.72,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Narooma,narooma,5.76,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Nericon,nericon,1.87,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,North St,north st,10.71,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Nundle,nundle,1.94,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Nymboida,nymboida,0.27,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Nyngan Town,nyngan town,5.48,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Oaks Estate,oaks estate,10.64,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Oberon Town,oberon town,3.53,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Owen St,owen st,13.1,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Pacific Palms,pacific palms,4.39,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Pambula,pambula,11.5,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Parkes Town,parkes town,19.33,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Paytens Bridge,paytens bridge,5.31,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Perisher,perisher,1.0,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Pinnacles Place,pinnacles place,5.57,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Powercor Robinvale 22kV Euston Distribution Supply,powercor robinvale euston distribution supply,7.61,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Prince St,prince st,8.13,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Queanbeyan South,queanbeyan south,21.03,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Redcliff,redcliff,0.44,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Ringwood Road,ringwood road,3.31,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Rocks Ferry,rocks ferry,12.98,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Smithtown,smithtown,4.15,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Snapper,snapper,0.09,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,South Jerrabomberra,south jerrabomberra,4.05,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,South West Rocks,south west rocks,7.1,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Spring Ridge,spring ridge,0.8,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Sunset Strip 22kV,sunset strip,0.64,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Sunset Strip 33kV,sunset strip,2.37,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Talbingo,talbingo,0.69,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Tarcutta,tarcutta,1.11,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Tea Gardens,tea gardens,8.54,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Telegraph Point,telegraph point,1.8,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Texas 66/22kV,texas,3.39,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Texas 66/33kV,texas,2.37,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Tharbogang,tharbogang,14.41,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Thredbo,thredbo,2.0,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,TransGrid 132/22kV Total Tenterfield 22kV Supply,transgrid total tenterfield supply,3.9,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,TransGrid 220/22kV Total Balranald 22kV Supply,transgrid total balranald supply,3.99,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,TransGrid 220/22kV Total Broken Hill 22kV Supply,transgrid total broken hill supply,37.39,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Tuross,tuross,2.24,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Tweed Heads South,tweed heads south,15.53,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Ulan Town,ulan town,2.79,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Union Rd,union rd,60.62,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Upper Manilla,upper manilla,0.62,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Urbenville,urbenville,0.83,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Warrawidgee,warrawidgee,1.25,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Wathagar,wathagar,1.36,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,West Jemalong,west jemalong,1.99,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Whitbread St,whitbread st,19.19,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Whitton,whitton,4.08,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Widgelli,widgelli,0.65,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Wilcannia 33kV,wilcannia,0.7,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Wilcannia 6.6kV,wilcannia 6,1.19,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Willbriggie,willbriggie,2.65,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Wingham,wingham,11.45,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Woodlawn,woodlawn,5.59,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Yarrandale,yarrandale,8.78,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
-essential,Yenda,yenda,6.38,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA substation name match
+ausgrid,BRANXTON,branxton,17.8,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,CAMPBELL ST,campbell st,48.53,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,CESSNOCK SOUTH,cessnock south,29.13,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,CROUDACE BAY,croudace bay,25.2,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,EDGEWORTH,edgeworth,31.94,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,GRAVING DOCK NO 1,graving dock no 1,11.05,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,GRAVING DOCK NO 2,graving dock no 2,11.07,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,GREENACRE,greenacre,64.62,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,LEMINGTON,lemington,2.62,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,MEDOWIE,medowie,18.61,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,METFORD,metford,48.08,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,MITCHELL LINE,mitchell line,8.46,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,MITCHELLS FLAT,mitchells flat,1.83,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,MOUNT HUTTON,mount hutton,21.44,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,MOUNT THORLEY,mount thorley,5.81,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,NELSON BAY,nelson bay,25.26,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,NEW LAMBTON,new lambton,18.9,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,NEWDELL,newdell,2.46,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,PAXTON,paxton,7.39,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,RAYMOND TERRACE,raymond terrace,24.04,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,RNS HOSPITAL,rns hospital,11.05,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,SINGLETON NORTH,singleton north,18.48,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,STOCKTON,stockton,10.06,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,STRATHFIELD SOUTH,strathfield south,29.23,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,SWANSEA,swansea,15.57,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,TANILBA BAY,tanilba bay,12.04,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,TOMALPIN,tomalpin,1.86,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,TOMAREE,tomaree,15.6,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+ausgrid,WILLIAMTOWN,williamtown,5.48,MVA,2024/25 summer (recorded actual),no GA or OSM substation name match
+essential,Ashley,ashley,1.38,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Beelbangera,beelbangera,11.66,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Bendick Murrell,bendick murrell,1.64,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Buronga Town,buronga town,17.41,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Burraga,burraga,0.36,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Byrock,byrock,0.1,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Carrathool,carrathool,0.83,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Cobar CSA,cobar csa,24.57,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Cobar Elura,cobar elura,4.36,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Cobar Peak,cobar peak,14.06,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Cobar Town,cobar town,6.62,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Coonabarabran,coonabarabran,7.85,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Dunedoo,dunedoo,5.09,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Egansford,egansford,1.14,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Eulomogo,eulomogo,21.14,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Finley Town,finley town,13.6,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Girilambone,girilambone,1.64,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Gloucester,gloucester,8.77,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Goondiwindi 22kV,goondiwindi,18.14,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Goondiwindi 33kV,goondiwindi,6.51,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Gunning,gunning,1.0,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Hanwood,hanwood,14.55,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Hastings Point,hastings point,12.19,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Hawks Nest 132/33kV,hawks nest,8.45,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Hay Town,hay town,4.88,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Herons Creek,herons creek,13.0,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Kywong,kywong,0.41,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Leeton,leeton,19.41,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Lismore Uni,lismore uni,22.08,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Monteagle,monteagle,0.85,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Mt Gipps 6.6kV,mt gipps 6,0.43,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Murrami,murrami,1.35,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Murrurundi,murrurundi,2.72,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Nericon,nericon,1.87,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Nundle,nundle,1.94,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Nyngan Town,nyngan town,5.48,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Oaks Estate,oaks estate,10.64,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Oberon Town,oberon town,3.53,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Pacific Palms,pacific palms,4.39,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Paytens Bridge,paytens bridge,5.31,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Powercor Robinvale 22kV Euston Distribution Supply,powercor robinvale euston distribution supply,7.61,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Ringwood Road,ringwood road,3.31,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Texas 66/22kV,texas,3.39,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Texas 66/33kV,texas,2.37,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Tharbogang,tharbogang,14.41,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,TransGrid 132/22kV Total Tenterfield 22kV Supply,transgrid total tenterfield supply,3.9,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,TransGrid 220/22kV Total Balranald 22kV Supply,transgrid total balranald supply,3.99,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,TransGrid 220/22kV Total Broken Hill 22kV Supply,transgrid total broken hill supply,37.39,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Tweed Heads South,tweed heads south,15.53,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Ulan Town,ulan town,2.79,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Union Rd,union rd,60.62,MVA,"2025/26 summer (POE50 forecast, not recorded)",OSM operator disagrees with DNSP (rejected)
+essential,Warrawidgee,warrawidgee,1.25,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Wathagar,wathagar,1.36,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Whitton,whitton,4.08,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Widgelli,widgelli,0.65,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Wilcannia 6.6kV,wilcannia 6,1.19,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Willbriggie,willbriggie,2.65,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match
+essential,Yenda,yenda,6.38,MVA,"2025/26 summer (POE50 forecast, not recorded)",no GA or OSM substation name match

@@ -12,8 +12,8 @@ geocoding and the model.
 | File | What it is |
 |---|---|
 | `nsw_zone_substation_max_demand.csv` | The raw extract: 543 zone substations by name. `max_demand` is in **MVA**; `latitude`/`longitude`/`locality` are **blank for every row** (name-only). |
-| `nsw_zone_substation_load_points.gpkg` (layer `load_points`) | Derived, geocoded load points (EPSG:4326) — the weighting surface for `load_weighted`. Built by `pipeline.demand.geocode_load`. |
-| `unmatched_substations.csv` | The substations that could NOT be geocoded and were **dropped** (never given invented coordinates). Listed for review. |
+| `nsw_zone_substation_load_points.gpkg` (layer `load_points`) | Derived, geocoded load points (EPSG:4326) — the weighting surface for `load_weighted`. Built by `pipeline.demand.geocode_load`. Carries `coord_source` (`ga`/`osm`) and a boolean `osm_low_confidence` alongside the existing columns. |
+| `unmatched_substations.csv` | The substations that could NOT be geocoded by **either** source and were **dropped** (never given invented coordinates). Listed for review. |
 | `raw/` | The unmodified source workbooks/PDFs (Essential, Ausgrid, Endeavour). SHAs in `SOURCES.md`. |
 
 ## Coverage & the data as it stands (honest summary)
@@ -30,23 +30,55 @@ like-with-unlike limitation.
 
 ## Geocoding (how the points got coordinates)
 
-The raw rows have no coordinates, so `pipeline.demand.geocode_load` matches each
-substation name against the Geoscience Australia NSW substation point layer
-(`DATA/infrastructure/substations/ga_substations_2026_nsw.geojson`, 586 NSW
-points) **deterministically**:
+The raw rows have no coordinates, so `pipeline.demand.geocode_load` gives each
+substation a coordinate from two sources, **GA primary + OSM second**, both
+deterministic and both name-only (load rows carry no locality):
 
-1. Normalise both sides: lower-case, **strip voltage suffixes** (`110/66kV`,
-   `33/11kV`, `11kV`, `132kV` …), drop punctuation, collapse whitespace.
-2. Join on the normalised name. Where several GA points share one normalised
-   name, pick one deterministically (sort candidates by
-   `(locality, latitude, longitude)` and take the first).
-3. **Unmatched substations are dropped** (coordinates are never invented) and
-   written to `unmatched_substations.csv`.
+1. **Geoscience Australia (primary).** Match the substation name against the GA
+   NSW substation point layer
+   (`DATA/infrastructure/substations/ga_substations_2026_nsw.geojson`, 586
+   points). Normalise both sides: lower-case, **strip voltage suffixes**
+   (`110/66kV`, `33/11kV`, `11kV`, `132kV` …), drop punctuation, collapse
+   whitespace. Join on the normalised name; where several GA points share one
+   normalised name pick one deterministically by `(locality, latitude,
+   longitude)`. A GA hit emits `coord_source="ga"`.
+2. **OpenStreetMap (second).** On a GA miss, match against the OSM NSW named
+   `power=substation` layer
+   (`DATA/infrastructure/substations/osm_substations_nsw.geojson`, built by
+   `scripts/_acquire_osm_substations_nsw.py`). OSM names its sites `Campsie Zone
+   Substation` / `Boronia Street ZS`, so OSM-side normalisation additionally
+   **strips the site suffix** (`zone substation`/`substation`/`ZS`/`ZSS`) and
+   applies a conservative street-abbreviation expansion (`St`→`Street`,
+   `Dr`→`Drive`, `Cr`→`Crescent`, `Rd`→`Road`, `Mt`→`Mount`). An OSM hit passes
+   an **operator-agreement gate** — where the OSM element carries an `operator`
+   it must match the row's DNSP (ausgrid↔`Ausgrid`, essential↔`Essential
+   Energy`, endeavour↔`Endeavour Energy`) — then emits `coord_source="osm"`,
+   flagged `osm_low_confidence` where the operator is absent or the match needed
+   abbreviation expansion. Duplicate OSM names resolve by `(operator, latitude,
+   longitude)`.
+3. **Unmatched by both sources are dropped** (coordinates are never invented)
+   and written to `unmatched_substations.csv`.
 
-**Match rate: 296 of 543 substations matched (≈54.5%); 247 unmatched/dropped.**
-Most unmatched rows are small Essential (forecast) localities absent from the GA
-transmission-substation layer. Re-run `python -m pipeline.demand.geocode_load`
-to regenerate the layer, the unmatched list and the manifest entry.
+**Match rate: 456 of 543 substations matched (≈84.0%) — GA 296 + OSM 160; 21 OSM
+matches flagged low-confidence; 87 unmatched/dropped.** OSM closes the whole
+Sydney-metro gap the GA transmission layer lacked (Campsie, City South,
+Chatswood, Mascot, Manly, Miranda, Lidcombe, Darling Harbour, Port Botany … all
+recovered and operator-confirmed as Ausgrid). The residual ~87 are small/remote
+localities genuinely thinner in both layers and stay dropped. Re-run
+`python -m pipeline.demand.geocode_load` to regenerate the layer, the unmatched
+list and the manifest entry (which records both source SHAs).
+
+### OSM licence / attribution (ODbL)
+
+The OSM coordinates are **© OpenStreetMap contributors, licensed under the Open
+Database License (ODbL) 1.0**
+([openstreetmap.org/copyright](https://www.openstreetmap.org/copyright)). Using
+them in this internal screening model with attribution satisfies ODbL; the
+share-alike obligation attaches only to a *distributed* derived database, not to
+internal use. The OSM snapshot manifest records the exact Overpass query, SHA and
+this credit. Note the provenance split: **coordinates come from OSM (open,
+ODbL)**, while **demand magnitudes come from the DNSP DAPR data (restricted,
+internal-use — see `SOURCES.md`)**; the two carry different reuse rights.
 
 ## The model (`load_weighted`)
 
@@ -64,7 +96,17 @@ region so each region's total is conserved **exactly**:
 relative shape is used, the MVA-vs-MW and forecast-vs-recorded mismatches never
 affect conservation. Decay length and search radius are documented config
 constants (`pipeline/demand/config.py`). Cells beyond every substation's radius
-(including the Endeavour gap) fall back to the floor and are flagged `medium`.
+fall back to the floor and are flagged `medium`.
+
+**OSM closes the coordinate gap, not the Endeavour demand gap.** OSM does carry
+Endeavour substation *locations* (Greater Western Sydney / Blue Mountains /
+Illawarra / South Coast), but Endeavour still contributes **0 demand rows**
+(`SOURCES.md`: its figures live only in DAPR map pop-ups, with no exportable
+table), and geocoding cannot invent demand. So those regions gain **no** load
+points from this change — they continue to fall back to the floor / `medium`.
+The ~1,980 cells that moved off the floor and up to `high` after adding OSM are
+the Sydney-metro / Newcastle / Hunter cells that now sit near a recovered
+Ausgrid substation.
 
 ## Licence (internal use — documented decision)
 

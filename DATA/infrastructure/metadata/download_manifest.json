@@ -7,5 +7,17 @@
       "state": "NSW",
       "computation_crs": "EPSG:3577"
     }
+  },
+  "osm_substations_nsw.geojson": {
+    "dataset": "OpenStreetMap named power=substation points, NSW",
+    "source": "https://overpass-api.de/api/interpreter",
+    "overpass_query": "[out:json][timeout:120];\narea[\"ISO3166-2\"=\"AU-NSW\"][admin_level=4]->.nsw;\n(\n  node[\"power\"=\"substation\"][\"name\"](area.nsw);\n  way[\"power\"=\"substation\"][\"name\"](area.nsw);\n);\nout tags center;\n",
+    "retrieved_utc": "2026-10-20T00:06:21+00:00",
+    "features": 870,
+    "local_bytes": 210158,
+    "sha256": "87ca48f631d3e00016b269ca51769f5226f2807079622781d59a6e40c5e02eb8",
+    "crs": "EPSG:4326",
+    "licence": "ODbL 1.0 - (c) OpenStreetMap contributors",
+    "generated_by": "scripts/_acquire_osm_substations_nsw.py"
   }
 }

@@ -1,28 +1,38 @@
 {
   "aemo_demand-proxy_2026_nsw.gpkg": {
-    "sha256": "4383d1fa8962ec9cd830b75f5ac7daa83309885a32caf929218a61620b7d5e50",
+    "sha256": "c7f5124dc72f6fe81a921bf1d56ec5653bd2d0de9e7b59a852f96c34d4be7c72",
     "bytes": 14131200,
-    "utc": "2026-10-18T23:51:07+00:00",
+    "utc": "2026-10-20T00:17:00+00:00",
     "derived_proxy": true
   },
   "nsw_zone_substation_load_points.gpkg": {
-    "sha256": "b865bac68bacaa5863776404946d986ade71cc9b14db78fbbc3b628602c5bea4",
-    "bytes": 163840,
-    "utc": "2026-10-19T02:15:14+00:00",
+    "sha256": "7764bcfc9f08010a2666f3d1aff4a03dfed3c62fcb10bed9ed612c8f94ecb9b4",
+    "bytes": 204800,
+    "utc": "2026-10-20T00:13:12+00:00",
     "derived_proxy": true,
     "generated_by": "pipeline.demand.geocode_load",
-    "match_rate": 0.5451,
-    "matched": 296,
-    "unmatched": 247,
+    "match_rate": 0.8398,
+    "matched": 456,
+    "matched_ga": 296,
+    "matched_osm": 160,
+    "osm_low_confidence": 21,
+    "unmatched": 87,
     "load_rows": 543,
-    "inputs": {
-      "load_csv": "load/nsw_zone_substation_max_demand.csv",
-      "ga_substations": "../infrastructure/substations/ga_substations_2026_nsw.geojson"
+    "sources": {
+      "ga_substations_2026_nsw.geojson": {
+        "sha256": "a949c857f90142f7eb4a5a9adf0a65c0490006c36242c6704ef5d1ed9cf75104",
+        "role": "primary"
+      },
+      "osm_substations_nsw.geojson": {
+        "sha256": "87ca48f631d3e00016b269ca51769f5226f2807079622781d59a6e40c5e02eb8",
+        "role": "second",
+        "licence": "ODbL 1.0 - (c) OpenStreetMap contributors"
+      }
     }
   },
   "load/nsw_zone_substation_max_demand.csv": {
     "sha256": "2eb1e68bca33455b22cfd73dce81866d11dade0172495b88809a44ee6a449023",
-    "licence": "NSW DNSP DAPR — not open; disclaimers restrict purpose; INTERNAL-USE accepted (see load/SOURCES.md)",
+    "licence": "NSW DNSP DAPR \u2014 not open; disclaimers restrict purpose; INTERNAL-USE accepted (see load/SOURCES.md)",
     "note": "543 NSW zone substations, max demand in MVA; Ausgrid recorded (177) + Essential POE50 forecast (366); Endeavour 0 rows"
   },
   "load/raw/essential/DAPR 2025 BSP, ZS and Lines Extract Summary - V2.xlsx": {
