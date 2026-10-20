@@ -1,8 +1,8 @@
 {
   "aemo_demand-proxy_2026_nsw.gpkg": {
-    "sha256": "c7f5124dc72f6fe81a921bf1d56ec5653bd2d0de9e7b59a852f96c34d4be7c72",
+    "sha256": "4383d1fa8962ec9cd830b75f5ac7daa83309885a32caf929218a61620b7d5e50",
     "bytes": 14131200,
-    "utc": "2026-10-20T00:17:00+00:00",
+    "utc": "2026-10-18T23:51:07+00:00",
     "derived_proxy": true
   },
   "nsw_zone_substation_load_points.gpkg": {
