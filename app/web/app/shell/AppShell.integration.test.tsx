@@ -682,7 +682,73 @@ describe("AppShell shared selection: map click (S3-03b + S3-04)", () => {
       "run-wind-1",
       "S99.000_E150.000",
     );
-    expect(within(siteDetail).getByText("7")).toBeInTheDocument();
+    expect(within(siteDetail).getByText("#7")).toBeInTheDocument();
     expect(within(siteDetail).getByText("0.655")).toBeInTheDocument();
+  });
+
+  it("opens the excluded-site view, with reasons and no rank, from a map click (S4-03)", async () => {
+    const service = serviceWithFlaggedDataset();
+    service.getSiteDetail = jest.fn().mockImplementation(
+      async (_runId: string, cellId: string) =>
+        cellId === "excluded-1"
+          ? {
+              cell_id: "excluded-1",
+              eligible: false,
+              suitability_score: null,
+              rank: null,
+              explanation: {
+                exclusion_reasons: [{ code: "protected_area", text: "Inside a protected area" }],
+              },
+            }
+          : SITE_DETAILS[cellId],
+    );
+    render(<AppShell service={service} />);
+    expect(await within(detailRegion()).findByText(RANK_1)).toBeInTheDocument();
+
+    mapClickOnLayer("cells-excluded-env", {
+      cell_id: "excluded-1",
+      eligible: false,
+      suitability_score: null,
+      rank: null,
+    });
+
+    expect(await within(detailRegion()).findByText("Not eligible — excluded")).toBeInTheDocument();
+    expect(within(detailRegion()).getByText("Inside a protected area")).toBeInTheDocument();
+    expect(within(detailRegion()).queryByText("Rank")).not.toBeInTheDocument();
+    expect(service.getSiteDetail).toHaveBeenLastCalledWith("run-wind-1", "excluded-1");
+  });
+
+  it("opens the SAME detail view for a cell whether picked on the map or the shortlist (S4-03)", async () => {
+    const service = serviceWithFlaggedDataset();
+    service.getSiteDetail = jest.fn().mockImplementation(
+      async (_runId: string, cellId: string) => SITE_DETAILS[cellId],
+    );
+    render(<AppShell service={service} />);
+    expect(await within(detailRegion()).findByText(RANK_1)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: RANK_2 }));
+    expect(await within(detailRegion()).findByText(RANK_2)).toBeInTheDocument();
+    const fromShortlist = detailRegion().innerHTML;
+
+    // Move away, then pick the same cell on the map.
+    fireEvent.click(screen.getByRole("button", { name: RANK_1 }));
+    expect(await within(detailRegion()).findByText(RANK_1)).toBeInTheDocument();
+    mapClickOnLayer("cells-eligible", {
+      cell_id: RANK_2,
+      eligible: true,
+      suitability_score: 0.874,
+      rank: 2,
+    });
+    expect(await within(detailRegion()).findByText(RANK_2)).toBeInTheDocument();
+
+    expect(detailRegion().innerHTML).toBe(fromShortlist);
+    // Both paths asked the service for the same run + cell.
+    const calls = (service.getSiteDetail as jest.Mock).mock.calls.filter(
+      ([, cellId]) => cellId === RANK_2,
+    );
+    expect(calls).toEqual([
+      ["run-wind-1", RANK_2],
+      ["run-wind-1", RANK_2],
+    ]);
   });
 });

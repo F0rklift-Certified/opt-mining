@@ -87,8 +87,13 @@ EXPECTED_GRID_LED_TOP_FIVE = (
     "S30.086_E151.686",
 )
 EXPECTED_SCENARIO_RANK_CHANGES = 32_519
+# S4-03 (2026-10-20): the eligible-cell headline template changed from
+# "Higher-ranked candidate …" to "Eligible candidate …". Verified that restoring
+# the old headline in these records reproduces the previous reviewed digest
+# 429b704b1d25376b2c731755e0b93719a119600dec2f9dd298d5549e70a5a691 exactly, so
+# the wording is the only change to the explanation output.
 EXPECTED_EXPLANATION_SHA256 = (
-    "429b704b1d25376b2c731755e0b93719a119600dec2f9dd298d5549e70a5a691"
+    "a048e43d6048b09e5ca469267d16612f23936f86af3ba34af78f36c2c3e901c9"
 )
 TOLERANCE = 1e-12
 
