@@ -70,10 +70,12 @@ The Endeavour DAPR 2025 PDF (sections 6.0 and 6.5, PDF pp. 33 and 40) says the z
 ## Coordinates: OpenStreetMap (ODbL) — separate from the demand magnitudes
 
 The 543 rows carry demand **magnitudes** but no coordinates. Coordinates are
-added separately by `pipeline.demand.geocode_load` from two point layers:
-Geoscience Australia (primary, already in-repo, open) and **OpenStreetMap
-(second)**. OSM supplies the urban distribution zone substations the GA
-transmission layer lacks.
+added separately by `pipeline.demand.geocode_load` from three point layers:
+Geoscience Australia (primary, already in-repo, open), **OpenStreetMap-Overpass
+(second)** and **Nominatim OSM place-geocoding (third, lower-confidence)**. OSM
+supplies the urban distribution zone substations the GA transmission layer lacks;
+Nominatim supplies suburb/locality centroids for the names neither of the first
+two carries (chiefly the Ausgrid Hunter/Newcastle block).
 
 - **OSM acquisition.** `scripts/_acquire_osm_substations_nsw.py` makes one
   read-only Overpass POST for named `power=substation` nodes/ways inside the NSW
@@ -93,7 +95,53 @@ transmission layer lacks.
   );
   out tags center;
   ```
-- **Licence.** OpenStreetMap data is **© OpenStreetMap contributors, licensed
+- **Nominatim acquisition (third tier, lower-confidence PLACE centroids).**
+  `scripts/_acquire_nominatim_substations_nsw.py` reads
+  `unmatched_substations.csv` (the GA+Overpass-unmatched names only, ~87, **not**
+  all 543) and geocodes each ONE at a time against the public Nominatim endpoint
+  `https://nominatim.openstreetmap.org/search`, single-threaded, at **≤1
+  request/second** (`time.sleep(1.1)`), with a descriptive User-Agent
+  (`opt-mining-nsw/1.0 …`; stock library UAs are rejected by the policy).
+  - **Per-name query:** `q="<substation_name> NSW"`, `format=json`, `limit=1`,
+    `countrycodes=au`. A deterministic **one-shot base-name fallback** strips a
+    trailing directional qualifier (`North/South/East/West/Central`) or
+    descriptor (`Town/Uni/Hospital`) and retries once when the full name yields
+    no usable result; the query string that produced each stored coordinate is
+    recorded in `query_string_used`.
+  - **Safeguards (reject or flag, never invent):** hard NSW bounding box
+    (lat −37.51…−28.16, lon 141.0…153.7); auto-accept only `class ∈ {boundary,
+    place}`; reject `class ∈ {highway, waterway, railway, tourism, amenity}`; an
+    **importance floor of 0.15** (tuned against the full run — good admin hits
+    sit ≥0.16, street/POI junk ≤0.053–0.107); `needs_review=true` is flagged for
+    base-name-fallback hits and near-floor importance. Results failing the bbox
+    are recorded `bbox_pass=false` and not written as usable coordinates.
+  - **Snapshot:** `DATA/infrastructure/substations/nominatim_substations_nsw.geojson`
+    (EPSG:4326), one Point per resolved name with properties `queried_name`,
+    `query_string_used`, `display_name`, `latitude`, `longitude`, `osm_class`,
+    `osm_type`, `importance`, `bbox_pass`, `needs_review`, sorted by
+    `queried_name` so the bytes are stable. The snapshot manifest
+    (`DATA/infrastructure/metadata/download_manifest.json`) records the search
+    URL, per-name query params, retrieval time, feature count, bytes, SHA-256,
+    CRS, the importance/bbox thresholds used, the licence credit below, and a
+    prominent pointer to the **Nominatim usage policy**
+    (https://operations.osmfoundation.org/policies/nominatim/). Current snapshot:
+    **55 of 87 names resolved** (20 Ausgrid + 35 Essential; 28 flagged
+    `needs_review`), importance floor 0.15.
+  - **Usage policy compliance.** The public Nominatim endpoint is governed by
+    the [usage policy](https://operations.osmfoundation.org/policies/nominatim/),
+    which has an explicit clause for LLM/AI-generated code. A one-off geocode of
+    ~87 names, single-threaded at ≤1 req/sec, **cached as this committed
+    snapshot** (the pipeline never re-queries the API at run time) is a
+    permissible "smaller one-time bulk task". Bulk/repeated/pipeline-time use is
+    NOT acceptable; for scale, use a self-hosted Nominatim or a commercial
+    geocoder.
+  - **Centroid caveat.** Nominatim returns a suburb/locality centroid, a few km
+    off the substation — strictly lower precision than GA or an OSM
+    `power=substation` feature. Every match is therefore flagged
+    `coord_source='nominatim'` / `nominatim_low_confidence=True` and is tolerable
+    only against the 15 km decay / 40 km radius of `load_weighted`.
+- **Licence.** OpenStreetMap data (both the Overpass features and the Nominatim
+  centroids) is **© OpenStreetMap contributors, licensed
   under the Open Database License (ODbL) 1.0**
   ([openstreetmap.org/copyright](https://www.openstreetmap.org/copyright);
   [ODbL summary](https://opendatacommons.org/licenses/odbl/summary/)). Baseline
@@ -101,7 +149,8 @@ transmission layer lacks.
   derived database, not to internal use. Content was rephrased for compliance
   with licensing restrictions.
 - **Provenance split — different reuse rights.** **Coordinates come from OSM
-  (open, ODbL, attributed).** **Demand magnitudes come from the DNSP DAPR data
+  (Overpass features and Nominatim place centroids — open, ODbL, attributed).**
+  **Demand magnitudes come from the DNSP DAPR data
   (restricted, internal-use only — see the licence findings below).** These are
   recorded as separate provenances because they carry different redistribution
   rights: the coordinates could be redistributed under ODbL with attribution,

@@ -12,8 +12,8 @@ geocoding and the model.
 | File | What it is |
 |---|---|
 | `nsw_zone_substation_max_demand.csv` | The raw extract: 543 zone substations by name. `max_demand` is in **MVA**; `latitude`/`longitude`/`locality` are **blank for every row** (name-only). |
-| `nsw_zone_substation_load_points.gpkg` (layer `load_points`) | Derived, geocoded load points (EPSG:4326) — the weighting surface for `load_weighted`. Built by `pipeline.demand.geocode_load`. Carries `coord_source` (`ga`/`osm`) and a boolean `osm_low_confidence` alongside the existing columns. |
-| `unmatched_substations.csv` | The substations that could NOT be geocoded by **either** source and were **dropped** (never given invented coordinates). Listed for review. |
+| `nsw_zone_substation_load_points.gpkg` (layer `load_points`) | Derived, geocoded load points (EPSG:4326) — the weighting surface for `load_weighted`. Built by `pipeline.demand.geocode_load`. Carries `coord_source` (`ga`/`osm`/`nominatim`) and the booleans `osm_low_confidence` and `nominatim_low_confidence` alongside the existing columns. |
+| `unmatched_substations.csv` | The substations that could NOT be geocoded by **any** of the three sources and were **dropped** (never given invented coordinates). Listed for review. |
 | `raw/` | The unmodified source workbooks/PDFs (Essential, Ausgrid, Endeavour). SHAs in `SOURCES.md`. |
 
 ## Coverage & the data as it stands (honest summary)
@@ -31,8 +31,9 @@ like-with-unlike limitation.
 ## Geocoding (how the points got coordinates)
 
 The raw rows have no coordinates, so `pipeline.demand.geocode_load` gives each
-substation a coordinate from two sources, **GA primary + OSM second**, both
-deterministic and both name-only (load rows carry no locality):
+substation a coordinate from three sources, **GA primary + OSM second +
+Nominatim third**, all deterministic and all name-only (load rows carry no
+locality):
 
 1. **Geoscience Australia (primary).** Match the substation name against the GA
    NSW substation point layer
@@ -56,29 +57,56 @@ deterministic and both name-only (load rows carry no locality):
    flagged `osm_low_confidence` where the operator is absent or the match needed
    abbreviation expansion. Duplicate OSM names resolve by `(operator, latitude,
    longitude)`.
-3. **Unmatched by both sources are dropped** (coordinates are never invented)
-   and written to `unmatched_substations.csv`.
+3. **Nominatim (OSM place-geocoding, third).** On a GA **and** OSM miss, match
+   the name against the Nominatim snapshot
+   (`DATA/infrastructure/substations/nominatim_substations_nsw.geojson`, built by
+   `scripts/_acquire_nominatim_substations_nsw.py`). Nominatim is a **place
+   geocoder**: `"<name> NSW"` returns a **suburb/locality CENTROID**, not the
+   substation itself — typically a few km off. That is acceptable **only**
+   because `load_weighted` uses a 15 km distance-decay / 40 km radius (see the
+   model below), so a centroid still lands in the right decay neighbourhood. It
+   is therefore strictly a **lower-confidence** tier: every Nominatim hit emits
+   `coord_source="nominatim"` with `nominatim_low_confidence=True` **always**,
+   and is never mixed with GA/Overpass precision — an analyst can filter or
+   down-weight these cells. The acquisition applies hard safeguards (NSW bounding
+   box, `class ∈ {boundary, place}` allow-list, a tuned importance floor of
+   **0.15**, and a one-shot base-name fallback that strips a trailing
+   directional/descriptor qualifier). Nominatim never overrides a GA or OSM hit.
+4. **Unmatched by all three sources are dropped** (coordinates are never
+   invented) and written to `unmatched_substations.csv`.
 
-**Match rate: 456 of 543 substations matched (≈84.0%) — GA 296 + OSM 160; 21 OSM
-matches flagged low-confidence; 87 unmatched/dropped.** OSM closes the whole
-Sydney-metro gap the GA transmission layer lacked (Campsie, City South,
-Chatswood, Mascot, Manly, Miranda, Lidcombe, Darling Harbour, Port Botany … all
-recovered and operator-confirmed as Ausgrid). The residual ~87 are small/remote
-localities genuinely thinner in both layers and stay dropped. Re-run
+**Match rate: 511 of 543 substations matched (≈94.1%) — GA 296 + OSM 160 +
+Nominatim 55; 21 OSM matches and all 55 Nominatim matches flagged
+low-confidence; 32 unmatched/dropped.** OSM closes the Sydney-metro gap the GA
+transmission layer lacked (Campsie, City South, Chatswood, Mascot, Manly,
+Miranda, Lidcombe, Darling Harbour, Port Botany …, operator-confirmed as
+Ausgrid). Nominatim then recovers the Ausgrid Hunter/Newcastle distribution
+substations neither layer carries as features (Metford, Edgeworth, Cessnock
+South, Nelson Bay, Croudace Bay, Raymond Terrace, Mount Hutton, Swansea,
+Stockton, New Lambton …) plus a tail of small Essential localities, as suburb
+centroids. The residual 32 are genuine **non-place asset names** that must stay
+dropped (`Graving Dock No 1/2`, `Mitchell Line`, `RNS Hospital`, the `TransGrid …
+Total … Supply` rows, `Powercor Robinvale … Euston Distribution Supply`) plus a
+few sub-floor/ambiguous localities. Re-run
 `python -m pipeline.demand.geocode_load` to regenerate the layer, the unmatched
-list and the manifest entry (which records both source SHAs).
+list and the manifest entry (which records all three source SHAs).
 
-### OSM licence / attribution (ODbL)
+### OSM / Nominatim licence / attribution (ODbL)
 
-The OSM coordinates are **© OpenStreetMap contributors, licensed under the Open
+Both OSM-sourced coordinate tiers (OSM `power=substation` features AND Nominatim
+place centroids) are **© OpenStreetMap contributors, licensed under the Open
 Database License (ODbL) 1.0**
 ([openstreetmap.org/copyright](https://www.openstreetmap.org/copyright)). Using
 them in this internal screening model with attribution satisfies ODbL; the
 share-alike obligation attaches only to a *distributed* derived database, not to
 internal use. The OSM snapshot manifest records the exact Overpass query, SHA and
-this credit. Note the provenance split: **coordinates come from OSM (open,
-ODbL)**, while **demand magnitudes come from the DNSP DAPR data (restricted,
-internal-use — see `SOURCES.md`)**; the two carry different reuse rights.
+this credit; the Nominatim snapshot manifest records the search URL, per-name
+query, the safeguard thresholds, SHA, this credit, and a pointer to the
+[Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/)
+(≤1 req/sec, cached snapshot, never re-queried at run time). Note the provenance
+split: **coordinates come from OSM/Nominatim (open, ODbL)**, while **demand
+magnitudes come from the DNSP DAPR data (restricted, internal-use — see
+`SOURCES.md`)**; the two carry different reuse rights.
 
 ## The model (`load_weighted`)
 
@@ -98,15 +126,18 @@ affect conservation. Decay length and search radius are documented config
 constants (`pipeline/demand/config.py`). Cells beyond every substation's radius
 fall back to the floor and are flagged `medium`.
 
-**OSM closes the coordinate gap, not the Endeavour demand gap.** OSM does carry
-Endeavour substation *locations* (Greater Western Sydney / Blue Mountains /
-Illawarra / South Coast), but Endeavour still contributes **0 demand rows**
+**Geocoding closes the coordinate gap, not the Endeavour demand gap.** OSM
+carries Endeavour substation *locations* (Greater Western Sydney / Blue Mountains
+/ Illawarra / South Coast), but Endeavour still contributes **0 demand rows**
 (`SOURCES.md`: its figures live only in DAPR map pop-ups, with no exportable
 table), and geocoding cannot invent demand. So those regions gain **no** load
 points from this change — they continue to fall back to the floor / `medium`.
-The ~1,980 cells that moved off the floor and up to `high` after adding OSM are
-the Sydney-metro / Newcastle / Hunter cells that now sit near a recovered
-Ausgrid substation.
+Adding the Nominatim third tier moved a further **~1,250 cells** off the floor
+and up to `high` (floored no-coverage cells fell from 23,017 to 21,764 under
+`load_weighted`), concentrated in the **Hunter/Newcastle** suburbs that now sit
+near a recovered Ausgrid substation centroid. Those cells are near a
+*lower-confidence* PLACE centroid (a few km off), so an analyst may wish to
+down-weight or audit them via the `nominatim_low_confidence` flag.
 
 ## Licence (internal use — documented decision)
 
@@ -119,7 +150,11 @@ and not a guarantee of offtake**.
 ## Reproduce
 
 ```
-python -m pipeline.demand.geocode_load                     # build the load-point layer
+# (one-off, manual) refresh the Nominatim place-centroid snapshot for the
+# GA+Overpass-unmatched names — hits the public endpoint at <=1 req/sec; see the
+# Nominatim usage policy. Normally you keep the committed snapshot and skip this.
+python scripts/_acquire_nominatim_substations_nsw.py
+python -m pipeline.demand.geocode_load                     # build the load-point layer (GA + OSM + Nominatim)
 python -m pipeline.demand --only feature --allocation-method load_weighted
 ```
 

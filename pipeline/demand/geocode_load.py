@@ -36,10 +36,20 @@ built by ``scripts/_acquire_osm_substations_nsw.py``). Precedence per load row:
    the OSM element carries an ``operator`` it must match the row's DNSP). The
    match is flagged ``osm_low_confidence`` where the operator is absent or the
    match required abbreviation expansion.
-3. Unmatched by **both** sources -> dropped (coordinates are never invented) and
-   written to ``unmatched_substations.csv`` for review.
+3. On a GA **and** OSM miss, try the Nominatim layer
+   (``DATA/infrastructure/substations/nominatim_substations_nsw.geojson``, built
+   by ``scripts/_acquire_nominatim_substations_nsw.py``). Nominatim is a **place
+   geocoder**: it returns a **suburb/locality centroid**, not the substation, so
+   it is strictly a **lower-confidence** tier — every hit emits
+   ``coord_source="nominatim"`` with ``nominatim_low_confidence=True`` always. It
+   is only tolerable because ``load_weighted`` uses a 15 km distance-decay /
+   40 km radius (``config.LOAD_DECAY_LENGTH_M`` / ``LOAD_SEARCH_RADIUS_M``), so a
+   centroid a few km off still lands in the right neighbourhood. Nominatim never
+   overrides a GA or OSM hit.
+4. Unmatched by **all three** sources -> dropped (coordinates are never invented)
+   and written to ``unmatched_substations.csv`` for review.
 
-OSM coordinates are **(c) OpenStreetMap contributors, licensed ODbL 1.0**;
+OSM/Nominatim coordinates are **(c) OpenStreetMap contributors, licensed ODbL 1.0**;
 attribution is recorded in the snapshot manifest and this directory's
 ``README``/``SOURCES``. Demand magnitudes remain under the restricted DNSP DAPR
 terms (see ``SOURCES.md``) — the two provenances have different reuse rights.
@@ -47,8 +57,9 @@ terms (see ``SOURCES.md``) — the two provenances have different reuse rights.
 Matched substations become a clean load-point layer
 ``DATA/electricity-demand/load/nsw_zone_substation_load_points.gpkg`` (EPSG:4326
 storage, carrying ``max_demand`` in MVA, ``dnsp``, ``data_year``, the matched
-source feature name/locality/voltage, plus ``coord_source`` ("ga"/"osm") and the
-boolean ``osm_low_confidence``). The match rate is reported.
+source feature name/locality/voltage, plus ``coord_source``
+("ga"/"osm"/"nominatim") and the booleans ``osm_low_confidence`` and
+``nominatim_low_confidence``). The match rate is reported.
 
 Run from the repository root::
 
@@ -219,6 +230,56 @@ def _build_osm_lookup(osm: gpd.GeoDataFrame) -> dict[str, dict]:
     return lookup
 
 
+def _build_nominatim_lookup(nominatim: gpd.GeoDataFrame) -> dict[str, dict]:
+    """Map suffix-stripped normalised Nominatim name -> chosen PLACE centroid.
+
+    Mirrors :func:`_build_osm_lookup` but keys on the suffix-stripped normalised
+    ``queried_name`` (``strip_site_suffix=True``) so the keys line up with how the
+    load rows are normalised, and carries ``queried_name``, ``display_name``,
+    ``latitude``, ``longitude``, ``osm_class``, ``osm_type``, ``importance``,
+    ``needs_review``. Nominatim returns a suburb/locality centroid (a few km off
+    the substation), so this is a lower-confidence tier (see module docstring).
+
+    Deterministic tie-break on duplicate keys (findings §4): highest
+    ``importance`` first, then smallest ``(latitude, longitude)``.
+    """
+    buckets: dict[str, list[dict]] = {}
+    for _, row in nominatim.iterrows():
+        norm = normalise_substation_name(
+            row.get("queried_name"), strip_site_suffix=True
+        )
+        if not norm:
+            continue
+        geom = row.geometry
+        if geom is None or geom.is_empty:
+            continue
+        importance = row.get("importance")
+        buckets.setdefault(norm, []).append(
+            {
+                "queried_name": row.get("queried_name"),
+                "display_name": row.get("display_name"),
+                "latitude": float(geom.y),
+                "longitude": float(geom.x),
+                "osm_class": row.get("osm_class"),
+                "osm_type": row.get("osm_type"),
+                "importance": float(importance) if importance is not None else None,
+                "needs_review": bool(row.get("needs_review")),
+            }
+        )
+    lookup: dict[str, dict] = {}
+    for norm, candidates in buckets.items():
+        # Highest importance wins; None sorts lowest. Then smallest (lat, lon).
+        candidates.sort(
+            key=lambda c: (
+                -(c["importance"] if c["importance"] is not None else float("-inf")),
+                c["latitude"],
+                c["longitude"],
+            )
+        )
+        lookup[norm] = candidates[0]
+    return lookup
+
+
 # DNSP code (load-row ``dnsp``) -> the OSM ``operator`` string it must match
 # where the OSM element carries an operator tag (findings §4 gate).
 _DNSP_TO_OSM_OPERATOR = {
@@ -271,32 +332,42 @@ def geocode(
     load_csv: Path,
     ga_geojson: Path,
     osm_geojson: Path,
+    nominatim_geojson: Path,
 ) -> tuple[gpd.GeoDataFrame, pd.DataFrame, dict]:
-    """Match load rows to GA (primary) then OSM (second). Returns
-    ``(matched_layer, unmatched, stats)``.
+    """Match load rows to GA (primary) then OSM (second) then Nominatim (third).
+    Returns ``(matched_layer, unmatched, stats)``.
 
     Precedence per load row: try the GA layer first (unchanged logic/order); on a
-    GA miss, try the OSM layer (suffix-stripped names + operator-agreement gate).
-    A row unmatched by **both** is dropped and listed in ``unmatched``.
+    GA miss, try the OSM layer (suffix-stripped names + operator-agreement gate);
+    on a GA **and** OSM miss, try the Nominatim PLACE-centroid layer
+    (suffix-stripped names). A row unmatched by **all three** is dropped and
+    listed in ``unmatched``. Nominatim never overrides a GA or OSM hit.
 
     ``matched_layer`` is an EPSG:4326 GeoDataFrame (one point per matched
-    substation) carrying ``coord_source`` ("ga"/"osm") and the boolean
-    ``osm_low_confidence``; ``unmatched`` is a DataFrame of the dropped rows;
-    ``stats`` carries the per-source match counts, the combined match rate and
-    collision count for reporting/provenance.
+    substation) carrying ``coord_source`` ("ga"/"osm"/"nominatim") and the
+    booleans ``osm_low_confidence`` and ``nominatim_low_confidence`` (the latter
+    always True for Nominatim hits — a suburb centroid is never GA/Overpass-grade
+    precision); ``unmatched`` is a DataFrame of the dropped rows; ``stats``
+    carries the per-source match counts, the combined match rate and collision
+    count for reporting/provenance.
 
-    All three sources are required: a missing GA, OSM or load file raises
-    ``FileNotFoundError`` (no silent single-source fallback).
+    All four sources are required: a missing GA, OSM, Nominatim or load file
+    raises ``FileNotFoundError`` (no silent single-/two-source fallback).
     """
     load_csv = Path(load_csv)
     ga_geojson = Path(ga_geojson)
     osm_geojson = Path(osm_geojson)
+    nominatim_geojson = Path(nominatim_geojson)
     if not load_csv.exists():
         raise FileNotFoundError(f"Load CSV is missing: {load_csv}")
     if not ga_geojson.exists():
         raise FileNotFoundError(f"GA substation layer is missing: {ga_geojson}")
     if not osm_geojson.exists():
         raise FileNotFoundError(f"OSM substation layer is missing: {osm_geojson}")
+    if not nominatim_geojson.exists():
+        raise FileNotFoundError(
+            f"Nominatim substation layer is missing: {nominatim_geojson}"
+        )
 
     load = pd.read_csv(load_csv)
     if config.LOAD_MVA_COLUMN not in load.columns:
@@ -306,14 +377,17 @@ def geocode(
         )
     ga = gpd.read_file(ga_geojson)
     osm = gpd.read_file(osm_geojson)
+    nominatim = gpd.read_file(nominatim_geojson)
     ga_lookup = _build_ga_lookup(ga)
     osm_lookup = _build_osm_lookup(osm)
+    nominatim_lookup = _build_nominatim_lookup(nominatim)
 
     matched_records: list[dict] = []
     unmatched_rows: list[dict] = []
     collisions_hit = 0
     matched_ga = 0
     matched_osm = 0
+    matched_nominatim = 0
     osm_low_confidence_count = 0
     # Deterministic order: by dnsp then substation_name so the output layer and
     # any floating-point downstream are reproducible.
@@ -347,6 +421,7 @@ def geocode(
                     "longitude": ga_hit["longitude"],
                     "coord_source": "ga",
                     "osm_low_confidence": False,
+                    "nominatim_low_confidence": False,
                 }
             )
             continue
@@ -383,12 +458,41 @@ def geocode(
                     "longitude": osm_hit["longitude"],
                     "coord_source": "osm",
                     "osm_low_confidence": low_conf,
+                    "nominatim_low_confidence": False,
                 }
             )
             continue
 
-        # --- unmatched by both -> dropped ---
-        reason = "no GA or OSM substation name match"
+        # --- Nominatim third (PLACE centroid; GA+OSM miss only) ---
+        # Keys are built the same way as the OSM side (suffix-stripped), so reuse
+        # the OSM-normalised name. A Nominatim hit is a suburb/locality centroid,
+        # never GA/Overpass precision, so it is ALWAYS flagged low-confidence and
+        # never overrides a GA or OSM hit (reached only after both missed).
+        nominatim_hit = nominatim_lookup.get(osm_norm)
+        if nominatim_hit is not None:
+            matched_nominatim += 1
+            matched_records.append(
+                {
+                    "dnsp": row["dnsp"],
+                    "substation_name": row["substation_name"],
+                    "normalised_name": osm_norm,
+                    config.LOAD_MVA_COLUMN: float(row[config.LOAD_MVA_COLUMN]),
+                    "max_demand_unit": row.get("max_demand_unit"),
+                    "data_year": row.get("data_year"),
+                    "ga_feature_name": nominatim_hit["display_name"],
+                    "ga_locality": None,
+                    "ga_voltage_kv": None,
+                    "latitude": nominatim_hit["latitude"],
+                    "longitude": nominatim_hit["longitude"],
+                    "coord_source": "nominatim",
+                    "osm_low_confidence": False,
+                    "nominatim_low_confidence": True,
+                }
+            )
+            continue
+
+        # --- unmatched by all three -> dropped ---
+        reason = "no GA, OSM or Nominatim match"
         if osm_hit is not None:
             # Present in OSM but rejected by the operator gate.
             reason = "OSM operator disagrees with DNSP (rejected)"
@@ -420,6 +524,7 @@ def geocode(
         "longitude",
         "coord_source",
         "osm_low_confidence",
+        "nominatim_low_confidence",
     ]
     matched_df = pd.DataFrame(matched_records, columns=matched_columns)
     matched_layer = gpd.GeoDataFrame(
@@ -434,12 +539,14 @@ def geocode(
         "matched": int(len(matched_layer)),
         "matched_ga": int(matched_ga),
         "matched_osm": int(matched_osm),
+        "matched_nominatim": int(matched_nominatim),
         "osm_low_confidence": int(osm_low_confidence_count),
         "unmatched": int(len(unmatched_df)),
         "match_rate": round(len(matched_layer) / len(load), 4) if len(load) else 0.0,
         "collisions_resolved": int(collisions_hit),
         "ga_points": int(len(ga)),
         "osm_points": int(len(osm)),
+        "nominatim_points": int(len(nominatim)),
     }
     return matched_layer, unmatched_df, stats
 
@@ -448,19 +555,24 @@ def main() -> int:
     load_csv = config.OUTPUT_DIR / "load" / "nsw_zone_substation_max_demand.csv"
     ga_geojson = config.GA_SUBSTATIONS_PATH
     osm_geojson = config.OSM_SUBSTATIONS_PATH
+    nominatim_geojson = config.NOMINATIM_SUBSTATIONS_PATH
     out_gpkg = config.LOAD_WEIGHTS_PATH
     unmatched_csv = config.OUTPUT_DIR / "load" / "unmatched_substations.csv"
 
     print(
         f"Geocoding {load_csv.name} against {ga_geojson.name} (primary) "
-        f"+ {osm_geojson.name} (second) ..."
+        f"+ {osm_geojson.name} (second) + {nominatim_geojson.name} (third) ..."
     )
-    matched_layer, unmatched_df, stats = geocode(load_csv, ga_geojson, osm_geojson)
+    matched_layer, unmatched_df, stats = geocode(
+        load_csv, ga_geojson, osm_geojson, nominatim_geojson
+    )
     print(
         f"  matched {stats['matched']}/{stats['load_rows']} "
         f"({stats['match_rate'] * 100:.1f}%) "
-        f"(GA {stats['matched_ga']} + OSM {stats['matched_osm']}); "
+        f"(GA {stats['matched_ga']} + OSM {stats['matched_osm']} "
+        f"+ Nominatim {stats['matched_nominatim']}); "
         f"OSM low-confidence {stats['osm_low_confidence']}; "
+        f"Nominatim (all low-confidence PLACE centroids) {stats['matched_nominatim']}; "
         f"unmatched {stats['unmatched']}; "
         f"collisions resolved {stats['collisions_resolved']}"
     )
@@ -496,6 +608,7 @@ def main() -> int:
     sha = hashlib.sha256(out_gpkg.read_bytes()).hexdigest()
     ga_sha = hashlib.sha256(ga_geojson.read_bytes()).hexdigest()
     osm_sha = hashlib.sha256(osm_geojson.read_bytes()).hexdigest()
+    nominatim_sha = hashlib.sha256(nominatim_geojson.read_bytes()).hexdigest()
     manifest_path = config.OUTPUT_DIR / "metadata" / config.FEATURE_MANIFEST_NAME
     manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
     manifest[out_gpkg.name] = {
@@ -508,6 +621,7 @@ def main() -> int:
         "matched": stats["matched"],
         "matched_ga": stats["matched_ga"],
         "matched_osm": stats["matched_osm"],
+        "matched_nominatim": stats["matched_nominatim"],
         "osm_low_confidence": stats["osm_low_confidence"],
         "unmatched": stats["unmatched"],
         "load_rows": stats["load_rows"],
@@ -519,6 +633,11 @@ def main() -> int:
             "osm_substations_nsw.geojson": {
                 "sha256": osm_sha,
                 "role": "second",
+                "licence": "ODbL 1.0 - (c) OpenStreetMap contributors",
+            },
+            "nominatim_substations_nsw.geojson": {
+                "sha256": nominatim_sha,
+                "role": "third",
                 "licence": "ODbL 1.0 - (c) OpenStreetMap contributors",
             },
         },

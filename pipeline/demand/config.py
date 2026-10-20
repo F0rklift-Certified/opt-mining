@@ -61,6 +61,18 @@ GA_SUBSTATIONS_PATH = PROJECT_ROOT / "DATA" / "infrastructure" / "substations" /
 # (urban distribution zone substations). Licence: ODbL 1.0, (c) OpenStreetMap
 # contributors; attribution required wherever these coordinates are surfaced.
 OSM_SUBSTATIONS_PATH = PROJECT_ROOT / "DATA" / "infrastructure" / "substations" / "osm_substations_nsw.geojson"
+# Nominatim (OSM place-geocoding) centroids for the GA+Overpass-unmatched NSW
+# substations (ODbL, built by scripts/_acquire_nominatim_substations_nsw.py).
+# Used by pipeline.demand.geocode_load as the THIRD coordinate source for load
+# rows neither GA nor the OSM power=substation layer carries. Nominatim returns a
+# SUBURB/LOCALITY CENTROID (a few km off the substation), not a precise point, so
+# every match from this tier is flagged lower-confidence (coord_source='nominatim',
+# nominatim_low_confidence=True) and never mixed with GA/Overpass precision. It is
+# only tolerable because load_weighted uses a 15 km decay / 40 km radius. Frozen
+# snapshot read at run time; the public endpoint is never hit from the pipeline.
+# Licence: ODbL 1.0, (c) OpenStreetMap contributors; attribution required wherever
+# these coordinates are surfaced.
+NOMINATIM_SUBSTATIONS_PATH = PROJECT_ROOT / "DATA" / "infrastructure" / "substations" / "nominatim_substations_nsw.geojson"
 # Geocoded real zone-substation load points (built by geocode_load from the NSW
 # DNSP DAPR max-demand extract). Stored EPSG:4326; carries `max_demand` (MVA).
 LOAD_WEIGHTS_PATH = PROJECT_ROOT / "DATA" / "electricity-demand" / "load" / "nsw_zone_substation_load_points.gpkg"

@@ -19,5 +19,48 @@
     "crs": "EPSG:4326",
     "licence": "ODbL 1.0 - (c) OpenStreetMap contributors",
     "generated_by": "scripts/_acquire_osm_substations_nsw.py"
+  },
+  "nominatim_substations_nsw.geojson": {
+    "dataset": "Nominatim (OSM place-geocoding) centroids for GA+Overpass-unmatched NSW substations",
+    "source": "https://nominatim.openstreetmap.org/search",
+    "query_params": {
+      "format": "json",
+      "limit": "1",
+      "countrycodes": "au",
+      "q": "<substation_name> NSW (one name at a time; base-name fallback retry)"
+    },
+    "usage_policy": "https://operations.osmfoundation.org/policies/nominatim/",
+    "usage_policy_note": "Public Nominatim endpoint: <= 1 request/second, descriptive User-Agent required, results cached as this frozen snapshot (never re-queried at run time). One-off smaller bulk task per the policy.",
+    "retrieved_utc": "2026-10-20T01:58:57+00:00",
+    "features": 55,
+    "names_queried": 87,
+    "needs_review": 28,
+    "local_bytes": 21730,
+    "sha256": "e49f39e5a015a934e818f703395420e0c15cc6f777b8cf4229dcf2980a51681b",
+    "crs": "EPSG:4326",
+    "safeguards": {
+      "nsw_bbox_epsg4326": [
+        141.01125,
+        -37.51125,
+        153.66125,
+        -28.16125
+      ],
+      "accept_classes": [
+        "boundary",
+        "place"
+      ],
+      "reject_classes": [
+        "amenity",
+        "highway",
+        "railway",
+        "tourism",
+        "waterway"
+      ],
+      "importance_floor": 0.15,
+      "importance_review_margin": 0.05
+    },
+    "licence": "ODbL 1.0 - (c) OpenStreetMap contributors",
+    "tier": "third (lower-confidence PLACE centroid; nominatim_low_confidence=True)",
+    "generated_by": "scripts/_acquire_nominatim_substations_nsw.py"
   }
 }

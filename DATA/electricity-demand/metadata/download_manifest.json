@@ -6,17 +6,18 @@
     "derived_proxy": true
   },
   "nsw_zone_substation_load_points.gpkg": {
-    "sha256": "7764bcfc9f08010a2666f3d1aff4a03dfed3c62fcb10bed9ed612c8f94ecb9b4",
-    "bytes": 204800,
-    "utc": "2026-10-20T00:13:12+00:00",
+    "sha256": "74f48d9fef7f700d5ec23ef3c3f758d6c9804434d2cde3c193a87d625abe107a",
+    "bytes": 221184,
+    "utc": "2026-10-20T02:06:46+00:00",
     "derived_proxy": true,
     "generated_by": "pipeline.demand.geocode_load",
-    "match_rate": 0.8398,
-    "matched": 456,
+    "match_rate": 0.9411,
+    "matched": 511,
     "matched_ga": 296,
     "matched_osm": 160,
+    "matched_nominatim": 55,
     "osm_low_confidence": 21,
-    "unmatched": 87,
+    "unmatched": 32,
     "load_rows": 543,
     "sources": {
       "ga_substations_2026_nsw.geojson": {
@@ -26,6 +27,11 @@
       "osm_substations_nsw.geojson": {
         "sha256": "87ca48f631d3e00016b269ca51769f5226f2807079622781d59a6e40c5e02eb8",
         "role": "second",
+        "licence": "ODbL 1.0 - (c) OpenStreetMap contributors"
+      },
+      "nominatim_substations_nsw.geojson": {
+        "sha256": "e49f39e5a015a934e818f703395420e0c15cc6f777b8cf4229dcf2980a51681b",
+        "role": "third",
         "licence": "ODbL 1.0 - (c) OpenStreetMap contributors"
       }
     }

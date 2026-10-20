@@ -89,6 +89,29 @@ def _write_osm(tmp_path: Path, rows: list[dict]) -> Path:
     return path
 
 
+def _write_nominatim(tmp_path: Path, rows: list[dict]) -> Path:
+    """rows: queried_name, display_name, osm_class, osm_type, importance, needs_review, lon, lat.
+
+    The two-source regression tests pass an EMPTY Nominatim layer so the third
+    tier never fires; the geocoder still requires the (now third) source to exist.
+    """
+    path = tmp_path / "nominatim.geojson"
+    cols = ["queried_name", "display_name", "osm_class", "osm_type", "importance", "needs_review"]
+    if rows:
+        gdf = gpd.GeoDataFrame(
+            [{c: r.get(c) for c in cols} for r in rows],
+            geometry=[Point(r["lon"], r["lat"]) for r in rows],
+            crs="EPSG:4326",
+        )
+    else:
+        gdf = gpd.GeoDataFrame(
+            {c: [] for c in cols},
+            geometry=[], crs="EPSG:4326",
+        )
+    gdf.to_file(path, driver="GeoJSON")
+    return path
+
+
 def _load_row(name, dnsp="ausgrid", demand=10.0):
     return {
         "dnsp": dnsp,
@@ -121,7 +144,8 @@ def test_two_source_precedence_ga_first_osm_second_drop_rest(tmp_path):
             {"name": "Campsie Zone Substation", "operator": "Ausgrid", "substation": "zone", "lon": 151.1, "lat": -33.9},
         ],
     )
-    matched, unmatched, stats = geocode(load, ga, osm)
+    nominatim = _write_nominatim(tmp_path, [])
+    matched, unmatched, stats = geocode(load, ga, osm, nominatim)
 
     by_name = matched.set_index("substation_name")
     # GA takes precedence for the row present in both (GA coords, not OSM's).
@@ -155,8 +179,9 @@ def test_duplicate_osm_names_resolve_deterministically(tmp_path):
             {"name": "Campsie Substation", "operator": "Ausgrid", "substation": "zone", "lon": 151.05, "lat": -33.95},
         ],
     )
-    first, _, _ = geocode(load, ga, osm)
-    second, _, _ = geocode(load, ga, osm)
+    nominatim = _write_nominatim(tmp_path, [])
+    first, _, _ = geocode(load, ga, osm, nominatim)
+    second, _, _ = geocode(load, ga, osm, nominatim)
     chosen = first.set_index("substation_name").loc["Campsie"]
     assert chosen["latitude"] == pytest.approx(-33.95)
     assert chosen["longitude"] == pytest.approx(151.05)
@@ -180,7 +205,8 @@ def test_operator_disagreement_is_rejected_not_trusted(tmp_path):
         tmp_path,
         [{"name": "Someplace Zone Substation", "operator": "Essential Energy", "substation": "zone", "lon": 149.0, "lat": -32.0}],
     )
-    matched, unmatched, stats = geocode(load, ga, osm)
+    nominatim = _write_nominatim(tmp_path, [])
+    matched, unmatched, stats = geocode(load, ga, osm, nominatim)
     assert "Someplace" not in set(matched["substation_name"])
     assert stats["matched_osm"] == 0
     row = unmatched[unmatched["substation_name"] == "Someplace"].iloc[0]
@@ -194,7 +220,8 @@ def test_absent_operator_is_accepted_but_flagged_low_confidence(tmp_path):
         tmp_path,
         [{"name": "Someplace Zone Substation", "operator": None, "substation": "zone", "lon": 149.0, "lat": -32.0}],
     )
-    matched, _, stats = geocode(load, ga, osm)
+    nominatim = _write_nominatim(tmp_path, [])
+    matched, _, stats = geocode(load, ga, osm, nominatim)
     row = matched.set_index("substation_name").loc["Someplace"]
     assert row["coord_source"] == "osm"
     assert bool(row["osm_low_confidence"]) is True
@@ -208,7 +235,8 @@ def test_matching_operator_is_high_confidence(tmp_path):
         tmp_path,
         [{"name": "Campsie Zone Substation", "operator": "Ausgrid", "substation": "zone", "lon": 151.1, "lat": -33.9}],
     )
-    matched, _, stats = geocode(load, ga, osm)
+    nominatim = _write_nominatim(tmp_path, [])
+    matched, _, stats = geocode(load, ga, osm, nominatim)
     row = matched.set_index("substation_name").loc["Campsie"]
     assert row["coord_source"] == "osm"
     assert bool(row["osm_low_confidence"]) is False
@@ -224,5 +252,6 @@ def test_missing_osm_source_raises(tmp_path):
     load = _write_load_csv(tmp_path, [_load_row("Boggabri North")])
     ga = _write_ga(tmp_path, [{"feature_name": "Boggabri North", "locality": "X", "voltage_kv": 132, "lon": 150.0, "lat": -30.0}])
     missing_osm = tmp_path / "does_not_exist.geojson"
+    nominatim = _write_nominatim(tmp_path, [])
     with pytest.raises(FileNotFoundError, match="OSM substation layer is missing"):
-        geocode(load, ga, missing_osm)
+        geocode(load, ga, missing_osm, nominatim)
