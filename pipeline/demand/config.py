@@ -96,9 +96,12 @@ STORAGE_CRS = "EPSG:4326"
 COMPUTATION_CRS = "EPSG:3577"
 # Allocation methods: "uniform" (legacy equal-share), "urban_weighted" (ABS UCL
 # urban-footprint weighting) and "load_weighted" (real NSW zone-substation
-# max-demand distance-decay). urban_weighted stays the default; load_weighted is
-# opt-in until the real-data surface is validated by the user.
-DEFAULT_ALLOCATION_METHOD = "urban_weighted"
+# max-demand distance-decay). load_weighted is the default: it is the real-data
+# surface (geocoded NSW DNSP DAPR zone-substation max demand across all three
+# DNSPs) and it removes the degenerate urban-max normalisation artefact that
+# urban_weighted injected into the top-100 (44 out-of-state QLD1 non-REZ cells).
+# uniform and urban_weighted remain selectable via --allocation-method.
+DEFAULT_ALLOCATION_METHOD = "load_weighted"
 ALLOCATION_METHODS = ("uniform", "urban_weighted", "load_weighted")
 CONFIDENCE_LEVELS = ("high", "medium", "low")
 

@@ -65,12 +65,12 @@
       "geojson_file": "DATA/shortlist/sprint1_shortlist_20261021.geojson",
       "stage": "shortlist",
       "product_type": "derived",
-      "run_timestamp": "2026-10-21T01:43:09+00:00",
-      "pipeline_version": "86704a4e19bda2a9798b4e73307d0602b2d76739-dirty",
-      "sha256_csv": "77a23312e20c2403d5fe7dd0f0132bb97b254f3e1db059411f21b5f6543852f9",
-      "sha256_geojson": "32ee230e7410afb04db9646c70ee0680450ad5e44e3f9c60704fb7d752f4d78a",
-      "bytes_csv": 1724,
-      "bytes_geojson": 6498,
+      "run_timestamp": "2026-10-21T12:44:50+00:00",
+      "pipeline_version": "7fb987eaa587d684c94a1e260e167f04f9dfcd8a-dirty",
+      "sha256_csv": "3746cc5de7b8351600bbf379339b14fb6a6cd87928d70c447de46e5147a4006b",
+      "sha256_geojson": "0dfc7a94c9b4da759e72aab3098902f2fb526b6b4ebffc681200255e98002480",
+      "bytes_csv": 1734,
+      "bytes_geojson": 6508,
       "effective_top_n": 20,
       "n_shortlisted": 20,
       "inputs": [
@@ -78,8 +78,8 @@
           "name": "scored_table",
           "path": "DATA/scoring/optmining_suitability-score_2026_nsw.gpkg",
           "layer": "suitability_score",
-          "sha256": "bdc4de81f85a62e0e227572bc08d7ea7f6586a25d6fecc267978e4442214eec8",
-          "bytes": 15613952
+          "sha256": "3149ff9d47f5379592b5acadc3fe18f63621ef9a7fdf887ec75f7140dcb992a7",
+          "bytes": 15785984
         },
         {
           "name": "analysis_grid",

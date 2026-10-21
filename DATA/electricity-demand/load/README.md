@@ -1,7 +1,7 @@
 # NSW zone-substation load data — geocoding & the `load_weighted` demand method
 
 This directory holds the real NSW DNSP zone-substation **maximum-demand** data and
-the geocoded load-point layer that drives the opt-in `load_weighted` demand
+the geocoded load-point layer that drives the default `load_weighted` demand
 allocation method (`pipeline.demand.feature`). See **`SOURCES.md`** in this
 directory for the full acquisition log, extraction method, per-row caveats,
 10-row verification and the licence findings — this README only summarises the
@@ -177,8 +177,10 @@ capacity and not a guarantee of offtake**.
 # Nominatim usage policy. Normally you keep the committed snapshot and skip this.
 python scripts/_acquire_nominatim_substations_nsw.py
 python -m pipeline.demand.geocode_load                     # build the load-point layer (GA + OSM + Nominatim)
-python -m pipeline.demand --only feature --allocation-method load_weighted
+python -m pipeline.demand --only feature                   # load_weighted is now the default
 ```
 
-`load_weighted` is **opt-in**; the default allocation method stays
-`urban_weighted` until the real-load surface is validated.
+`load_weighted` is the **default** allocation method: running the demand feature
+stage with no `--allocation-method` flag produces the load_weighted surface.
+`urban_weighted` (ABS UCL urban footprint) and `uniform` remain selectable via
+`--allocation-method urban_weighted` / `--allocation-method uniform`.

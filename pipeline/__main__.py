@@ -240,12 +240,17 @@ def parse_args() -> argparse.Namespace:
             "(default: all 5 — NSW1,QLD1,SA1,TAS1,VIC1)"
         ),
     )
+    from .demand import config as _demand_config
     parser.add_argument(
         "--allocation-method",
         type=str,
-        default="uniform",
-        choices=["uniform"],
-        help="Demand allocation method for demand.feature (default: uniform)",
+        default=None,
+        choices=list(_demand_config.ALLOCATION_METHODS),
+        help=(
+            "Demand allocation method for demand.feature "
+            f"(default: the config default, {_demand_config.DEFAULT_ALLOCATION_METHOD}). "
+            "uniform and urban_weighted remain selectable."
+        ),
     )
 
     # Wind options

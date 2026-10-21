@@ -103,8 +103,9 @@ OPTIONAL_CONTEXT_DEFINITIONS: dict[str, OptionalContextColumn] = {
             "whether the cell's demand signal rode a low-confidence geocoded "
             "substation. 'low' = a Nominatim/OSM low-confidence load point lies "
             "within the search radius; 'high' = contributing points are all "
-            "precise (or none in range); 'n/a' = not applicable (no load points, "
-            "e.g. the urban_weighted default). Metadata only — it never affects "
+            "precise (or none in range); 'n/a' = not applicable (outside every "
+            "NEM region, or a method with no load points such as urban_weighted/"
+            "uniform). Metadata only — it never affects "
             "the suitability score, the rank or shortlist membership."
         ),
         source=(
