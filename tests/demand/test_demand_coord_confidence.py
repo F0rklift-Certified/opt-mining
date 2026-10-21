@@ -124,6 +124,35 @@ def test_tier_values_are_within_vocabulary():
     assert set(tier.unique()) <= set(demand_config.DEMAND_COORD_CONFIDENCE_LEVELS)
 
 
+def test_zero_mva_low_point_does_not_flag_low():
+    """(a) A zero/negative-MVA low-confidence point adds no load weight, so it
+    must NOT flag a cell 'low' — matching the MVA>0 filter
+    ``compute_load_cell_weights`` applies (e.g. the documented Pindari=0 row)."""
+    grid = _grid([("zero_mva", 0.0, 0.0), ("neg_mva", 0.0, 0.0)])
+    # Both load points sit on the cells and ARE low-confidence, but carry no
+    # (or negative) demand, so neither contributes decay weight.
+    load = _load_points([(0.0, 0.0, True, False), (0.0, 0.0, True, False)])
+    load["max_demand"] = [0.0, -5.0]
+    source = pd.Series(["NSW1", "NSW1"], index=grid.index)
+    tier = compute_demand_coord_confidence(grid, load, source)
+    # No MVA>0 point contributes, so the only low-confidence points are inert:
+    # the cells stay 'high', not 'low'.
+    assert tier.loc[0] == demand_config.DEMAND_COORD_CONFIDENCE_HIGH
+    assert tier.loc[1] == demand_config.DEMAND_COORD_CONFIDENCE_HIGH
+
+
+def test_positive_mva_low_point_still_flags_low():
+    """(a) The MVA filter must not suppress a genuine (MVA>0) low-confidence
+    contributor: a positive-MVA low-confidence point still flags the cell 'low'."""
+    grid = _grid([("mixed", 0.0, 0.0)])
+    # A zero-MVA low point (inert) and a positive-MVA low point (contributes).
+    load = _load_points([(0.0, 0.0, True, False), (0.0, 0.0, True, False)])
+    load["max_demand"] = [0.0, 12.0]
+    source = pd.Series(["NSW1"], index=grid.index)
+    tier = compute_demand_coord_confidence(grid, load, source)
+    assert tier.loc[0] == demand_config.DEMAND_COORD_CONFIDENCE_LOW
+
+
 def test_tier_is_independent_of_demand_proxy_values():
     """(c) The tier depends only on coordinate provenance, not on any proxy value.
 

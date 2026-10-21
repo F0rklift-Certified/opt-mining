@@ -332,8 +332,12 @@ def compute_demand_coord_confidence(
     Definition (conservative; see ``config.DEMAND_COORD_CONFIDENCE_COLUMN``):
 
     - ``"low"`` — at least one low-confidence load point (``nominatim_low_confidence``
-      OR ``osm_low_confidence``) lies within ``config.LOAD_SEARCH_RADIUS_M`` of the
-      cell centroid (it contributes to the cell's load weight).
+      OR ``osm_low_confidence``) with ``max_demand`` (MVA) > 0 lies within
+      ``config.LOAD_SEARCH_RADIUS_M`` of the cell centroid (it contributes to the
+      cell's load weight). The same ``MVA > 0`` filter that
+      :func:`compute_load_cell_weights` applies is applied here, so a
+      zero/negative-MVA point (e.g. the documented ``Pindari = 0`` row) that adds
+      no decay weight can never flag a cell ``low``.
     - ``"high"`` — an assigned cell (``source_region`` not null) whose
       contributing load points are all precise, or which has no load point in
       range (it never rode a low-confidence point).
@@ -354,10 +358,21 @@ def compute_demand_coord_confidence(
     if len(load_points_3577) == 0:
         return tier
 
+    # Match the MVA filter compute_load_cell_weights uses: a point only
+    # contributes to a cell's load weight if its max demand is > 0, so a
+    # zero/negative-MVA point (e.g. the documented Pindari = 0 row) must not be
+    # able to flag a cell "low". Points missing the MVA column are retained
+    # (an older/partial layer degrades conservatively rather than dropping rows).
+    load = load_points_3577.copy()
+    if config.LOAD_MVA_COLUMN in load.columns:
+        mva = pd.to_numeric(load[config.LOAD_MVA_COLUMN], errors="coerce")
+        load = load[mva.fillna(1.0) > 0.0]
+    if len(load) == 0:
+        return tier
+
     # Flag each load point low-confidence if EITHER flag column is True. A
     # missing flag column is treated as all-False (precise), so an older layer
     # without the flags degrades to "high" everywhere rather than erroring.
-    load = load_points_3577.copy()
     low_flag = pd.Series(False, index=load.index)
     for col in config.LOAD_LOW_CONFIDENCE_COLUMNS:
         if col in load.columns:

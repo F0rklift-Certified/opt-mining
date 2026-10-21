@@ -51,7 +51,7 @@ features:
   demand_proxy:
     weight: 0.15
     resolution: 0.5
-    resolution_basis: "spec 4.2 - one NEM-region annual mean allocated UNIFORMLY to every cell (region is far coarser than the cell)"
+    resolution_basis: "spec 4.2 - one NEM-region annual mean distributed across cells by urban footprint (ABS UCL 2021), so it varies within a region (urban > rural) but the source magnitude is still a region aggregate far coarser than the cell"
     limitation: 0.75
     limitation_basis: "spec 4.2 / 4.2.1 - single year 2025-26, must be labelled 'estimated'; spec 6 temporal gap vs wind 2008-2017"
     note: "Missing demand proxy"

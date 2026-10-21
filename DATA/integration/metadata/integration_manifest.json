@@ -4,8 +4,8 @@
       "output_file": "DATA/integration/optmining_integrated-features_2026_nsw.gpkg",
       "csv_file": "DATA/integration/optmining_integrated-features_2026_nsw.csv",
       "stage": "integration",
-      "generated_utc": "2026-10-21T00:57:20+00:00",
-      "git_commit": "19057559b8004b93c3a55ac4f69d7c1e30833b12-dirty",
+      "generated_utc": "2026-10-21T01:40:18+00:00",
+      "git_commit": "86704a4e19bda2a9798b4e73307d0602b2d76739-dirty",
       "rows": 47311,
       "columns": [
         "cell_id",
@@ -40,7 +40,7 @@
         "confidence_score",
         "confidence_notes"
       ],
-      "sha256_gpkg": "fd0a21df460a38f2761ff2348bb0da4a8fb15193c9f0f952e2ade11c1fcb30ed",
+      "sha256_gpkg": "c30a13a09abc1c5ad1abcb6ccd855a617f6e64defa6bbd36a2055d347e0c6a4e",
       "sha256_csv": "7ac56c03bb2cb05943b8b5f7ed80296ceb7ff25adbff2a35c3c9f4c5384b86bc",
       "bytes_gpkg": 26091520,
       "bytes_csv": 17741942,
@@ -60,7 +60,7 @@
           "layer": "wind_features",
           "rows": 47311,
           "crs": "EPSG:4326",
-          "sha256": "2af85ff5f12a0fa66b11e47c36872c651d537d89f4a79c1c1cf4cd739aac8566",
+          "sha256": "606e5a686982c11fe06de92cb4de22d1e004bed5a4bc0d30408896cb0b5a25e9",
           "bytes": 13803520
         },
         {
@@ -111,7 +111,7 @@
       ],
       "confidence_weights": {
         "path": "pipeline/integration/confidence_weights.yaml",
-        "sha256": "3b34c47b8da6260b53245397491b0f60ed3df68d47434458ed93495295922f93",
+        "sha256": "2cd31b17ae28cff604aa6416079275678b137f4b866ee4e1e806088895e1eab8",
         "version": "1.0"
       }
     }
