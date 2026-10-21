@@ -65,12 +65,19 @@ FROZEN_ROWS = 47_311
 FROZEN_ELIGIBLE_ROWS = 32_525
 FROZEN_EXCLUDED_ROWS = 14_786
 
+# Reviewed snapshot update — demand-baseline rebuild (demand-rebuild-confidence).
+# The committed integrated/scored baseline was rebuilt from the legacy `uniform`
+# demand surface (demand_proxy constant 1.0) to the current `urban_weighted`
+# default, so the demand criterion now carries a real surface. The eligible
+# population and the wind/grid-led scenario tops are unchanged (demand's 0.15
+# weight barely moves the top, per .agents/tasks/demand-method-comparison), but
+# the baseline scores and top-5 shift from the stale uniform values below.
 EXPECTED_BASELINE_TOP_FIVE = (
-    ("S31.186_E151.686", 0.9205203606505237),
-    ("S32.436_E149.086", 0.9197696937823575),
-    ("S30.186_E151.636", 0.9181371600411556),
-    ("S32.436_E149.036", 0.9179498613593562),
-    ("S32.486_E149.086", 0.9170993549990476),
+    ("S28.536_E151.936", 0.7790254632373685),
+    ("S28.736_E152.036", 0.7730150299762016),
+    ("S31.186_E151.686", 0.7705203606505237),
+    ("S32.436_E149.086", 0.7697696937823575),
+    ("S30.186_E151.636", 0.7681371600411556),
 )
 EXPECTED_WIND_LED_TOP_FIVE = (
     "S31.186_E151.686",
@@ -86,9 +93,9 @@ EXPECTED_GRID_LED_TOP_FIVE = (
     "S30.086_E151.736",
     "S30.086_E151.686",
 )
-EXPECTED_SCENARIO_RANK_CHANGES = 32_519
+EXPECTED_SCENARIO_RANK_CHANGES = 32_523
 EXPECTED_EXPLANATION_SHA256 = (
-    "429b704b1d25376b2c731755e0b93719a119600dec2f9dd298d5549e70a5a691"
+    "5196b5dd490443d3b9f2f2d0b1a0d2500f64201c46411c5f2687906483906dda"
 )
 TOLERANCE = 1e-12
 

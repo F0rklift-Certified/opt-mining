@@ -35,6 +35,7 @@ def output_columns(weights: WeightsConfig) -> list[str]:
     return [
         config.CELL_ID_COLUMN,
         *config.CARRIED_COLUMNS,
+        *config.CARRIED_CONTEXT_COLUMNS,
         config.SCORE_COLUMN,
         config.RANK_COLUMN,
         config.OUTPUT_CONFIDENCE_COLUMN,
@@ -59,6 +60,12 @@ def build_scored_table(
     table[config.CELL_ID_COLUMN] = features[config.CELL_ID_COLUMN]
 
     for column in config.CARRIED_COLUMNS:
+        if column in features.columns:
+            table[column] = features[column]
+
+    # Informational context columns (metadata only; never scored/ranked),
+    # carried verbatim WHERE present so an older integrated table still works.
+    for column in config.CARRIED_CONTEXT_COLUMNS:
         if column in features.columns:
             table[column] = features[column]
 

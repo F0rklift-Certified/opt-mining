@@ -282,7 +282,7 @@ GRID_COLUMNS = ("cell_id", "centroid_lat", "centroid_lon", "area_km2")
 BASE_COLUMNS = [
     "cell_id", "centroid_lat", "centroid_lon", "area_km2",
     "wind_speed", "wind_confidence",
-    "demand_proxy", "source_region", "demand_confidence",
+    "demand_proxy", "source_region", "demand_confidence", "demand_coord_confidence",
     "dist_transmission_km", "dist_substation_km", "dist_connection_km",
     "inside_rez", "rez_name", "infra_confidence",
     "elevation_m", "slope_deg", "tri", "land_use", "protected_area",
@@ -321,10 +321,54 @@ def _normalise_bool(series: pd.Series) -> pd.Series:
 # ---------------------------------------------------------------------------
 
 
+def read_demand_coord_confidence(path: Path, grid_ids: set[str]) -> pd.DataFrame:
+    """Read the demand coordinate-confidence sidecar as a `cell_id,tier` frame.
+
+    The demand stage writes this sidecar (surface-only metadata) ALONGSIDE the
+    feature GeoPackage, so the gpkg bytes never change. Halts loudly (naming
+    the stage) on a missing file, a missing/duplicate/null `cell_id`, a missing
+    tier column, or any tier value outside the vocabulary — the integration
+    stage never fabricates the tier. Rows not covering a grid cell are ignored
+    by the left join; grid cells absent from the sidecar simply get null (then
+    the enum check would flag a null, so a complete sidecar is required).
+    """
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"demand.feature coordinate-confidence sidecar not found: {path} — run "
+            f"`python -m pipeline --only demand` (or `python -m pipeline.demand "
+            f"--only feature`) first; it is written alongside the demand feature table."
+        )
+    # keep_default_na=False so the tier literal "n/a" is read as the string
+    # "n/a" (its vocabulary value) and NOT coerced to a pandas NaN.
+    frame = pd.read_csv(path, dtype={"cell_id": str}, keep_default_na=False)
+    column = config.DEMAND_COORD_CONFIDENCE_COLUMN
+    if "cell_id" not in frame.columns or column not in frame.columns:
+        raise ValueError(
+            f"{path} must have columns ['cell_id', {column!r}] (found {list(frame.columns)})"
+        )
+    n_null = int(frame["cell_id"].isna().sum())
+    if n_null:
+        raise ValueError(f"{path} has {n_null} null cell_id value(s)")
+    dups = frame["cell_id"][frame["cell_id"].duplicated()].unique().tolist()
+    if dups:
+        raise ValueError(
+            f"{path} has {len(dups)} duplicate cell_id value(s) (e.g. {dups[:5]})"
+        )
+    outside = sorted(set(frame[column].dropna()) - set(config.DEMAND_COORD_CONFIDENCE_LEVELS))
+    if outside:
+        raise ValueError(
+            f"{path} has {column} value(s) {outside} outside the vocabulary "
+            f"{config.DEMAND_COORD_CONFIDENCE_LEVELS}"
+        )
+    return frame[["cell_id", column]]
+
+
 def merge_layers(
     grid: gpd.GeoDataFrame,
     layers: dict[str, pd.DataFrame],
     specs: Sequence[LayerSpec],
+    demand_coord_confidence: pd.DataFrame | None = None,
 ) -> tuple[gpd.GeoDataFrame, list[dict]]:
     """
     Left-join every layer onto the grid by `cell_id`, in spec order.
@@ -378,6 +422,27 @@ def merge_layers(
             "null_counts_upstream": null_upstream,
             "null_counts_after": {t: int(table[t].isna().sum()) for t in spec.columns},
         })
+
+    # Informational demand coordinate-confidence tier (surface-only metadata).
+    # Left-joined on cell_id like every other column; it is NOT a scored feature
+    # (excluded from SCORED_FEATURE_COLUMNS), so it never enters n_missing_features,
+    # the S1-09 confidence score, the composite score or the ranking.
+    coord_col = config.DEMAND_COORD_CONFIDENCE_COLUMN
+    if demand_coord_confidence is not None:
+        rows_before = len(table)
+        table = table.merge(
+            demand_coord_confidence[["cell_id", coord_col]],
+            on="cell_id", how="left", validate="one_to_one",
+        )
+        if len(table) != rows_before:
+            raise RuntimeError(
+                f"{coord_col} sidecar join changed the row count "
+                f"{rows_before} -> {len(table)}"
+            )
+    else:
+        # No sidecar supplied (e.g. a pure unit test of merge_layers): fill the
+        # not-applicable value so the schema stays stable.
+        table[coord_col] = config.DEMAND_COORD_CONFIDENCE_LEVELS[-1]  # "n/a"
 
     for column in BOOL_COLUMNS:
         table[column] = _normalise_bool(table[column])
@@ -552,6 +617,14 @@ def validate(
             outside = int((~table[column].isin(levels)).sum())
             check(f"{column} within vocabulary", f"all in {levels}",
                   f"{outside} rows outside {levels}", outside == 0)
+
+    # --- demand coordinate-confidence tier (informational, surface-only) ---
+    coord_col = config.DEMAND_COORD_CONFIDENCE_COLUMN
+    if coord_col in table.columns:
+        levels = config.DEMAND_COORD_CONFIDENCE_LEVELS
+        outside = int((~table[coord_col].isin(levels)).sum())
+        check(f"{coord_col} within vocabulary", f"all in {levels}",
+              f"{outside} rows outside {levels}", outside == 0)
 
     # --- S1-09 confidence columns ---
     conf_columns = list(CONFIDENCE_COLUMNS)
@@ -745,9 +818,14 @@ COLUMN_UNITS = {
     "area_km2": "km² (computed in EPSG:3577 by the grid stage)",
     "wind_speed": "m/s — GWA v4 mean wind speed at 100 m hub height",
     "wind_confidence": "flag: valid | no_data",
-    "demand_proxy": "normalised 0–1 (uniform allocation of NEM-region annual mean MW)",
+    "demand_proxy": "normalised 0–1 (per-region allocation of NEM-region annual mean MW; "
+                    "allocation method recorded in the demand feature method report)",
     "source_region": "NEM region id, null outside every region",
     "demand_confidence": "flag: high | medium | low",
+    "demand_coord_confidence": "flag: high | low | n/a — INFORMATIONAL coordinate-confidence "
+                               "tier of the demand signal (load_weighted only; n/a under "
+                               "urban_weighted/uniform). Metadata only: never affects "
+                               "demand_proxy, the score or the ranking.",
     "dist_transmission_km": "km — EPSG:3577 centroid distance to nearest ≥132 kV line",
     "dist_substation_km": "km — EPSG:3577 centroid distance to nearest substation",
     "dist_connection_km": "km — EPSG:3577 centroid distance to nearest connection point",
@@ -785,6 +863,10 @@ def _column_source_map(specs: Sequence[LayerSpec]) -> dict[str, str]:
     for spec in specs:
         for target, source in spec.columns.items():
             sources[target] = f"{spec.name}.{source}"
+    sources[config.DEMAND_COORD_CONFIDENCE_COLUMN] = (
+        "demand.feature sidecar — informational coordinate-confidence tier, "
+        "surface-only metadata (not a scored feature)"
+    )
     sources["n_missing_features"] = "derived — count of nulls over " + ", ".join(SCORED_FEATURE_COLUMNS)
     for column in CONFIDENCE_COLUMNS:
         sources[column] = ("derived — S1-09 confidence.assess() over the ten scored columns, "
@@ -813,6 +895,7 @@ def build_method_report(
     outputs: dict[str, Path],
     weights: confidence.Weights | None = None,
     confidence_summary: dict | None = None,
+    demand_allocation_method: str = "unknown",
 ) -> str:
     """Render integration_method.md."""
     n_cells = len(table)
@@ -845,10 +928,10 @@ def build_method_report(
 
     dropped = (
         "`wind.units`, `wind.data_source` (constants: m/s, GWA v4), "
-        "`demand.allocation_method` (constant: uniform), and S1-07's own "
-        "`protected_area`, `protected_area_name`, `slope_deg`, `urban_area`, "
-        "`wind_speed_100m_ms` (recomputed from rasters; compared in the WARN "
-        "checks, never carried — the geographic and wind layers are canonical)."
+        f"`demand.allocation_method` (constant: {demand_allocation_method}), and "
+        "S1-07's own `protected_area`, `protected_area_name`, `slope_deg`, "
+        "`urban_area`, `wind_speed_100m_ms` (recomputed from rasters; compared in "
+        "the WARN checks, never carried — the geographic and wind layers are canonical)."
     )
 
     if weights is not None:
@@ -1163,8 +1246,30 @@ def run(verbose: bool = False, weights_path: Path | None = None) -> dict:
         print(f"    {spec.name:15s} {info['rows']:>8,} rows  layer={info['layer']}  "
               f"({_rel(info['path'])})")
 
+    # Record the demand allocation method (dropped from the merge, but named in
+    # the method report so it never silently says "uniform" after a rebuild).
+    demand_frame = layers.get("demand")
+    if demand_frame is not None and "allocation_method" in demand_frame.columns:
+        methods = sorted(set(demand_frame["allocation_method"].dropna().astype(str)))
+        demand_allocation_method = methods[0] if len(methods) == 1 else ",".join(methods) or "unknown"
+    else:
+        demand_allocation_method = "unknown"
+
+    coord_sidecar_path = Path(config.DEMAND_COORD_CONFIDENCE_SIDECAR_PATH)
+    coord_sidecar = read_demand_coord_confidence(coord_sidecar_path, set(grid["cell_id"]))
+    infos["demand_coord_confidence"] = {
+        "path": coord_sidecar_path,
+        "layer": "(CSV sidecar)",
+        "rows": int(len(coord_sidecar)),
+        "crs": config.STORAGE_CRS,
+        "sha256": sha256_file(coord_sidecar_path),
+        "bytes": coord_sidecar_path.stat().st_size,
+    }
+    print(f"    demand coord-confidence sidecar: "
+          f"{_rel(coord_sidecar_path)} ({len(coord_sidecar):,} rows)")
+
     print("  [3/6] Left-joining onto the grid by cell_id...")
-    table, join_log = merge_layers(grid, layers, specs)
+    table, join_log = merge_layers(grid, layers, specs, demand_coord_confidence=coord_sidecar)
     if verbose:
         for entry in join_log:
             print(f"    {entry['layer']:15s} rows {entry['rows_before']} -> {entry['rows_after']}, "
@@ -1231,6 +1336,7 @@ def run(verbose: bool = False, weights_path: Path | None = None) -> dict:
                  "confidence_method": confidence_method_path,
                  "confidence_summary": confidence_summary_path},
         weights=weights, confidence_summary=conf_summary,
+        demand_allocation_method=demand_allocation_method,
     ))
     print(f"    -> {_rel(report_path)}")
 

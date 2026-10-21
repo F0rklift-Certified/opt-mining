@@ -96,6 +96,23 @@ OPTIONAL_CONTEXT_DEFINITIONS: dict[str, OptionalContextColumn] = {
             "joined on cell_id, where that layer is available."
         ),
     ),
+    config.DEMAND_COORD_CONFIDENCE_COLUMN: OptionalContextColumn(
+        name=config.DEMAND_COORD_CONFIDENCE_COLUMN,
+        definition=(
+            "INFORMATIONAL demand coordinate-confidence tier (high | low | n/a): "
+            "whether the cell's demand signal rode a low-confidence geocoded "
+            "substation. 'low' = a Nominatim/OSM low-confidence load point lies "
+            "within the search radius; 'high' = contributing points are all "
+            "precise (or none in range); 'n/a' = not applicable (no load points, "
+            "e.g. the urban_weighted default). Metadata only — it never affects "
+            "the suitability score, the rank or shortlist membership."
+        ),
+        source=(
+            "Carried through from the S1-10 Scored_Table (scoring CARRIED_COLUMNS), "
+            "which carries it from the S1-08 integrated table's "
+            "demand_coord_confidence column (demand.feature sidecar)."
+        ),
+    ),
 }
 
 

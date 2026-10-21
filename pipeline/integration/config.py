@@ -72,6 +72,17 @@ INFRA_LAYER = _infra_config.FEATURE_TABLE_LAYER
 DEMAND_PATH = _demand_config.OUTPUT_DIR / _demand_config.FEATURE_TABLE_NAME
 DEMAND_LAYER = _demand_config.FEATURE_TABLE_LAYER
 
+# Demand coordinate-confidence sidecar (S1-04, surface-only metadata). The
+# demand stage writes the per-cell tier to this CSV ALONGSIDE the feature
+# GeoPackage (so the gpkg bytes never change); the integration stage joins it
+# onto the integrated table as the informational `demand_coord_confidence`
+# column. It never affects demand_proxy, the composite score or the ranking.
+DEMAND_COORD_CONFIDENCE_SIDECAR_PATH = (
+    _demand_config.OUTPUT_DIR / _demand_config.COORD_CONFIDENCE_SIDECAR_NAME
+)
+DEMAND_COORD_CONFIDENCE_COLUMN = _demand_config.DEMAND_COORD_CONFIDENCE_COLUMN
+DEMAND_COORD_CONFIDENCE_LEVELS = _demand_config.DEMAND_COORD_CONFIDENCE_LEVELS
+
 # Exclusions Eligibility_Table (S1-07). apply.py writes it without a
 # `layer=` argument, so the layer name is whatever GDAL derived from the
 # temporary filename; None means "auto-detect the single layer".

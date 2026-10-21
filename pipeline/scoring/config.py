@@ -89,8 +89,20 @@ CONTRIBUTION_PREFIX = "contrib_"  # contribution column = contrib_{criterion fea
 OUTPUT_CONFIDENCE_COLUMN = "confidence"
 
 # Grid columns carried through so the shortlist stage (S1-11) can locate a
-# cell without re-joining the grid.
+# cell without re-joining the grid. This stays EXACTLY the two coordinate
+# columns: the decision service (pipeline/service/results.py) and the S2-08
+# get_run_cells endpoint unpack it as (lat_col, lon_col), so it must not grow.
 CARRIED_COLUMNS = ("centroid_lat", "centroid_lon")
+
+# INFORMATIONAL columns carried through from the integrated table onto the
+# Scored_Table verbatim — NOT criteria, not read by the scoring core, and never
+# affecting the score, the contributions or the rank. `demand_coord_confidence`
+# is the integrated table's surface-only demand coordinate-confidence tier,
+# passed through so an analyst can audit it in the Scored_Table and shortlist.
+# Carried only WHERE present on the integrated table (back-compatible with an
+# older integrated table that lacks it).
+DEMAND_COORD_CONFIDENCE_COLUMN = _integration_config.DEMAND_COORD_CONFIDENCE_COLUMN
+CARRIED_CONTEXT_COLUMNS = (DEMAND_COORD_CONFIDENCE_COLUMN,)
 
 # --- Numerics ---
 # Tolerance for "the per-criterion contributions reconstruct the score".

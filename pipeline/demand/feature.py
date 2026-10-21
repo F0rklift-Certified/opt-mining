@@ -314,6 +314,108 @@ def _exp_decay(distance_m: float, decay_length_m: float) -> float:
     return math.exp(-distance_m / decay_length_m)
 
 
+def compute_demand_coord_confidence(
+    grid_3577: gpd.GeoDataFrame,
+    load_points_3577: gpd.GeoDataFrame,
+    source_region: pd.Series,
+) -> pd.Series:
+    """Per-cell demand coordinate-confidence tier for ``load_weighted`` (metadata).
+
+    Returns an INFORMATIONAL string Series indexed like ``grid_3577`` /
+    ``source_region`` with values from
+    ``config.DEMAND_COORD_CONFIDENCE_LEVELS`` ("high" | "low" | "n/a"). It is
+    derived from the SAME distance-decay neighbourhood ``compute_load_cell_weights``
+    uses, so it faithfully reports whether a cell's load signal rode a
+    low-confidence geocoded substation. It NEVER touches ``demand_proxy``, the
+    score or the ranking — it is surfaced only for audit.
+
+    Definition (conservative; see ``config.DEMAND_COORD_CONFIDENCE_COLUMN``):
+
+    - ``"low"`` — at least one low-confidence load point (``nominatim_low_confidence``
+      OR ``osm_low_confidence``) lies within ``config.LOAD_SEARCH_RADIUS_M`` of the
+      cell centroid (it contributes to the cell's load weight).
+    - ``"high"`` — an assigned cell (``source_region`` not null) whose
+      contributing load points are all precise, or which has no load point in
+      range (it never rode a low-confidence point).
+    - ``"n/a"`` — an unassigned (outside-region) cell. Under a method with no
+      load points, :func:`derive_demand_coord_confidence` returns all ``"n/a"``
+      without calling this function.
+
+    Determinism: the result depends only on set membership of a cell's
+    within-radius low-confidence points, so it is reproducible regardless of
+    iteration order.
+    """
+    index = grid_3577.index
+    assigned_mask = source_region.notna()
+    # Assigned cells default to "high"; unassigned cells are "n/a".
+    tier = pd.Series(config.DEMAND_COORD_CONFIDENCE_NA, index=index, dtype="object")
+    tier.loc[assigned_mask] = config.DEMAND_COORD_CONFIDENCE_HIGH
+
+    if len(load_points_3577) == 0:
+        return tier
+
+    # Flag each load point low-confidence if EITHER flag column is True. A
+    # missing flag column is treated as all-False (precise), so an older layer
+    # without the flags degrades to "high" everywhere rather than erroring.
+    load = load_points_3577.copy()
+    low_flag = pd.Series(False, index=load.index)
+    for col in config.LOAD_LOW_CONFIDENCE_COLUMNS:
+        if col in load.columns:
+            low_flag = low_flag | load[col].fillna(False).astype(bool)
+    low = load[low_flag.to_numpy()]
+    if len(low) == 0:
+        return tier
+
+    radius = float(config.LOAD_SEARCH_RADIUS_M)
+    centroids = grid_3577.geometry.centroid
+    cell_buffers = gpd.GeoDataFrame(
+        {"cell_id": grid_3577["cell_id"].to_numpy(), "cell_index": index},
+        geometry=centroids.buffer(radius),
+        crs=grid_3577.crs,
+    )
+    low = low[["geometry"]].reset_index(drop=True)
+    low["low_index"] = low.index
+    candidates = gpd.sjoin(
+        cell_buffers, low[["low_index", "geometry"]], how="inner", predicate="intersects",
+    )
+    if len(candidates) == 0:
+        return tier
+
+    low_geoms = low.geometry
+    low_cells = set()
+    for row in candidates.itertuples(index=False):
+        cell_idx = row.cell_index
+        dist = float(centroids.loc[cell_idx].distance(low_geoms.loc[row.low_index]))
+        if dist <= radius:
+            low_cells.add(cell_idx)
+    # Only assigned cells can be "low"; an unassigned cell stays "n/a" even if a
+    # low-confidence point happens to fall within its (unused) radius.
+    low_assigned = [i for i in low_cells if bool(assigned_mask.loc[i])]
+    tier.loc[low_assigned] = config.DEMAND_COORD_CONFIDENCE_LOW
+    return tier
+
+
+def derive_demand_coord_confidence(
+    grid_3577: gpd.GeoDataFrame,
+    source_region: pd.Series,
+    method: str,
+    load_points_3577: gpd.GeoDataFrame | None = None,
+) -> pd.Series:
+    """Method-aware wrapper for the demand coordinate-confidence tier (metadata).
+
+    Returns a per-cell ``"high" | "low" | "n/a"`` Series. The tier is only
+    meaningful under ``load_weighted`` (the only method with load points);
+    under ``urban_weighted`` / ``uniform`` there are no load points, so every
+    cell is the not-applicable ``"n/a"`` value. This is informational only — it
+    never feeds back into ``demand_proxy``, the score, the weights or the rank.
+    """
+    if method == "load_weighted" and load_points_3577 is not None and len(load_points_3577):
+        return compute_demand_coord_confidence(grid_3577, load_points_3577, source_region)
+    return pd.Series(
+        config.DEMAND_COORD_CONFIDENCE_NA, index=source_region.index, dtype="object"
+    )
+
+
 def allocate_demand(source_region: pd.Series, region_demand: pd.Series, method: str = "uniform", weights=None) -> pd.Series:
     if method not in config.ALLOCATION_METHODS:
         raise NotImplementedError(
@@ -394,6 +496,31 @@ def write_feature_table(gdf: gpd.GeoDataFrame, path: Path) -> None:
         tmp.unlink(missing_ok=True)
 
 
+def write_coord_confidence_sidecar(
+    grid: gpd.GeoDataFrame, coord_confidence: pd.Series, path: Path
+) -> None:
+    """Write the per-cell demand coordinate-confidence tier to a sidecar CSV.
+
+    The sidecar carries exactly ``cell_id,demand_coord_confidence`` for every
+    grid cell, sorted by ``cell_id`` so a rerun with unchanged inputs is
+    byte-identical. It lives ALONGSIDE the feature GeoPackage so the gpkg
+    schema (and bytes) never change; the integration stage joins this tier onto
+    the integrated table as an informational column. The tier never affects
+    ``demand_proxy``, the score or the ranking.
+    """
+    frame = pd.DataFrame({
+        "cell_id": grid["cell_id"].to_numpy(),
+        config.DEMAND_COORD_CONFIDENCE_COLUMN: coord_confidence.to_numpy(),
+    }).sort_values("cell_id", kind="mergesort").reset_index(drop=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.stem + ".tmp" + path.suffix)
+    try:
+        frame.to_csv(tmp, index=False, lineterminator="\n", encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 def write_method_report(stats: dict, path: Path) -> None:
     method = stats.get("allocation_method", config.DEFAULT_ALLOCATION_METHOD)
     header = [
@@ -428,6 +555,7 @@ def write_method_report(stats: dict, path: Path) -> None:
             f"- Non-urban weight floor: {stats.get('demand_weight_floor')}.",
             f"- SOSR band multipliers: `{json.dumps(stats.get('sosr_weight_multipliers', {}), sort_keys=True)}`.",
             f"- Per-region demand_proxy spread (min/median/max, nunique): `{json.dumps(stats.get('proxy_spread', {}), sort_keys=True)}`.",
+            f"- Demand coordinate-confidence tier (INFORMATIONAL, surface-only metadata) written to sidecar `{config.COORD_CONFIDENCE_SIDECAR_NAME}`: `{json.dumps(stats.get('coord_confidence_counts', {}), sort_keys=True)}`. Under urban_weighted there are no load points, so every cell is the not-applicable `n/a` value. The tier NEVER feeds back into `demand_proxy`, the composite score, the weights or the ranking — it only lets an analyst audit whether a cell's demand signal rode a low-confidence geocoded substation. Definition: `low` = a Nominatim/OSM low-confidence load point lies within the search radius of the cell centroid; `high` = assigned cell whose contributing points are all precise (or none in range); `n/a` = not applicable (no load points / outside region).",
             f"- Floored (non-urban) assigned cells: {stats.get('floored_cell_count', 0)}.",
             f"- Cells: {stats['n_cells']}; outside-region: {stats['n_outside_region']}; boundary/tie-break candidates: {stats['boundary_cell_count']}.",
             f"- Per-region counts: `{json.dumps(stats['per_region_counts'], sort_keys=True)}`.",
@@ -478,6 +606,7 @@ def write_method_report(stats: dict, path: Path) -> None:
             f"- Non-coverage weight floor: {stats.get('demand_weight_floor')}.",
             f"- Geocoding match rate: {stats.get('geocode_matched')} of {stats.get('geocode_load_rows')} substations matched (portal {stats.get('geocode_matched_portal')} + GA {stats.get('geocode_matched_ga')} + OSM {stats.get('geocode_matched_osm')} + Nominatim {stats.get('geocode_matched_nominatim')}; the {stats.get('geocode_matched_portal')} Endeavour rows carry precise portal coordinates [`coord_source='portal'`] and bypass name-geocoding; {stats.get('geocode_osm_low_confidence')} OSM low-confidence; all Nominatim matches are lower-confidence PLACE centroids [`coord_source='nominatim'`, `nominatim_low_confidence=True`] that an analyst can down-weight/audit; {stats.get('geocode_unmatched')} unmatched, dropped and listed).",
             f"- Per-region demand_proxy spread (min/median/max, nunique): `{json.dumps(stats.get('proxy_spread', {}), sort_keys=True)}`.",
+            f"- Demand coordinate-confidence tier (INFORMATIONAL, surface-only metadata) written to sidecar `{config.COORD_CONFIDENCE_SIDECAR_NAME}`: `{json.dumps(stats.get('coord_confidence_counts', {}), sort_keys=True)}`. `low` = a Nominatim low-confidence PLACE centroid or an OSM low-confidence load point lies within the search radius of the cell centroid (it contributes to the cell's load weight); `high` = assigned cell whose contributing points are all precise (GA/portal/OSM-high) or which has no load point in range; `n/a` = outside every NEM region (unassigned). The tier NEVER feeds back into `demand_proxy`, the composite score, the weights or the ranking — it is metadata that lets an analyst audit whether a cell's demand signal rode a low-confidence geocoded substation.",
             f"- Floored (no-coverage) assigned cells: {stats.get('floored_cell_count', 0)}.",
             f"- Cells: {stats['n_cells']}; outside-region: {stats['n_outside_region']}; boundary/tie-break candidates: {stats['boundary_cell_count']}.",
             f"- Per-region counts: `{json.dumps(stats['per_region_counts'], sort_keys=True)}`.",
@@ -613,6 +742,7 @@ def run(verbose: bool = False, allocation_method: str | None = None, grid_path: 
     weights = None
     floored_indices = None
     weights_sha = None
+    load_3577 = None  # kept for the demand coordinate-confidence tier (load_weighted only)
     if allocation_method == "urban_weighted":
         urban_gdf = load_urban_weights(weighting_path)  # hard-fail if missing
         weights_sha = hashlib.sha256(Path(weighting_path).read_bytes()).hexdigest()
@@ -676,6 +806,18 @@ def run(verbose: bool = False, allocation_method: str | None = None, grid_path: 
             except (json.JSONDecodeError, OSError):
                 pass
     write_feature_table(table, output_path)
+    # Informational demand coordinate-confidence tier (surface-only metadata).
+    # Derived from the SAME load-point neighbourhood used for the weights but
+    # written to a SIDECAR CSV so the feature GeoPackage schema/bytes never
+    # change. Under urban_weighted/uniform (no load points) every cell is "n/a".
+    coord_confidence = derive_demand_coord_confidence(
+        grid_3577, source, allocation_method, load_3577
+    )
+    sidecar_path = config.OUTPUT_DIR / config.COORD_CONFIDENCE_SIDECAR_NAME
+    write_coord_confidence_sidecar(grid, coord_confidence, sidecar_path)
+    stats["coord_confidence_counts"] = {
+        str(k): int(v) for k, v in coord_confidence.value_counts().items()
+    }
     from .validate import validate_feature_table as validate_persisted_feature_table
     persisted_validation = validate_persisted_feature_table(output_path, grid_path, aggregate_path)
     if not persisted_validation.passed:
@@ -685,4 +827,4 @@ def run(verbose: bool = False, allocation_method: str | None = None, grid_path: 
     record_provenance(output_path, stats)
     if verbose:
         print(f"  Demand feature output: {output_path} ({len(table):,} cells)")
-    return {"feature_table_path": output_path, "method_report_path": report_path, "allocation_method": allocation_method, **{k: v for k, v in stats.items() if k not in {"grid_path", "aggregate_path", "regions_path"}}}
+    return {"feature_table_path": output_path, "method_report_path": report_path, "coord_confidence_sidecar_path": sidecar_path, "allocation_method": allocation_method, **{k: v for k, v in stats.items() if k not in {"grid_path", "aggregate_path", "regions_path"}}}

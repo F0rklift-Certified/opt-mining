@@ -85,6 +85,13 @@ FEATURE_TABLE_NAME = "aemo_demand-proxy_2026_nsw.gpkg"
 FEATURE_TABLE_LAYER = "demand_proxy"
 METHOD_REPORT_NAME = "demand_feature_method.md"
 FEATURE_MANIFEST_NAME = "download_manifest.json"
+# Sidecar CSV carrying the per-cell demand coordinate-confidence tier
+# (`cell_id,demand_coord_confidence`). It is written ALONGSIDE the feature
+# GeoPackage so the gpkg schema — and therefore its bytes — never changes, yet
+# the integration stage can join the informational tier onto the integrated
+# table. Deterministic (sorted by cell_id); see
+# DEMAND_COORD_CONFIDENCE_COLUMN for the tier definition.
+COORD_CONFIDENCE_SIDECAR_NAME = "aemo_demand-coord-confidence_2026_nsw.csv"
 STORAGE_CRS = "EPSG:4326"
 COMPUTATION_CRS = "EPSG:3577"
 # Allocation methods: "uniform" (legacy equal-share), "urban_weighted" (ABS UCL
@@ -94,6 +101,40 @@ COMPUTATION_CRS = "EPSG:3577"
 DEFAULT_ALLOCATION_METHOD = "urban_weighted"
 ALLOCATION_METHODS = ("uniform", "urban_weighted", "load_weighted")
 CONFIDENCE_LEVELS = ("high", "medium", "low")
+
+# --- Demand coordinate-confidence transparency tier (surface-only metadata) ---
+# A per-cell, INFORMATIONAL tier that records whether a cell's load_weighted
+# demand signal rode a low-confidence geocoded substation (a Nominatim
+# suburb/locality CENTROID or an OSM low-confidence match). It is metadata: it
+# never feeds back into demand_proxy, the composite score, the criteria weights
+# or the ranking — it only lets an analyst audit a cell's demand provenance.
+#
+# Definition (conservative, matching the distance-decay aggregation in
+# compute_load_cell_weights):
+#   - "low"  : at least one low-confidence load point (nominatim_low_confidence
+#              OR osm_low_confidence) lies within LOAD_SEARCH_RADIUS_M of the
+#              cell centroid — i.e. it CONTRIBUTES to that cell's load weight.
+#   - "high" : an assigned cell whose contributing load points (within the
+#              search radius) are all precise (GA / portal / OSM-high), OR a
+#              cell with no load point in range (it never rode a low-confidence
+#              point).
+#   - "n/a"  : NOT APPLICABLE — the allocation method has no load points
+#              (urban_weighted / uniform), or the cell is outside every NEM
+#              region (unassigned). Under the committed urban_weighted default
+#              every cell is "n/a"; the signal is wired in ahead of any later
+#              flip to load_weighted.
+DEMAND_COORD_CONFIDENCE_COLUMN = "demand_coord_confidence"
+DEMAND_COORD_CONFIDENCE_HIGH = "high"
+DEMAND_COORD_CONFIDENCE_LOW = "low"
+DEMAND_COORD_CONFIDENCE_NA = "n/a"
+DEMAND_COORD_CONFIDENCE_LEVELS = (
+    DEMAND_COORD_CONFIDENCE_HIGH,
+    DEMAND_COORD_CONFIDENCE_LOW,
+    DEMAND_COORD_CONFIDENCE_NA,
+)
+# Columns on the geocoded load-point layer that flag a lower-confidence
+# coordinate (see geocode_load). A True in EITHER marks the point low-confidence.
+LOAD_LOW_CONFIDENCE_COLUMNS = ("nominatim_low_confidence", "osm_low_confidence")
 DEMAND_INPUT_COLUMN = "MEAN_DEMAND_MW"
 CONSERVATION_TOLERANCE_MW = 1e-6
 

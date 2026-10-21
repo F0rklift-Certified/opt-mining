@@ -166,6 +166,7 @@ def synthetic_pipeline(tmp_path, monkeypatch):
         geographic=tmp_path / "geo" / "geo.gpkg",
         infrastructure=tmp_path / "infra" / "infra.gpkg",
         demand=tmp_path / "demand" / "demand.gpkg",
+        demand_coord=tmp_path / "demand" / "aemo_demand-coord-confidence_2026_nsw.csv",
         exclusions=tmp_path / "exclusions" / "optmining_exclusions_2024_nsw.gpkg",
         out_dir=tmp_path / "DATA" / "integration",
         meta_dir=tmp_path / "DATA" / "integration" / "metadata",
@@ -176,6 +177,13 @@ def synthetic_pipeline(tmp_path, monkeypatch):
     _write_layer(paths.infrastructure, _infra_frame(), icfg.INFRA_LAYER)
     _write_layer(paths.demand, _demand_frame(), icfg.DEMAND_LAYER)
     _write_layer(paths.exclusions, _exclusions_frame(), None)
+    # The demand coordinate-confidence sidecar (surface-only metadata): all
+    # "n/a" because the synthetic demand layer is uniform (no load points).
+    paths.demand_coord.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({
+        "cell_id": CELL_IDS,
+        icfg.DEMAND_COORD_CONFIDENCE_COLUMN: ["n/a"] * len(CELL_IDS),
+    }).to_csv(paths.demand_coord, index=False, lineterminator="\n")
 
     monkeypatch.setattr(icfg, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(icfg, "GRID_PATH", paths.grid)
@@ -183,6 +191,7 @@ def synthetic_pipeline(tmp_path, monkeypatch):
     monkeypatch.setattr(icfg, "GEOGRAPHIC_PATH", paths.geographic)
     monkeypatch.setattr(icfg, "INFRA_PATH", paths.infrastructure)
     monkeypatch.setattr(icfg, "DEMAND_PATH", paths.demand)
+    monkeypatch.setattr(icfg, "DEMAND_COORD_CONFIDENCE_SIDECAR_PATH", paths.demand_coord)
     monkeypatch.setattr(icfg, "EXCLUSIONS_PATH", paths.exclusions)
     monkeypatch.setattr(icfg, "INTEGRATION_DIR", paths.out_dir)
     monkeypatch.setattr(icfg, "INTEGRATION_META_DIR", paths.meta_dir)
@@ -342,7 +351,7 @@ class TestReadLayer:
 EXPECTED_BASE_COLUMNS = [
     "cell_id", "centroid_lat", "centroid_lon", "area_km2",
     "wind_speed", "wind_confidence",
-    "demand_proxy", "source_region", "demand_confidence",
+    "demand_proxy", "source_region", "demand_confidence", "demand_coord_confidence",
     "dist_transmission_km", "dist_substation_km", "dist_connection_km",
     "inside_rez", "rez_name", "infra_confidence",
     "elevation_m", "slope_deg", "tri", "land_use", "protected_area",

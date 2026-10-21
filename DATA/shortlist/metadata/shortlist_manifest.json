@@ -29,6 +29,66 @@
           "bytes": 13803520
         }
       ]
+    },
+    {
+      "csv_file": "DATA/shortlist/sprint1_shortlist_20261021T010807.csv",
+      "geojson_file": "DATA/shortlist/sprint1_shortlist_20261021T010807.geojson",
+      "stage": "shortlist",
+      "product_type": "derived",
+      "run_timestamp": "2026-10-21T01:08:07+00:00",
+      "pipeline_version": "19057559b8004b93c3a55ac4f69d7c1e30833b12-dirty",
+      "sha256_csv": "77a23312e20c2403d5fe7dd0f0132bb97b254f3e1db059411f21b5f6543852f9",
+      "sha256_geojson": "32ee230e7410afb04db9646c70ee0680450ad5e44e3f9c60704fb7d752f4d78a",
+      "bytes_csv": 1724,
+      "bytes_geojson": 6498,
+      "effective_top_n": 20,
+      "n_shortlisted": 20,
+      "inputs": [
+        {
+          "name": "scored_table",
+          "path": "DATA/scoring/optmining_suitability-score_2026_nsw.gpkg",
+          "layer": "suitability_score",
+          "sha256": "69199ee578ef53a128e7bfe6412cfae7aef2eb507ee7edfdeb1ce035928f820e",
+          "bytes": 15613952
+        },
+        {
+          "name": "analysis_grid",
+          "path": "DATA/grid/nsw_analysis_grid.gpkg",
+          "layer": "nsw_grid",
+          "sha256": "7c7e6433d061f0029331b4e19460abb664535bf21c7ca50fb8fa4511fa90052b",
+          "bytes": 13803520
+        }
+      ]
+    },
+    {
+      "csv_file": "DATA/shortlist/sprint1_shortlist_20261021.csv",
+      "geojson_file": "DATA/shortlist/sprint1_shortlist_20261021.geojson",
+      "stage": "shortlist",
+      "product_type": "derived",
+      "run_timestamp": "2026-10-21T01:08:26+00:00",
+      "pipeline_version": "19057559b8004b93c3a55ac4f69d7c1e30833b12-dirty",
+      "sha256_csv": "77a23312e20c2403d5fe7dd0f0132bb97b254f3e1db059411f21b5f6543852f9",
+      "sha256_geojson": "32ee230e7410afb04db9646c70ee0680450ad5e44e3f9c60704fb7d752f4d78a",
+      "bytes_csv": 1724,
+      "bytes_geojson": 6498,
+      "effective_top_n": 20,
+      "n_shortlisted": 20,
+      "inputs": [
+        {
+          "name": "scored_table",
+          "path": "DATA/scoring/optmining_suitability-score_2026_nsw.gpkg",
+          "layer": "suitability_score",
+          "sha256": "69199ee578ef53a128e7bfe6412cfae7aef2eb507ee7edfdeb1ce035928f820e",
+          "bytes": 15613952
+        },
+        {
+          "name": "analysis_grid",
+          "path": "DATA/grid/nsw_analysis_grid.gpkg",
+          "layer": "nsw_grid",
+          "sha256": "7c7e6433d061f0029331b4e19460abb664535bf21c7ca50fb8fa4511fa90052b",
+          "bytes": 13803520
+        }
+      ]
     }
   ]
 }

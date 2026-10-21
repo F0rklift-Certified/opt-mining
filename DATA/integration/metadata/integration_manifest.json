@@ -4,8 +4,8 @@
       "output_file": "DATA/integration/optmining_integrated-features_2026_nsw.gpkg",
       "csv_file": "DATA/integration/optmining_integrated-features_2026_nsw.csv",
       "stage": "integration",
-      "generated_utc": "2026-10-07T05:03:05+00:00",
-      "git_commit": "403817a4e5a11a5d2236710a42a42046d44cc60a-dirty",
+      "generated_utc": "2026-10-21T00:57:20+00:00",
+      "git_commit": "19057559b8004b93c3a55ac4f69d7c1e30833b12-dirty",
       "rows": 47311,
       "columns": [
         "cell_id",
@@ -17,6 +17,7 @@
         "demand_proxy",
         "source_region",
         "demand_confidence",
+        "demand_coord_confidence",
         "dist_transmission_km",
         "dist_substation_km",
         "dist_connection_km",
@@ -39,10 +40,10 @@
         "confidence_score",
         "confidence_notes"
       ],
-      "sha256_gpkg": "4062224a2b96adace37f5166feb0fb7b7dbd9251e9433ed5028659347d2a1c80",
-      "sha256_csv": "4dce43f84ab7cb93ceef21835cda56589d3f6d8d8daa1d1bd061eb5fb1b22b3c",
-      "bytes_gpkg": 23347200,
-      "bytes_csv": 14943812,
+      "sha256_gpkg": "fd0a21df460a38f2761ff2348bb0da4a8fb15193c9f0f952e2ade11c1fcb30ed",
+      "sha256_csv": "7ac56c03bb2cb05943b8b5f7ed80296ceb7ff25adbff2a35c3c9f4c5384b86bc",
+      "bytes_gpkg": 26091520,
+      "bytes_csv": 17741942,
       "inputs": [
         {
           "name": "grid",
@@ -59,7 +60,7 @@
           "layer": "wind_features",
           "rows": 47311,
           "crs": "EPSG:4326",
-          "sha256": "33e5b4bcb10ec9d698fc41e8cd3116b10c3925424f1dbaf21d958a0332fa5a2f",
+          "sha256": "2af85ff5f12a0fa66b11e47c36872c651d537d89f4a79c1c1cf4cd739aac8566",
           "bytes": 13803520
         },
         {
@@ -86,8 +87,8 @@
           "layer": "demand_proxy",
           "rows": 47311,
           "crs": "EPSG:4326",
-          "sha256": "8e9890bf9371de015fe3da7635515ea3e50f5713eab247c683045f0e0e92a646",
-          "bytes": 13324288
+          "sha256": "4383d1fa8962ec9cd830b75f5ac7daa83309885a32caf929218a61620b7d5e50",
+          "bytes": 14131200
         },
         {
           "name": "exclusions",
@@ -97,6 +98,15 @@
           "crs": "EPSG:4326",
           "sha256": "e1bebde00500c3969239ad8b33e64e6a5e7f5660bdb32c04362de60f7ef3e172",
           "bytes": 16560128
+        },
+        {
+          "name": "demand_coord_confidence",
+          "path": "DATA/electricity-demand/aemo_demand-coord-confidence_2026_nsw.csv",
+          "layer": "(CSV sidecar)",
+          "rows": 47311,
+          "crs": "EPSG:4326",
+          "sha256": "05518e65a79fa5aee1403b0a741629bcd114cc06b6ed9fcd1e0690850f49a3d7",
+          "bytes": 993563
         }
       ],
       "confidence_weights": {
