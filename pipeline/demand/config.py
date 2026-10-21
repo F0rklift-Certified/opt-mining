@@ -123,9 +123,10 @@ CONFIDENCE_LEVELS = ("high", "medium", "low")
 #              point).
 #   - "n/a"  : NOT APPLICABLE — the allocation method has no load points
 #              (urban_weighted / uniform), or the cell is outside every NEM
-#              region (unassigned). Under the committed urban_weighted default
-#              every cell is "n/a"; the signal is wired in ahead of any later
-#              flip to load_weighted.
+#              region (unassigned). Under the committed load_weighted default
+#              the tier is populated (≈34,227 "high" / 6,447 "low" / 6,637
+#              "n/a"); it only resolves to all-"n/a" if the selectable
+#              urban_weighted / uniform methods are chosen.
 DEMAND_COORD_CONFIDENCE_COLUMN = "demand_coord_confidence"
 DEMAND_COORD_CONFIDENCE_HIGH = "high"
 DEMAND_COORD_CONFIDENCE_LOW = "low"
