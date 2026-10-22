@@ -27,6 +27,24 @@ function controlsRegion(): HTMLElement {
 // Layer-scoped map handlers captured by `${event}:${layerId}` so a test can
 // drive CellMap's click-to-inspect path (S3-03b) without a GL context.
 const mapLayerHandlers: Record<string, (event: unknown) => void> = {};
+// The last data each map source received, keyed by source id, so a test can
+// read where CellMap drew the persistent selected-cell box.
+const mapSourceData: Record<string, unknown> = {};
+
+/** Centre `[lng, lat]` of the selected-cell box on the map, or null if none. */
+function selectedBoxCenter(): [number, number] | null {
+  const data = mapSourceData["cell-selected"] as
+    | { features: { geometry: { coordinates: number[][][] } }[] }
+    | undefined;
+  const ring = data?.features[0]?.geometry.coordinates[0];
+  const sw = ring?.[0];
+  const ne = ring?.[2];
+  if (!sw || !ne) return null;
+  return [
+    Number((((sw[0] ?? 0) + (ne[0] ?? 0)) / 2).toFixed(6)),
+    Number((((sw[1] ?? 0) + (ne[1] ?? 0)) / 2).toFixed(6)),
+  ];
+}
 
 /** Fire the captured map click handler for a layer with one feature. */
 function mapClickOnLayer(
@@ -59,9 +77,18 @@ jest.mock("maplibre-gl", () => {
     addControl() {}
     addSource() {}
     addLayer() {}
-    getSource() {
-      return { setData: jest.fn() };
+    getSource(id: string) {
+      return {
+        setData: (data: unknown) => {
+          mapSourceData[id] = data;
+        },
+      };
     }
+    setPaintProperty() {}
+    getBounds() {
+      return { contains: () => true };
+    }
+    easeTo() {}
     getCanvas() {
       return { style: { cursor: "" } };
     }
@@ -103,11 +130,25 @@ function serviceWithFlaggedDataset(): DecisionService {
         { name: "unique cell ids", expected: "unique", observed: "unique", passed: true },
       ],
     }),
-    getRunCells: jest.fn().mockResolvedValue({
+    // The two ranked cells, at the centres their ids name, so the map can
+    // place the selected box on whichever one is selected.
+    getRunCells: jest.fn().mockImplementation(async (runId: string) => ({
       type: "FeatureCollection",
-      run_id: "run-wind-1",
-      features: [],
-    }),
+      run_id: runId,
+      features: [
+        {
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [151.2, -30.1] },
+          properties: { cell_id: RANK_1, eligible: true, suitability_score: 0.912, rank: 1 },
+        },
+        {
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [151.3, -30.2] },
+          properties: { cell_id: RANK_2, eligible: true, suitability_score: 0.874, rank: 2 },
+        },
+      ],
+      score_quantiles: [],
+    })),
     getSanityCheck: jest.fn().mockResolvedValue({
       caveat:
         "The model is not trained to reproduce the known wind/REZ locations.",
@@ -218,13 +259,22 @@ describe("AppShell service integration", () => {
 
     expect(await within(detailRegion()).findByText(RANK_2)).toBeInTheDocument();
     expect(within(detailRegion()).queryByText(RANK_1)).not.toBeInTheDocument();
-    // The map region now renders the CellMap container; the selection is
-    // mirrored on the map through the shared SiteSelection (the pinned
-    // highlight square), not as cell-id text in the DOM.
+    // The selection is mirrored on the map through the shared SiteSelection:
+    // the pinned highlight square moves onto the row's own cell (S4-02 AC6).
     expect(within(mapRegion()).getByLabelText("Interactive cell map")).toBeInTheDocument();
+    await waitFor(() => expect(selectedBoxCenter()).toEqual([151.3, -30.2]));
     expect(service.getSiteDetail).toHaveBeenLastCalledWith("run-wind-1", RANK_2);
     expect(screen.getByRole("button", { name: RANK_2 })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: RANK_1 })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("pins the map's selected box on the run's automatic rank-1 site (S4-02)", async () => {
+    const service = serviceWithFlaggedDataset();
+    render(<AppShell service={service} />);
+
+    expect(await within(detailRegion()).findByText(RANK_1)).toBeInTheDocument();
+    // No click: the run opens on rank 1 and the map shows that same cell.
+    await waitFor(() => expect(selectedBoxCenter()).toEqual([151.2, -30.1]));
   });
 
   it("does not refetch detail when the already-selected row is clicked again", async () => {

@@ -35,6 +35,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from ..scoring import config as _scoring_config
@@ -589,19 +590,45 @@ def get_run_cells(run: RunHandle | str) -> CellCollection:
             )
 
     features: list[CellFeature] = []
+    eligible_scores: list[float] = []
     for _, row in frame.iterrows():
         score = _opt_score(row[score_col])
         rank = _opt_rank(row[rank_col])
+        # The IDENTICAL eligible rule get_ranked_results applies.
+        eligible = score is not None and rank is not None
+        if eligible:
+            eligible_scores.append(score)
         features.append(
             CellFeature(
                 cell_id=str(row[cell_col]),
                 centroid_lon=float(row[lon_col]),
                 centroid_lat=float(row[lat_col]),
-                # The IDENTICAL eligible rule get_ranked_results applies.
-                eligible=score is not None and rank is not None,
+                eligible=eligible,
                 suitability_score=score,
                 rank=rank,
             )
         )
 
-    return CellCollection(run_id=run_id, features=features)
+    return CellCollection(
+        run_id=run_id,
+        features=features,
+        score_quantiles=_score_quantiles(eligible_scores),
+    )
+
+
+def _score_quantiles(scores: list[float]) -> list[tuple[float, float]]:
+    """
+    The eligible population's served scores at each `MAP_SCORE_QUANTILES`
+    probability (linear interpolation, numpy's default), as
+    ``(quantile, suitability_score)`` pairs. A descriptive statistic of the
+    engine's scores for the map's colour scale — no score, rank or eligibility
+    is changed or derived. Empty when there is no eligible cell.
+    """
+    if not scores:
+        return []
+    probabilities = _service_config.MAP_SCORE_QUANTILES
+    values = np.quantile(np.asarray(scores, dtype=float), probabilities)
+    return [
+        (float(quantile), float(value))
+        for quantile, value in zip(probabilities, values)
+    ]

@@ -33,6 +33,8 @@ import CellMap from "./CellMap";
 const setDataSpy = jest.fn();
 const addSourceSpy = jest.fn();
 const addLayerSpy = jest.fn();
+const setPaintPropertySpy = jest.fn();
+const easeToSpy = jest.fn();
 
 /**
  * Layer-scoped handlers (click / mouseenter / mouseleave) the component
@@ -78,6 +80,19 @@ jest.mock("maplibre-gl", () => {
     }
     addLayer(layer: { id: string }) {
       addLayerSpy(layer.id);
+    }
+    setPaintProperty(...args: unknown[]) {
+      setPaintPropertySpy(...args);
+    }
+    // The visible area: tests treat [150, -34]..[152, -30] as in view.
+    getBounds() {
+      return {
+        contains: ([lng, lat]: [number, number]) =>
+          lng >= 150 && lng <= 152 && lat >= -34 && lat <= -30,
+      };
+    }
+    easeTo(options: unknown) {
+      easeToSpy(options);
     }
     getSource(id: string) {
       return {
@@ -188,6 +203,8 @@ beforeEach(() => {
   setDataSpy.mockClear();
   addSourceSpy.mockClear();
   addLayerSpy.mockClear();
+  setPaintPropertySpy.mockClear();
+  easeToSpy.mockClear();
   layerHandlers = {};
   mapHandlers = {};
   canvasCursor = "";
@@ -212,9 +229,11 @@ describe("CellMap (S3-03a map rendering)", () => {
     expect(getRunCells).toHaveBeenCalledWith("run-1");
   });
 
-  it("adds the NSW boundary source and the mask/border layers on load", () => {
+  it("adds the NSW boundary source and the mask/border layers on load", async () => {
     const getRunCells = jest.fn().mockResolvedValue(featureCollection("run-1"));
     render(<CellMap runId="run-1" service={serviceWithCells(getRunCells)} />);
+    // Let the cells apply inside the test so its state updates are flushed.
+    await waitFor(() => expect(setDataSpy).toHaveBeenCalled());
 
     expect(addSourceSpy).toHaveBeenCalledWith("nsw-boundary");
     expect(addLayerSpy).toHaveBeenCalledWith("nsw-mask");
@@ -507,7 +526,7 @@ describe("CellMap click-to-inspect (S3-03b)", () => {
     expect(addLayerSpy).toHaveBeenCalledWith("cell-hover-outline");
   });
 
-  const d = 0.0225; // SELECTION_HALF_DEG — half-width of the highlight square
+  const d = 0.025; // SELECTION_HALF_DEG — half the 0.05° grid spacing
 
   /** The expected closed square ring centred on [lng, lat], inset by d. */
   function expectedRing(lng: number, lat: number): number[][] {
@@ -536,7 +555,7 @@ describe("CellMap click-to-inspect (S3-03b)", () => {
     await waitFor(() => expect(setDataSpy).toHaveBeenCalled());
 
     // The one cell's centre is [151.2, -30.1]. Move the cursor OFF the centre
-    // but still well inside the ±d square (offset 0.01 < d=0.0225 on each axis):
+    // but still well inside the ±d square (offset 0.01 < d=0.025 on each axis):
     // the box must appear, snapped to the cell centre, and the cursor becomes a
     // pointer. The persistent selected box stays empty.
     const cx = 151.2;
@@ -680,5 +699,147 @@ describe("CellMap click-to-inspect (S3-03b)", () => {
     // Either no setData at all, or an empty collection — never a square.
     if (applied) expect(applied.features).toHaveLength(0);
     expect(canvasCursor).toBe("");
+  });
+});
+
+describe("CellMap S4-02 completion (selection mirror, run guard, colour scale, legend)", () => {
+  const d = 0.025;
+
+  /** Centre of the box last drawn on a highlight source, or null. */
+  function boxCenter(sourceId: string): [number, number] | null {
+    const fc = lastSetDataBySource[sourceId] as
+      | GeoJSON.FeatureCollection
+      | undefined;
+    const feature = fc?.features[0];
+    if (!feature || feature.geometry.type !== "Polygon") return null;
+    const sw = (feature.geometry as GeoJSON.Polygon).coordinates[0]?.[0];
+    if (!sw || sw[0] === undefined || sw[1] === undefined) return null;
+    return [Number((sw[0] + d).toFixed(6)), Number((sw[1] + d).toFixed(6))];
+  }
+
+  it("pins the selected box on the selectedCellId prop once the run's cells arrive", async () => {
+    const getRunCells = jest.fn().mockResolvedValue(mixedCollection("run-1"));
+    render(
+      <CellMap
+        runId="run-1"
+        service={serviceWithCells(getRunCells)}
+        selectedCellId="eligible-1"
+      />,
+    );
+
+    await waitFor(() => expect(boxCenter("cell-selected")).toEqual([151.2, -30.1]));
+  });
+
+  it("moves the selected box when the selection changes outside the map (shortlist pick)", async () => {
+    const getRunCells = jest.fn().mockResolvedValue(mixedCollection("run-1"));
+    const service = serviceWithCells(getRunCells);
+    const { rerender } = render(
+      <CellMap runId="run-1" service={service} selectedCellId="eligible-1" />,
+    );
+    await waitFor(() => expect(boxCenter("cell-selected")).toEqual([151.2, -30.1]));
+
+    // An excluded cell can be selected too (e.g. "inspect excluded").
+    rerender(<CellMap runId="run-1" service={service} selectedCellId="env-1" />);
+    await waitFor(() => expect(boxCenter("cell-selected")).toEqual([150.3, -33.7]));
+
+    rerender(<CellMap runId="run-1" service={service} selectedCellId={null} />);
+    await waitFor(() =>
+      expect(
+        (lastSetDataBySource["cell-selected"] as GeoJSON.FeatureCollection).features,
+      ).toHaveLength(0),
+    );
+    expect(getRunCells).toHaveBeenCalledTimes(1); // selection never refetches
+  });
+
+  it("pans to a selected cell outside the view, but never when it is already visible", async () => {
+    const getRunCells = jest.fn().mockResolvedValue(mixedCollection("run-1"));
+    const service = serviceWithCells(getRunCells);
+    const { rerender } = render(
+      <CellMap runId="run-1" service={service} selectedCellId="eligible-1" />,
+    );
+    await waitFor(() => expect(boxCenter("cell-selected")).toEqual([151.2, -30.1]));
+    expect(easeToSpy).not.toHaveBeenCalled(); // [151.2,-30.1] is in view
+
+    // nodata-1 sits at [146.0, -34.0], outside the mocked view.
+    rerender(<CellMap runId="run-1" service={service} selectedCellId="nodata-1" />);
+    await waitFor(() => expect(easeToSpy).toHaveBeenCalledWith({ center: [146.0, -34.0] }));
+  });
+
+  it("draws no box for a selected id that is not in the run's cells", async () => {
+    const getRunCells = jest.fn().mockResolvedValue(mixedCollection("run-1"));
+    render(
+      <CellMap
+        runId="run-1"
+        service={serviceWithCells(getRunCells)}
+        selectedCellId="not-a-cell"
+      />,
+    );
+    await waitFor(() => expect(setDataSpy).toHaveBeenCalled());
+    expect(boxCenter("cell-selected")).toBeNull();
+  });
+
+  it("refuses to draw cells that belong to a different run than the one requested", async () => {
+    const getRunCells = jest.fn().mockResolvedValue(featureCollection("run-OTHER"));
+    render(<CellMap runId="run-1" service={serviceWithCells(getRunCells)} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Map data unavailable: received cells for run run-OTHER, expected run-1",
+    );
+    expect(lastSetDataBySource["cells"]).toBeUndefined();
+  });
+
+  it("re-places the eligible colour stops at the run's served score quantiles", async () => {
+    const quantiles = [
+      { quantile: 0, suitability_score: 0.42 },
+      { quantile: 0.1, suitability_score: 0.6 },
+      { quantile: 0.25, suitability_score: 0.66 },
+      { quantile: 0.5, suitability_score: 0.72 },
+      { quantile: 0.75, suitability_score: 0.75 },
+      { quantile: 0.9, suitability_score: 0.79 },
+      { quantile: 1, suitability_score: 0.92 },
+    ];
+    const getRunCells = jest
+      .fn()
+      .mockResolvedValue({ ...featureCollection("run-1"), score_quantiles: quantiles });
+    render(<CellMap runId="run-1" service={serviceWithCells(getRunCells)} />);
+
+    await waitFor(() => expect(setPaintPropertySpy).toHaveBeenCalled());
+    const [layerId, property, expression] = setPaintPropertySpy.mock.calls.at(-1) ?? [];
+    expect(layerId).toBe("cells-eligible");
+    expect(property).toBe("circle-color");
+    expect(expression).toEqual([
+      "interpolate",
+      ["linear"],
+      ["get", "suitability_score"],
+      0.42, "#fcbba1",
+      0.6, "#fc9272",
+      0.66, "#fb6a4a",
+      0.72, "#ef3b2c",
+      0.75, "#cb181d",
+      0.79, "#a50f15",
+      0.92, "#67000d",
+    ]);
+    // The legend names the run's real score range and median.
+    expect(await screen.findByText("Lower 0.42")).toBeInTheDocument();
+    expect(screen.getByText("Median 0.72")).toBeInTheDocument();
+    expect(screen.getByText("Higher 0.92")).toBeInTheDocument();
+  });
+
+  it("names every map style in the legend", () => {
+    const getRunCells = jest.fn().mockReturnValue(new Promise(() => {}));
+    render(<CellMap runId="run-1" service={serviceWithCells(getRunCells)} />);
+
+    const legend = screen.getByRole("group", { name: "Map legend" });
+    for (const label of [
+      /Eligible candidate — relative suitability score/,
+      /Excluded cells are not scored/,
+      /Excluded — environmental rule/,
+      /Not assessed — missing input data/,
+      /Selected site/,
+      /Cell under the pointer/,
+      /Outside NSW/,
+    ]) {
+      expect(legend).toHaveTextContent(label);
+    }
   });
 });

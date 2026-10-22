@@ -20,6 +20,7 @@ import type { CellCollection, ExcludedRow } from "../api/decision-service";
 import { NSW_BOUNDARY } from "./nsw-boundary";
 import type {
   CircleLayerSpecification,
+  ExpressionSpecification,
   FillLayerSpecification,
   LineLayerSpecification,
 } from "maplibre-gl";
@@ -122,13 +123,16 @@ export const NSW_MASK_LAYER_ID = "nsw-mask";
 export const NSW_BORDER_LAYER_ID = "nsw-border";
 
 /**
- * Ray-casting point-in-polygon over one linear ring (an array of `[lng, lat]`
- * vertices). Reads coordinates only — no decision math — so the geographic clip
- * stays inside the decision-free rule. A plain `for` loop (never `.reduce`) to
- * satisfy the scope-guard. Returns true when the point lies inside the ring.
+ * The x-coordinates where one linear ring (an array of `[lng, lat]` vertices)
+ * crosses the horizontal line at `lat`, using the standard ray-casting edge
+ * test: an edge counts when its endpoints straddle `lat`, and the crossing is
+ * interpolated along it. A point `[lng, lat]` is inside the ring exactly when
+ * an ODD number of these crossings lie to its right (`lng < x`). Reads
+ * coordinates only — no decision math — and uses plain `for` loops (never
+ * `.reduce`/`.sort`) to satisfy the scope-guard.
  */
-function pointInRing(lng: number, lat: number, ring: number[][]): boolean {
-  let inside = false;
+function ringCrossingsAt(lat: number, ring: number[][]): number[] {
+  const crossings: number[] = [];
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
     const vi = ring[i];
     const vj = ring[j];
@@ -145,31 +149,117 @@ function pointInRing(lng: number, lat: number, ring: number[][]): boolean {
     ) {
       continue;
     }
-    const intersects =
-      yi > lat !== yj > lat &&
-      lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi;
-    if (intersects) inside = !inside;
+    if (yi > lat !== yj > lat) {
+      crossings.push(((xj - xi) * (lat - yi)) / (yj - yi) + xi);
+    }
+  }
+  return crossings;
+}
+
+/** True when an odd number of `crossings` lie strictly right of `lng`. */
+function oddCrossingsRightOf(lng: number, crossings: number[]): boolean {
+  let inside = false;
+  for (let k = 0; k < crossings.length; k++) {
+    const x = crossings[k];
+    if (x !== undefined && lng < x) inside = !inside;
   }
   return inside;
 }
 
+/** One NSW polygon's ring crossings along a single latitude. */
+interface PolygonRow {
+  minLng: number;
+  maxLng: number;
+  outer: number[];
+  holes: number[][];
+}
+
 /**
- * True when `[lng, lat]` falls inside the NSW MultiPolygon: inside a polygon's
- * outer ring (index 0) and not inside any of that polygon's holes. Iterates all
- * polygons/rings (so islands such as Lord Howe are included). Reads coordinates
- * only — this is a geographic test, not decision math.
+ * Bounding box `[minLng, minLat, maxLng, maxLat]` of each NSW polygon's outer
+ * ring, built once on first use, so a latitude row only considers the
+ * polygons it can pass through. Coordinate reads only.
  */
-function pointInNsw(lng: number, lat: number): boolean {
+let polygonBboxes: [number, number, number, number][] | null = null;
+
+function nswPolygonBboxes(): [number, number, number, number][] {
+  if (polygonBboxes) return polygonBboxes;
+  const boxes: [number, number, number, number][] = [];
   const polygons = NSW_BOUNDARY.coordinates;
   for (let p = 0; p < polygons.length; p++) {
+    const outer = polygons[p]?.[0] ?? [];
+    let minLng = Infinity;
+    let minLat = Infinity;
+    let maxLng = -Infinity;
+    let maxLat = -Infinity;
+    for (let v = 0; v < outer.length; v++) {
+      const vertex = outer[v];
+      const x = vertex?.[0];
+      const y = vertex?.[1];
+      if (x === undefined || y === undefined) continue;
+      if (x < minLng) minLng = x;
+      if (x > maxLng) maxLng = x;
+      if (y < minLat) minLat = y;
+      if (y > maxLat) maxLat = y;
+    }
+    boxes.push([minLng, minLat, maxLng, maxLat]);
+  }
+  polygonBboxes = boxes;
+  return boxes;
+}
+
+/**
+ * Ring crossings of every NSW polygon along each latitude seen so far, keyed by
+ * that exact latitude. Grid cells in one row share a latitude, so the boundary
+ * (~18.7k vertices) is walked once per ROW (~190 statewide) instead of once
+ * per CELL (~47k) — what keeps the statewide clip fast (S4-02). The boundary
+ * is static, so the cache is safe to keep across runs.
+ */
+const rowCache = new Map<number, PolygonRow[]>();
+
+function nswRowAt(lat: number): PolygonRow[] {
+  const cached = rowCache.get(lat);
+  if (cached) return cached;
+  const rows: PolygonRow[] = [];
+  const polygons = NSW_BOUNDARY.coordinates;
+  const boxes = nswPolygonBboxes();
+  for (let p = 0; p < polygons.length; p++) {
     const polygon = polygons[p];
-    if (!polygon) continue;
-    const outer = polygon[0];
-    if (!outer || !pointInRing(lng, lat, outer)) continue;
-    let inHole = false;
+    const box = boxes[p];
+    if (!polygon || !box || lat < box[1] || lat > box[3]) continue;
+    const holes: number[][] = [];
     for (let h = 1; h < polygon.length; h++) {
       const hole = polygon[h];
-      if (hole && pointInRing(lng, lat, hole)) {
+      if (hole) holes.push(ringCrossingsAt(lat, hole));
+    }
+    rows.push({
+      minLng: box[0],
+      maxLng: box[2],
+      outer: ringCrossingsAt(lat, polygon[0] ?? []),
+      holes,
+    });
+  }
+  rowCache.set(lat, rows);
+  return rows;
+}
+
+/**
+ * True when `[lng, lat]` falls inside the NSW MultiPolygon: inside a polygon's
+ * outer ring (index 0) and not inside any of that polygon's holes. Considers
+ * every polygon (so islands such as Lord Howe are included). The result is
+ * identical to ray-casting each ring per point; the crossings are just shared
+ * across a latitude row. Reads coordinates only — a geographic test, not
+ * decision math.
+ */
+function pointInNsw(lng: number, lat: number): boolean {
+  const rows = nswRowAt(lat);
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || lng < row.minLng || lng > row.maxLng) continue;
+    if (!oddCrossingsRightOf(lng, row.outer)) continue;
+    let inHole = false;
+    for (let h = 0; h < row.holes.length; h++) {
+      const hole = row.holes[h];
+      if (hole && oddCrossingsRightOf(lng, hole)) {
         inHole = true;
         break;
       }
@@ -280,6 +370,112 @@ export function nswBorderLayer(): LineLayerSpecification {
 }
 
 /**
+ * The eligible-cell colour ramp (S4-02): ColorBrewer "Reds", one hue getting
+ * steadily darker from lower to higher suitability. It starts at a mid-light
+ * salmon (not near-white) so the lowest-scoring eligible cell still reads as a
+ * scored candidate against the basemap and the slate/grey excluded classes. One
+ * colour per served quantile (`CellCollection.score_quantiles`).
+ */
+export const SCORE_RAMP = [
+  "#fcbba1",
+  "#fc9272",
+  "#fb6a4a",
+  "#ef3b2c",
+  "#cb181d",
+  "#a50f15",
+  "#67000d",
+] as const;
+
+/** The ramp's two ends: lowest and highest eligible suitability. */
+const LOWEST_SCORE_COLOUR = SCORE_RAMP[0];
+const HIGHEST_SCORE_COLOUR = SCORE_RAMP[6];
+
+/** One served colour-scale point: the eligible score at a probability. */
+export interface ScoreQuantile {
+  quantile: number;
+  suitability_score: number;
+}
+
+/**
+ * The colour stops `[score, colour]` for the eligible ramp: one per served
+ * quantile, in the served (ascending) order, with ramp colours spread evenly
+ * over the stops. A stop whose score does not exceed the previous one is
+ * skipped (MapLibre needs strictly ascending inputs; ties happen when many
+ * cells share a score). Falls back to the full 0–1 score range when no
+ * quantiles are served. Presentation only: the engine's scores are read, never
+ * changed, and no value is sorted or re-ranked.
+ */
+export function scoreColorStops(
+  quantiles?: readonly ScoreQuantile[] | null,
+): [number, string][] {
+  const last = SCORE_RAMP.length - 1;
+  if (!quantiles || quantiles.length === 0) {
+    return [
+      [0, LOWEST_SCORE_COLOUR],
+      [1, HIGHEST_SCORE_COLOUR],
+    ];
+  }
+  const stops: [number, string][] = [];
+  const span = Math.max(quantiles.length - 1, 1);
+  for (let i = 0; i < quantiles.length; i++) {
+    const point = quantiles[i];
+    if (!point) continue;
+    const previous = stops[stops.length - 1];
+    if (previous && point.suitability_score <= previous[0]) continue;
+    const colour = SCORE_RAMP[Math.round((i * last) / span)] ?? HIGHEST_SCORE_COLOUR;
+    stops.push([point.suitability_score, colour]);
+  }
+  return stops;
+}
+
+/**
+ * The MapLibre `circle-color` expression for eligible cells: a continuous
+ * linear interpolation of `suitability_score` through {@link scoreColorStops}.
+ * A single usable stop (every eligible cell has the same score) collapses to
+ * that stop's colour, since an interpolation needs distinct inputs.
+ */
+export function scoreColorExpression(
+  quantiles?: readonly ScoreQuantile[] | null,
+): ExpressionSpecification | string {
+  const stops = scoreColorStops(quantiles);
+  if (stops.length === 1) {
+    return stops[0]?.[1] ?? HIGHEST_SCORE_COLOUR;
+  }
+  const expression: unknown[] = [
+    "interpolate",
+    ["linear"],
+    ["get", "suitability_score"],
+  ];
+  for (const [score, colour] of stops) {
+    expression.push(score, colour);
+  }
+  return expression as ExpressionSpecification;
+}
+
+/**
+ * Circle radius (px) by zoom so each 0.05° cell is drawn about its true width
+ * (S4-02). MapLibre's world is 512·2^z px wide, so a 0.05° cell is
+ * ≈ 0.0711 × 2^z px wide; from zoom 7 up the radius is 0.0391 × 2^z ≈ 0.55 of
+ * that width, doubling per zoom level, so neighbouring circles touch (cells are
+ * taller than wide in Web Mercator) and the grid reads as a surface rather than
+ * dots. Below zoom 7 it is floored so the statewide view stays readable instead
+ * of sub-pixel. `scale` lets a layer draw smaller than a full cell.
+ */
+export function cellRadius(scale = 1): ExpressionSpecification {
+  return [
+    "interpolate",
+    ["exponential", 2],
+    ["zoom"],
+    5,
+    1.6 * scale,
+    7,
+    5.0 * scale,
+    12,
+    160.2 * scale,
+  ];
+}
+
+/**
  * The faint "no data" layer (bottom): cells excluded ONLY because a critical
  * input value was missing (wind, slope, or demand) and so were never assessed
  * on merit. Statewide this class is now rare — a small residual pocket such as
@@ -305,7 +501,7 @@ export function excludedNoDataLayer(
     ],
     paint: {
       "circle-color": "#c7ccd1",
-      "circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 1.5, 9, 4],
+      "circle-radius": cellRadius(0.8),
       "circle-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.12, 9, 0.3],
     },
   };
@@ -331,20 +527,24 @@ export function excludedEnvLayer(
     ],
     paint: {
       "circle-color": "#5b6b8c",
-      "circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 2, 9, 5],
-      "circle-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.5, 9, 0.75],
+      "circle-radius": cellRadius(),
+      "circle-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.7, 9, 0.85],
     },
   };
 }
 
 /**
- * The primary eligible layer (top): fully opaque, larger radius, colour a
- * data-driven ramp over `suitability_score`. Because `eligible` is defined as
- * "score and rank both non-null", the eligible-only filter guarantees the ramp
- * never sees a null score — no fallback is needed (design §5.6).
+ * The primary eligible layer (top): fully opaque, full-cell radius, colour a
+ * continuous ramp over `suitability_score` (S4-02). The ramp's stops sit at the
+ * served `score_quantiles` when given, so the real score distribution spreads
+ * across the whole ramp; without them it spans 0–1. Because `eligible` is
+ * defined as "score and rank both non-null", the eligible-only filter
+ * guarantees the ramp never sees a null score — no fallback is needed (design
+ * §5.6).
  */
 export function eligibleLayer(
   sourceId: string = CELLS_SOURCE_ID,
+  quantiles?: readonly ScoreQuantile[] | null,
 ): CircleLayerSpecification {
   return {
     id: ELIGIBLE_LAYER_ID,
@@ -352,26 +552,8 @@ export function eligibleLayer(
     source: sourceId,
     filter: ["==", ["get", "eligible"], true],
     paint: {
-      "circle-color": [
-        "interpolate",
-        ["linear"],
-        ["get", "suitability_score"],
-        0,
-        "#fee5d9",
-        0.5,
-        "#fb6a4a",
-        1,
-        "#a50f15",
-      ],
-      "circle-radius": [
-        "interpolate",
-        ["linear"],
-        ["zoom"],
-        5,
-        2.5,
-        9,
-        7,
-      ],
+      "circle-color": scoreColorExpression(quantiles),
+      "circle-radius": cellRadius(),
       "circle-opacity": [
         "interpolate",
         ["linear"],
