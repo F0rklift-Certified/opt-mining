@@ -247,7 +247,7 @@ def _materialise(
         "scored_table_csv": config.SCORED_CSV_FILENAME,
         "scored_table_layer": config.SCORED_LAYER,
         "n_cells": int(len(table)),
-        "integrated_path": str(integrated_path),
+        "integrated_path": _portable_path(integrated_path),
         "integrated_layer": config.INTEGRATED_LAYER,
         "integrated_sha256": sha256_file(integrated_path),
         "generated_utc": utc_now(),
@@ -472,6 +472,40 @@ def load_scored_table(run_id: str) -> gpd.GeoDataFrame:
     return table
 
 
+def _portable_path(path: Path) -> str:
+    """
+    A path for run.json that survives moving the project: relative to
+    `config.PROJECT_ROOT` when it lies inside it, else absolute.
+
+    An absolute host path broke site detail whenever the same run store was
+    read from another location, e.g. host-written Runs opened inside the
+    Docker dev container (QA F-26).
+    """
+    try:
+        return Path(path).resolve().relative_to(Path(config.PROJECT_ROOT).resolve()).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def _recorded_integrated_path(manifest: dict) -> Path:
+    """
+    Resolve the integrated table a Run recorded. A relative path is resolved
+    against `config.PROJECT_ROOT`. An absolute path that no longer exists
+    (a Run written before relative paths, from another machine or
+    container) falls back to the current `config.INTEGRATED_PATH`; the
+    caller's sha256 check still refuses it if the content differs.
+    """
+    recorded = manifest.get("integrated_path")
+    if not recorded:
+        return Path(config.INTEGRATED_PATH)
+    path = Path(recorded)
+    if not path.is_absolute():
+        return Path(config.PROJECT_ROOT) / path
+    if not path.exists():
+        return Path(config.INTEGRATED_PATH)
+    return path
+
+
 def load_integrated_table(run_id: str) -> gpd.GeoDataFrame:
     """
     Load the S1-08 integrated feature table the Run scored (CONTRACT.md §1).
@@ -498,9 +532,7 @@ def load_integrated_table(run_id: str) -> gpd.GeoDataFrame:
         (Requirement 7.3).
     """
     manifest = load_run_manifest(run_id)
-    integrated_path = Path(
-        manifest.get("integrated_path", config.INTEGRATED_PATH)
-    )
+    integrated_path = _recorded_integrated_path(manifest)
     integrated_layer = manifest.get("integrated_layer", config.INTEGRATED_LAYER)
 
     if not integrated_path.exists():

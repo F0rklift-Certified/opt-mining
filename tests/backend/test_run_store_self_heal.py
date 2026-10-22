@@ -146,3 +146,30 @@ def test_healthy_run_is_reused_without_re_scoring(engine_store, monkeypatch):
     assert reused.run_id == handle.run_id
     # The healthy artefact is left untouched (not rewritten).
     assert gpkg_path.read_bytes() == original_bytes
+
+
+def test_run_json_records_a_project_relative_integrated_path(engine_store, monkeypatch):
+    """QA F-26: run.json must not pin the host's absolute path."""
+    monkeypatch.setattr(service_config, "PROJECT_ROOT", engine_store.parent)
+    handle = materialise_run(weights=WEIGHTS_REQUEST)
+    manifest = runs_module.load_run_manifest(handle.run_id)
+    assert manifest["integrated_path"] == "integrated.gpkg"
+    assert len(runs_module.load_integrated_table(handle.run_id)) == 4
+
+
+def test_stale_absolute_integrated_path_falls_back_to_current_table(engine_store):
+    """
+    QA F-26: a Run written elsewhere (host vs container) records an absolute
+    path that does not exist here; site detail must read the current table
+    (the sha256 guard still rejects different content) instead of a 503.
+    """
+    import json
+
+    handle = materialise_run(weights=WEIGHTS_REQUEST)
+    manifest_path = engine_store / handle.run_id / service_config.RUN_MANIFEST_FILENAME
+    manifest = json.loads(manifest_path.read_text())
+    manifest["integrated_path"] = "/Users/someone-else/opt-mining/DATA/integration/x.gpkg"
+    manifest_path.write_text(json.dumps(manifest))
+
+    assert len(runs_module.load_integrated_table(handle.run_id)) == 4
+
