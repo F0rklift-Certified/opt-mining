@@ -71,7 +71,7 @@ export const FEATURE_INTERPRETATION: Record<string, string> = {
   dist_transmission_km:
     "Sites closer to a transmission line score higher — a shorter connection to the grid means lower build cost.",
   demand_proxy:
-    "Sites nearer to existing network load score higher — a regional demand total is spread within each NEM region by urban footprint (default) or, under load_weighted, by real zone-substation maximum demand, so cells near where power is already used rate higher. A proxy for an easier market, not a guarantee of spare capacity or offtake.",
+    "Sites closer to where power is already used score higher — a proxy for an easier market, not a guarantee of grid capacity.",
   dist_substation_km:
     "Sites closer to a substation score higher — a nearby connection point keeps hook-up simpler and cheaper.",
   slope_deg:

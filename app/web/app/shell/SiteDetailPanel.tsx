@@ -31,6 +31,29 @@ const COMPONENT_LABELS: Readonly<Record<string, string>> = {
   inside_rez: "Inside REZ",
 };
 
+/**
+ * Units of measurement for the engine's raw/derived feature values, keyed by
+ * the feature name the service serves. Appended to the Features read-out so each
+ * numeric value carries its unit (S1-08 / S1-10 feature definitions):
+ *   - `wind_speed` is metres per second (Sanity_Range [0, 25] m/s);
+ *   - `dist_transmission_km` / `dist_substation_km` are kilometres;
+ *   - `slope_deg` is degrees;
+ *   - `elevation_m` is metres;
+ *   - `demand_proxy` is a dimensionless normalised proxy index ([0, 1]) — a
+ *     rank of demand proximity, not a physical quantity — so its "unit" is the
+ *     index-scale label `(index, 0–1)` rather than a measurement unit;
+ *   - `inside_rez` is a boolean flag, so it carries no unit.
+ * Unknown feature keys and non-numeric values carry no unit.
+ */
+const FEATURE_UNITS: Readonly<Record<string, string>> = {
+  wind_speed: "m/s",
+  dist_transmission_km: "km",
+  dist_substation_km: "km",
+  slope_deg: "°",
+  elevation_m: "m",
+  demand_proxy: "(index, 0–1)",
+};
+
 /** One exclusion reason as served by S2-06: a stable code and verbatim text. */
 interface ExclusionReason {
   code: string;
@@ -86,6 +109,22 @@ function formatFeature(value: unknown): string {
   if (typeof value === "string") return value;
   if (value === null || value === undefined) return "—";
   return String(value);
+}
+
+/**
+ * Display a feature value with its unit of measurement appended, when the key
+ * has a known unit and the value is a finite number. Non-numeric values (the
+ * `inside_rez` boolean, missing "—") and unit-less keys (`demand_proxy`) are
+ * shown as-is. The degree unit abuts its value (e.g. `7.000°`); all others are
+ * space-separated (e.g. `9.500 m/s`).
+ */
+function formatFeatureWithUnit(key: string, value: unknown): string {
+  const formatted = formatFeature(value);
+  const unit = FEATURE_UNITS[key];
+  if (!unit || typeof value !== "number" || !Number.isFinite(value)) {
+    return formatted;
+  }
+  return unit === "°" ? `${formatted}${unit}` : `${formatted} ${unit}`;
 }
 
 /** Render a verbatim string list under a UI heading, only when non-empty. */
@@ -186,7 +225,7 @@ export default function SiteDetailPanel({ site }: SiteDetailPanelProps): JSX.Ele
                 {features.map(([key, value]) => (
                   <tr key={key}>
                     <th scope="row">{COMPONENT_LABELS[key] ?? key}</th>
-                    <td className="om-results__num">{formatFeature(value)}</td>
+                    <td className="om-results__num">{formatFeatureWithUnit(key, value)}</td>
                   </tr>
                 ))}
               </tbody>

@@ -67,8 +67,8 @@ describe("SiteDetailPanel", () => {
     expect(screen.getByText("0.501")).toBeInTheDocument();
     expect(screen.getAllByText("Wind speed").length).toBeGreaterThan(0);
 
-    // A raw/derived feature value appears.
-    expect(screen.getByText("8.400")).toBeInTheDocument();
+    // A raw/derived feature value appears with its unit of measurement.
+    expect(screen.getByText("8.400 m/s")).toBeInTheDocument();
 
     // Verbatim explanation strings.
     expect(screen.getByText("Higher-ranked candidate under the selected assumptions and criteria")).toBeInTheDocument();
