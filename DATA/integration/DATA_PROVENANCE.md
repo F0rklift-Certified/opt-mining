@@ -5,20 +5,20 @@
 - **CSV:** `DATA/integration/optmining_integrated-features_2026_nsw.csv` (no geometry; the deterministic artefact)
 - **Derived from:**
   - grid: `DATA/grid/nsw_analysis_grid.gpkg` (layer `nsw_grid`, 47,311 rows, SHA-256 `7c7e6433d061f0029331b4e19460abb664535bf21c7ca50fb8fa4511fa90052b`)
-  - wind: `DATA/wind-resource/features/gwa_v4_wind-feature_2025_nsw.gpkg` (layer `wind_features`, 47,311 rows, SHA-256 `2af85ff5f12a0fa66b11e47c36872c651d537d89f4a79c1c1cf4cd739aac8566`)
+  - wind: `DATA/wind-resource/features/gwa_v4_wind-feature_2025_nsw.gpkg` (layer `wind_features`, 47,311 rows, SHA-256 `fa876cc81441f3e542026660d0696e71bddacfd73752f4eeaa9dc28e7ea39368`)
   - geographic: `DATA/geographic/features/optmining_geographic-features_2024_nsw.gpkg` (layer `geographic_features`, 47,311 rows, SHA-256 `af9db24669bdaf6d45154987d133d7c03a7b01833c920d601b93fa3057c04031`)
   - infrastructure: `DATA/infrastructure/optmining_infra-features_2026_nsw.gpkg` (layer `infra_features`, 47,311 rows, SHA-256 `12bca14fccc7d89f687d5026dc762b8a1d32f5f4365e8d893e0163881bbe1d8e`)
   - demand: `DATA/electricity-demand/aemo_demand-proxy_2026_nsw.gpkg` (layer `demand_proxy`, 47,311 rows, SHA-256 `0a6c168a7b4ebecdb8674f7a0e32c3aa407bdae7331087d2b3025f0c0aad66dc`)
-  - exclusions: `DATA/exclusions/optmining_exclusions_2024_nsw.gpkg` (layer `optmining_exclusions_2024_nsw.gpkg`, 47,311 rows, SHA-256 `e1bebde00500c3969239ad8b33e64e6a5e7f5660bdb32c04362de60f7ef3e172`)
+  - exclusions: `DATA/exclusions/optmining_exclusions_2024_nsw.gpkg` (layer `optmining_exclusions_2024_nsw.gpkg`, 47,311 rows, SHA-256 `0d67f94b55626098ab348773c83bef0158b6b95abebaae1bd33e9a8009bda930`)
   - demand_coord_confidence: `DATA/electricity-demand/aemo_demand-coord-confidence_2026_nsw.csv` (layer `(CSV sidecar)`, 47,311 rows, SHA-256 `a4e2bbeede59597e5725d487bda5ed82d3be2eb3b0d1904236b455c303e34c11`)
 - **Method:** left joins on `cell_id` from the S1-02 grid; row count asserted after every join; excluded cells retained with `eligible = False`; no reprojection, no back-filling; composite confidence appended by the S1-09 layer (`confidence.assess()`).
 - **Confidence config:** `pipeline/integration/confidence_weights.yaml` (version `1.0`, SHA-256 `2cd31b17ae28cff604aa6416079275678b137f4b866ee4e1e806088895e1eab8`)
 - **Regenerable:** yes — `python -m pipeline --only integration` (after the five feature stages and `exclusions`).
-- **SHA-256 (GeoPackage):** `e1615fba0562172ee88e362101866ee73530a15f4b2959ac48548757589d5731`
-- **SHA-256 (CSV):** `a532a075e9b4ac5beabfa0b4dfdb0e87c0ee2ebc65316dbe1a027fd0f6f7fdb4`
+- **SHA-256 (GeoPackage):** `df7073bd6c0ac9c57baf1273f2dcf2da04d3baf0c697aeeaaab3cea2e60e4da5`
+- **SHA-256 (CSV):** `ef07f401475c9d5875d808b728f083ea09974a06048bde24cab4331da305c5e4`
 - **Rows:** 47,311
-- **Generated (UTC):** 2026-10-22T00:33:29+00:00
-- **Git commit:** `1e8a9532338a71d69a74c861adf2ad7119aec4a5-dirty`
+- **Generated (UTC):** 2026-10-22T04:18:04+00:00
+- **Git commit:** `100da105ef2c360f430a148dcce7e52ba4dead92-dirty`
 <!-- END integration.merge derived layer (generated) -->
 
 ## Derived metadata — Input-contract gate (S2-02)

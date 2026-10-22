@@ -5,19 +5,19 @@
       "csv_file": "DATA/explanation/optmining_site-explanations_2026_nsw.csv",
       "stage": "explanation",
       "product_type": "derived",
-      "generated_utc": "2026-10-22T00:34:05+00:00",
-      "git_commit": "1e8a9532338a71d69a74c861adf2ad7119aec4a5-dirty",
+      "generated_utc": "2026-10-22T04:18:44+00:00",
+      "git_commit": "100da105ef2c360f430a148dcce7e52ba4dead92-dirty",
       "records": 47311,
-      "sha256_json": "fb4213cb9eee8b8f46b7343202d1e4bb77d18ebd183eb5b8d2f7de60d770b34e",
-      "sha256_csv": "d18e222cd7d9b24f2bd3fd52655a1ddba17ac1ee181d8ef554601a1e1bef99e8",
-      "bytes_json": 28868960,
-      "bytes_csv": 17882606,
+      "sha256_json": "f15a7115bd559fd15fcca7a6cd79b635e50cd87ed9011e8e301fde72bdafcc75",
+      "sha256_csv": "ef3b0d23f35daa8c97888713c8a4179dd07782bbba8321aed21669cd90e9916c",
+      "bytes_json": 27907823,
+      "bytes_csv": 16811961,
       "inputs": [
         {
           "name": "scored_table",
           "path": "DATA/scoring/optmining_suitability-score_2026_nsw.gpkg",
           "layer": "suitability_score",
-          "sha256": "10deeb239d468b5713f5399b2a10941f9f5cc309169c6a2d3530159c653152c3"
+          "sha256": "7f79db687d7c11a73683a7245496458ef7468ba98e1760ad2a6198ea0382f2b6"
         },
         {
           "name": "integrated_feature_table",
@@ -26,7 +26,7 @@
       ],
       "templates_config": {
         "path": "pipeline/explanation/explanation_templates.yaml",
-        "templates_config_id": "1b80567cab9b68bb06de1aba4bed257c1e08d16223ebcee0c8a5ecef432bc2ba",
+        "templates_config_id": "7e50d6b26e37e43ddd765e52eb3b529f6cacf1eb2d10f3c8dcf40189d82fe304",
         "version": "1.1"
       },
       "weights_config": {
@@ -35,10 +35,10 @@
         "version": "1.0"
       },
       "counts": {
-        "n_eligible_cells": 32525,
-        "n_excluded_cells": 14786,
+        "n_eligible_cells": 23266,
+        "n_excluded_cells": 24045,
         "n_explained": 47311,
-        "n_excluded_explained": 14786
+        "n_excluded_explained": 24045
       }
     }
   ]
