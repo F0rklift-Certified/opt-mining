@@ -55,6 +55,8 @@ What was already in place from S3-03a/b (MapLibre `CellMap`, three engine-driven
 2. *Stale runs are reused across data changes.* `run_id` hashes only the weights, so a run materialised from an older integrated table (found locally: 2026-09-17, 1,233 eligible) is served silently. Fixed in S4-03 by porting the input-hash binding from 6fe88a3.
 3. *Concurrent identical `POST /runs` race* (React dev double-mount) on shared temp paths → 500 without CORS headers. Also fixed in S4-03 via the materialisation lock from 6fe88a3.
 
+**Update 2026-10-22:** finding 1 is resolved by the `outside_nsw_land` exclusion (QA F-01, commit `f48ff13`; 23,266 eligible cells), and findings 2 and 3 by S4-03, merged together on `s4-integration`.
+
 **Review outcome:** _pending PR review._
 
 Refer to the [Sprint 4 Definition of Done](README.md#definition-of-done) for final acceptance.
