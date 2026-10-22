@@ -36,6 +36,67 @@ def test_normalise_proxy_is_closed_unit_interval():
     assert pd.isna(result.iloc[2])
 
 
+def test_normalise_proxy_default_mode_is_linear():
+    """The default mode is linear max-normalisation (uniform/urban_weighted)."""
+    raw = pd.Series([2.0, 4.0, 8.0])
+    source = pd.Series(["NSW1", "NSW1", "NSW1"])
+    assert normalise_proxy(raw, source).tolist() == normalise_proxy(raw, source, "linear").tolist()
+    assert normalise_proxy(raw, source, "linear").tolist() == [0.25, 0.5, 1.0]
+
+
+def test_normalise_proxy_percentile_is_rank_quantile():
+    """load_weighted uses percentile/rank normalisation: a cell's proxy is its
+    rank-quantile within its region, closed on [0,1], NOT a magnitude."""
+    # Distinct raw values -> ranks 1..5 over 5 -> 0.2,0.4,0.6,0.8,1.0 (per region).
+    raw = pd.Series([10.0, 40.0, 20.0, 80.0, 5.0])
+    source = pd.Series(["NSW1"] * 5)
+    pct = normalise_proxy(raw, source, "percentile")
+    assert pct.tolist() == [0.4, 0.8, 0.6, 1.0, 0.2]
+    assert pct.between(0, 1).all()
+    # A hyper-skewed surface (one huge value, the rest on the shared floor) keeps
+    # usable spread under percentile where linear max-norm collapses it to ~0.
+    skew = pd.Series([0.05, 0.05, 0.05, 1000.0])
+    src2 = pd.Series(["NSW1"] * 4)
+    lin = normalise_proxy(skew, src2, "linear")
+    pc = normalise_proxy(skew, src2, "percentile")
+    assert lin.iloc[:3].max() <= 0.0001          # floor cells collapse under linear
+    # Three tied floor cells take average rank (1+2+3)/3 = 2 of 4 -> 0.5; the
+    # single large value takes rank 4 of 4 -> 1.0. Percentile keeps the floor
+    # block at a legible 0.5 instead of linear's ~0.00005.
+    assert pc.iloc[:3].tolist() == [0.5, 0.5, 0.5]
+    assert pc.iloc[3] == 1.0
+
+
+def test_normalise_proxy_percentile_scopes_per_region_and_keeps_null_low():
+    """Percentile is computed PER NEM region; null/outside-region stays null."""
+    raw = pd.Series([1.0, 2.0, 1.0, 2.0, float("nan")])
+    source = pd.Series(["NSW1", "NSW1", "VIC1", "VIC1", pd.NA])
+    pct = normalise_proxy(raw, source, "percentile")
+    # Each region ranked independently: within NSW1 -> 0.5,1.0; within VIC1 -> 0.5,1.0.
+    assert pct.iloc[:2].tolist() == [0.5, 1.0]
+    assert pct.iloc[2:4].tolist() == [0.5, 1.0]
+    assert pd.isna(pct.iloc[4])  # null raw -> null proxy (confidence stays low)
+
+
+def test_normalise_proxy_percentile_is_order_independent_deterministic():
+    """rank is a pure function of the values, so row order never changes it."""
+    raw = pd.Series([3.0, 1.0, 2.0, 2.0])
+    source = pd.Series(["NSW1"] * 4)
+    forward = normalise_proxy(raw, source, "percentile")
+    shuffled_idx = [2, 0, 3, 1]
+    rev = normalise_proxy(raw.iloc[shuffled_idx].reset_index(drop=True),
+                          source.iloc[shuffled_idx].reset_index(drop=True), "percentile")
+    # Same values in the shuffled positions map to the same quantiles.
+    assert rev.tolist() == forward.iloc[shuffled_idx].reset_index(drop=True).tolist()
+
+
+def test_normalise_proxy_rejects_unknown_mode():
+    raw = pd.Series([1.0, 2.0])
+    source = pd.Series(["NSW1", "NSW1"])
+    with pytest.raises(ValueError, match="normalisation mode"):
+        normalise_proxy(raw, source, "log")
+
+
 def test_centroid_assignment_and_outside_are_deterministic():
     grid = gpd.GeoDataFrame({"cell_id": ["a", "b"]}, geometry=[box(0, 0, 1, 1), box(3, 3, 4, 4)], crs="EPSG:3577")
     regions = gpd.GeoDataFrame({"REGIONID": ["NSW1"]}, geometry=[box(-1, -1, 2, 2)], crs="EPSG:3577")

@@ -222,3 +222,54 @@ live in `DATA/electricity-demand/load/SOURCES.md` and
   (and the earlier `.agents/tasks/spatial-demand-weighting/`,
   `real-load-demand-data/`, `osm-substation-geocoding/`,
   `nominatim-geocode-fallback/` investigation reports).
+
+---
+## Addendum — percentile (rank) normalisation for `load_weighted`
+
+After the `load_weighted` flip, the flipped surface exposed a normalisation
+problem rather than a weighting one. `demand_proxy` was per-region **linear
+max-normalised** (`raw / region_max`), and the distance-decay surface
+concentrates demand hyper-locally around substations, so the `exp(-d/15 km)`
+kernel crushes everything remote toward the floor. The result was a proxy that
+had almost no usable spread: **~62% of eligible cells below 0.001 and ~94% below
+0.01**, and the remote New England / Central-West Orana REZ wind cells that
+dominate the shortlist read `demand_proxy` ≈ 0.0002 — **displayed as 0.000
+everywhere**, so the 0.15-weighted criterion stopped discriminating between the
+exact cells it was meant to separate.
+
+A quick transform comparison on the real weights was decisive: a **log**
+transform barely helped (the mass is too close to the floor), while
+**percentile (rank)** normalisation restored a full, legible spread. The fix:
+for `load_weighted` only, `demand_proxy` is now the per-NEM-region rank-quantile
+of the raw cell weight, `raw.rank(method="average", pct=True)` in `[0,1]`.
+
+- **Meaning change (surfaced, not hidden).** The proxy is now a **rank-position**,
+  not a magnitude. A cell at 0.40 is at the 40th percentile of demand proximity
+  *within its region*, not 40% of the regional maximum. This is the right call
+  for a screening discriminator but it loses magnitude meaning — documented in the
+  method report and `load/README.md`.
+- **Spread restored.** Eligible-cell `demand_proxy` now has median ≈ 0.44,
+  p90 ≈ 0.84, **0% below 0.001**, ~13.7k distinct values; the top-20 shortlist
+  cells read ≈ 0.77–0.93 (legible at 3 dp, never 0.000).
+- **Demand now bites.** The top wind cell's demand contribution rises from
+  ≈ 0.00002 to ≈ 0.06, so the shortlist moved **modestly** versus the
+  linear-normalised `load_weighted` baseline (8 of the top-20 retained, the rest a
+  reshuffle; still New England / Central-West Orana REZ cells — not degenerate).
+  Expected and accepted.
+- **Scope & invariants.** Percentile applies to `load_weighted` **only**;
+  `uniform` and `urban_weighted` keep linear max-normalisation and are byte-identical
+  when selected. The demand weight stays **0.15**, eligibility and other features
+  are unchanged, per-region raw-demand conservation still holds exactly (percentile
+  is a presentation of the proxy, not of the conserved raw demand), null→low
+  confidence and the `demand_coord_confidence` metadata column are unchanged.
+- **Ties / determinism.** Average rank is used, so the floor-only cell block maps
+  to the low end of the range; `rank` is a pure function of the values, so repeated
+  runs are byte-identical.
+- The honest caveats above still hold: the proxy is proximity to load, **not** spare
+  capacity; it mixes forecast and recorded figures; some coordinates are
+  low-confidence. Percentile normalisation changes none of that — it only makes the
+  existing signal usable across the shortlist.
+
+Change: `pipeline/demand/feature.py` `normalise_proxy(..., mode="percentile")` for
+`load_weighted`; full dependent chain (integration → scoring → shortlist →
+explanation) regenerated.

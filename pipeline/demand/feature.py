@@ -462,13 +462,47 @@ def allocate_demand(source_region: pd.Series, region_demand: pd.Series, method: 
     return result
 
 
-def normalise_proxy(raw_mw: pd.Series, source_region: pd.Series) -> pd.Series:
+def normalise_proxy(raw_mw: pd.Series, source_region: pd.Series, mode: str = "linear") -> pd.Series:
+    """Per-region normalisation of raw allocated demand into the [0,1] proxy.
+
+    Two modes, both scoped PER NEM REGION (the population is each region's
+    assigned cells, matching how source_region groups allocation):
+
+    - ``"linear"`` (default, used by ``uniform`` / ``urban_weighted``): linear
+      max-normalisation ``raw / region_max``, clipped to [0,1]. A cell's proxy is
+      its share of the region's single largest raw value — a MAGNITUDE.
+    - ``"percentile"`` (used by ``load_weighted``): rank-quantile within the
+      region, ``raw.rank(pct=True)`` in [0,1]. A cell's proxy is its
+      RANK-POSITION (quantile) among the region's assigned cells, NOT a
+      magnitude. This is the right discriminator for the ``load_weighted``
+      distance-decay surface, whose raw values concentrate hyper-locally around
+      substations and collapse almost every remote cell toward the floor under
+      linear max-normalisation (the dominant remote-wind shortlist cells then
+      read ~0.0002 -> 0.000 and the proxy stops discriminating). Percentile
+      restores usable spread (median ~0.5, 0% below 0.001).
+
+    Ties (percentile): ``method="average"`` so tied raw values — notably the
+    large block of floor-only cells (``raw`` proportional to the shared floor
+    weight) — all map to the same low average quantile; this keeps floor cells
+    at the low end of the range in a well-defined, order-independent way.
+    ``rank`` is a pure function of the values, so repeated runs are
+    byte-identical regardless of row order. Cells with null/outside-region
+    demand stay null (confidence low), exactly as under linear mode.
+    """
+    if mode not in ("linear", "percentile"):
+        raise ValueError(f"Unsupported normalisation mode {mode!r}; expected 'linear' or 'percentile'")
     result = pd.Series(float("nan"), index=raw_mw.index, dtype="float64")
     for region in source_region.dropna().unique():
         mask = source_region == region
-        max_value = raw_mw.loc[mask].max()
-        if pd.notna(max_value) and max_value > 0:
-            result.loc[mask] = raw_mw.loc[mask] / max_value
+        if mode == "percentile":
+            # rank(pct=True) ranks only the non-null raw values and leaves
+            # null (outside-region / unallocated) cells as NaN, so the
+            # null->low confidence contract is preserved exactly as in linear.
+            result.loc[mask] = raw_mw.loc[mask].rank(method="average", pct=True)
+        else:
+            max_value = raw_mw.loc[mask].max()
+            if pd.notna(max_value) and max_value > 0:
+                result.loc[mask] = raw_mw.loc[mask] / max_value
     return result.clip(0, 1)
 
 
@@ -590,9 +624,26 @@ def write_method_report(stats: dict, path: Path) -> None:
             "aggregate sets the LEVEL. The per-region rescale conserves each region's total",
             "exactly and absorbs the MVA-vs-MW and forecast-vs-recorded mismatch because only",
             "the RELATIVE shape is used.", "",
-            "`demand_proxy` is the per-region max-normalised `raw_cell_demand_MW`; it is a",
-            "normalized proxy indicator of nearness to existing network load, not measured",
-            "local demand, not spare capacity and not a guarantee of offtake.", "",
+            "`demand_proxy` is the per-region PERCENTILE (rank) of `raw_cell_demand_MW`:",
+            "each assigned cell's value is its rank-quantile (`rank(method=\"average\",",
+            "pct=True)`) within its NEM region's assigned cells, in [0,1]. It is a",
+            "RANK-POSITION, NOT a magnitude — a cell at 0.40 is at the 40th percentile of",
+            "demand proximity within its region, not 40% of the regional maximum. Percentile",
+            "normalisation replaced per-region linear max-normalisation for load_weighted",
+            "because the distance-decay surface concentrates demand hyper-locally around",
+            "substations: under linear max-normalisation ~62% of eligible cells fell below",
+            "0.001 and the remote REZ wind cells that dominate the shortlist read ~0.0002",
+            "(displayed 0.000), so the 0.15-weighted proxy stopped discriminating. Percentile",
+            "restores usable spread (region median ~0.5, 0% below 0.001). The floor-only",
+            "cells form a tie block that maps to the low end of the range (average rank).",
+            "The underlying raw per-region demand is unchanged and still conserved exactly;",
+            "percentile is a presentation of the proxy indicator only. CONSEQUENCE: demand's",
+            "0.15 weight now visibly participates across cells (the top wind site's demand",
+            "contribution rises from ~0.00002 to ~0.06), so the shortlist moves modestly",
+            "relative to the linear-normalised load_weighted baseline — this is expected and",
+            "intended. `demand_proxy` remains a proxy indicator of nearness to existing",
+            "network load, not measured local demand, not spare capacity and not a guarantee",
+            "of offtake.", "",
             "## Assumptions and limitations",
             "- Max demand is LOAD, not spare capacity and not a guarantee of future offtake — a cell near real load is likely an easier market, nothing more.",
             "- The weight is MVA used directly (no MVA→MW conversion); the per-region rescale makes only the relative shape matter, so units never affect conservation.",
@@ -618,6 +669,7 @@ def write_method_report(stats: dict, path: Path) -> None:
             f"- Storage CRS: {config.STORAGE_CRS}; computation CRS: {config.COMPUTATION_CRS}.",
             f"- CRS transform: grid and load points {config.STORAGE_CRS} → {config.COMPUTATION_CRS} for distance-decay and allocation; output stored in {config.STORAGE_CRS}.",
             f"- Distance-decay length d0: {stats.get('load_decay_length_m')} m; search radius: {stats.get('load_search_radius_m')} m; load metric column: `{stats.get('load_mva_column')}` (MVA).",
+            "- Normalisation: PERCENTILE (rank) per NEM region — `raw_cell_demand_MW.rank(method=\"average\", pct=True)` in [0,1]; `demand_proxy` is a rank-position, not a magnitude. Deterministic (rank is a pure function of the values; ties take the average rank, keeping the floor-only cells at the low end). This differs from the linear max-normalisation retained by `uniform` / `urban_weighted`.",
             f"- Non-coverage weight floor: {stats.get('demand_weight_floor')}.",
             f"- Geocoding match rate: {stats.get('geocode_matched')} of {stats.get('geocode_load_rows')} substations matched (portal {stats.get('geocode_matched_portal')} + GA {stats.get('geocode_matched_ga')} + OSM {stats.get('geocode_matched_osm')} + Nominatim {stats.get('geocode_matched_nominatim')}; the {stats.get('geocode_matched_portal')} Endeavour rows carry precise portal coordinates [`coord_source='portal'`] and bypass name-geocoding; {stats.get('geocode_osm_low_confidence')} OSM low-confidence; all Nominatim matches are lower-confidence PLACE centroids [`coord_source='nominatim'`, `nominatim_low_confidence=True`] that an analyst can down-weight/audit; {stats.get('geocode_unmatched')} unmatched, dropped and listed).",
             f"- Per-region demand_proxy spread (min/median/max, nunique): `{json.dumps(stats.get('proxy_spread', {}), sort_keys=True)}`.",
@@ -780,7 +832,13 @@ def run(verbose: bool = False, allocation_method: str | None = None, grid_path: 
         floored_indices = list(weights.index[floored_mask])
 
     raw = allocate_demand(source, demand, allocation_method, weights)
-    proxy = normalise_proxy(raw, source)
+    # load_weighted uses PERCENTILE (rank) normalisation so demand_proxy keeps
+    # usable spread across the eligible population; the raw distance-decay
+    # surface is hyper-concentrated and linear max-normalisation collapses the
+    # remote cells that dominate the shortlist toward ~0. uniform/urban_weighted
+    # keep linear max-normalisation unchanged (reproducible, magnitude-meaning).
+    normalisation_mode = "percentile" if allocation_method == "load_weighted" else "linear"
+    proxy = normalise_proxy(raw, source, mode=normalisation_mode)
     confidence = assign_confidence(source, proxy, boundary_indices, floored_indices)
     table = build_feature_table(grid, proxy, allocation_method, source, confidence)
     output_path = config.OUTPUT_DIR / config.FEATURE_TABLE_NAME

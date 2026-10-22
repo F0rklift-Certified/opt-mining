@@ -4,8 +4,8 @@
       "output_file": "DATA/integration/optmining_integrated-features_2026_nsw.gpkg",
       "csv_file": "DATA/integration/optmining_integrated-features_2026_nsw.csv",
       "stage": "integration",
-      "generated_utc": "2026-10-21T12:41:42+00:00",
-      "git_commit": "7fb987eaa587d684c94a1e260e167f04f9dfcd8a-dirty",
+      "generated_utc": "2026-10-21T23:48:18+00:00",
+      "git_commit": "cc647d664654ac34d120779167ec72a61a8d825c-dirty",
       "rows": 47311,
       "columns": [
         "cell_id",
@@ -40,10 +40,10 @@
         "confidence_score",
         "confidence_notes"
       ],
-      "sha256_gpkg": "011ebbc3020fe136b48bec967bf58b64393a5bf001f9276a2e3d8ae551d6fc11",
-      "sha256_csv": "247d8d9f61378292ca1f9a8aba20512f0582491e1b9039a007abb5442ac872f6",
+      "sha256_gpkg": "2e2a6bde1030bb5683884b0c2e428fd8b4982372cd4f944bd3f819a339e5f32a",
+      "sha256_csv": "d54d9d8c846a728ed50bafbcf57d67c36dd9214d8bd59e1e8370a285c14d9a8c",
       "bytes_gpkg": 25440256,
-      "bytes_csv": 16901570,
+      "bytes_csv": 16784583,
       "inputs": [
         {
           "name": "grid",
@@ -60,7 +60,7 @@
           "layer": "wind_features",
           "rows": 47311,
           "crs": "EPSG:4326",
-          "sha256": "b350dc3d4847ae9df2c6e0f3f1ecdecb74e2bcd960ca05f462203bf2eea72be8",
+          "sha256": "2af85ff5f12a0fa66b11e47c36872c651d537d89f4a79c1c1cf4cd739aac8566",
           "bytes": 13803520
         },
         {
@@ -87,7 +87,7 @@
           "layer": "demand_proxy",
           "rows": 47311,
           "crs": "EPSG:4326",
-          "sha256": "f04be6b449e1f3410b3aa4733786fc4c3cb681042c6f2e678cdcb52031a29c1e",
+          "sha256": "e12dbffdcc102df9117db92ff031036e59530b3634a866eb8a1ba879a7384000",
           "bytes": 13934592
         },
         {

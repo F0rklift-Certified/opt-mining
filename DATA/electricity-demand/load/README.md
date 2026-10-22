@@ -144,6 +144,34 @@ affect conservation. Decay length and search radius are documented config
 constants (`pipeline/demand/config.py`). Cells beyond every substation's radius
 fall back to the floor and are flagged `medium`.
 
+### Normalisation: PERCENTILE (rank), not linear max
+
+`demand_proxy` is the per-NEM-region **percentile (rank)** of `raw_cell` —
+`raw_cell.rank(method="average", pct=True)`, in `[0,1]`. It is a
+**rank-position**, NOT a magnitude: a cell at 0.40 sits at the 40th percentile of
+demand proximity within its region, it is not 40% of the regional maximum.
+
+This replaced per-region **linear max-normalisation** (`raw / region_max`) for
+`load_weighted` only. The distance-decay surface above concentrates demand
+hyper-locally around substations, so the `exp(-d/15 km)` kernel crushes remote
+cells toward the floor: under linear max-normalisation ~62% of eligible cells
+fell below 0.001 and ~94% below 0.01, and the remote New England / Central-West
+Orana REZ wind cells that dominate the shortlist read `demand_proxy` ≈ 0.0002 —
+displayed as 0.000 everywhere and useless as a discriminator. A log transform
+barely helped; percentile is the fix (eligible median ≈ 0.44, p90 ≈ 0.84, 0%
+below 0.001; the top wind cells now read ≈ 0.4–0.9). Ties — notably the block of
+floor-only cells — take the average rank, so they map to the low end of the range
+in a deterministic, order-independent way (`rank` is a pure function of the
+values). The underlying raw per-region demand is **unchanged and still conserved
+exactly**; percentile is a presentation of the proxy indicator only.
+
+**Consequence (expected, surfaced honestly):** demand's 0.15 scoring weight now
+visibly participates across cells — the top wind cell's demand contribution rises
+from ≈ 0.00002 to ≈ 0.06 — so the shortlist moves modestly versus the
+linear-normalised `load_weighted` baseline (New England / Central-West Orana REZ
+cells still lead; the movement is a reshuffle, not a new regime). `uniform` and
+`urban_weighted` keep linear max-normalisation unchanged when selected.
+
 **The Endeavour demand gap is now closed.** Endeavour contributes **166
 recorded-actual demand rows** with precise portal coordinates, so Greater
 Western Sydney / Blue Mountains / Illawarra / South Coast — previously with **0**

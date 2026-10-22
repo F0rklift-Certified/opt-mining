@@ -65,41 +65,42 @@ FROZEN_ROWS = 47_311
 FROZEN_ELIGIBLE_ROWS = 32_525
 FROZEN_EXCLUDED_ROWS = 14_786
 
-# Reviewed snapshot update — demand-method flip (flip-load-weighted). The
-# committed integrated/scored baseline was regenerated after
-# DEFAULT_ALLOCATION_METHOD flipped from `urban_weighted` to `load_weighted`
-# (real NSW zone-substation max-demand distance-decay). The flip removes the
-# degenerate urban-max normalisation artefact that promoted 44 out-of-state QLD1
-# non-REZ cells into the top-100, so the two QLD cells that previously held
-# baseline ranks 1-2 (S28.536_E151.936, S28.736_E152.036) are evicted and the
-# top-5 is now 100% NSW / in-REZ. The eligible population and the wind/grid-led
-# scenario tops are unchanged — demand's 0.15 weight barely moves the top (per
-# .agents/tasks/demand-method-comparison/findings.md); only the scenario
-# rank-change count ticks 32_523 -> 32_522.
+# Reviewed snapshot update — demand-proxy percentile normalisation
+# (demand-percentile-norm). The committed integrated/scored baseline was
+# regenerated after load_weighted demand_proxy switched from per-region linear
+# max-normalisation to per-region PERCENTILE (rank) normalisation. Under linear
+# max-normalisation the hyper-concentrated distance-decay surface collapsed ~62%
+# of eligible cells below 0.001 and the remote REZ wind cells that dominate the
+# shortlist read ~0.0002 (displayed 0.000), so demand's 0.15 weight did not
+# discriminate. Percentile normalisation restores usable spread (eligible median
+# ~0.44, 0% below 0.001), so demand now visibly participates and the top-5
+# reshuffles modestly (New England / Central-West Orana REZ cells still lead —
+# not degenerate). The eligible/excluded population is unchanged; the scenario
+# rank-change count ticks 32_522 -> 32_524 as demand now moves more cells.
 EXPECTED_BASELINE_TOP_FIVE = (
-    ("S31.186_E151.686", 0.7705540784861319),
-    ("S32.436_E149.086", 0.770015126876597),
-    ("S30.186_E151.636", 0.7684105007515318),
-    ("S32.436_E149.036", 0.7682520953996216),
-    ("S32.486_E149.086", 0.7673949731331146),
+    ("S30.586_E151.586", 0.8881182884401134),
+    ("S30.636_E151.586", 0.8851306448627244),
+    ("S30.586_E151.536", 0.8850249800525594),
+    ("S30.536_E151.586", 0.8845321060905232),
+    ("S30.586_E151.636", 0.8823910755478678),
 )
 EXPECTED_WIND_LED_TOP_FIVE = (
-    "S31.186_E151.686",
-    "S31.186_E151.736",
-    "S31.136_E151.686",
-    "S31.236_E151.686",
     "S32.436_E149.086",
-)
-EXPECTED_GRID_LED_TOP_FIVE = (
-    "S32.436_E149.086",
+    "S32.436_E149.036",
     "S32.486_E149.086",
     "S30.186_E151.636",
-    "S30.086_E151.736",
-    "S30.086_E151.686",
+    "S30.286_E151.636",
 )
-EXPECTED_SCENARIO_RANK_CHANGES = 32_522
+EXPECTED_GRID_LED_TOP_FIVE = (
+    "S30.636_E151.586",
+    "S30.586_E151.586",
+    "S30.586_E151.536",
+    "S30.536_E151.586",
+    "S30.586_E151.636",
+)
+EXPECTED_SCENARIO_RANK_CHANGES = 32_524
 EXPECTED_EXPLANATION_SHA256 = (
-    "263a23c430286705d51bbefbf4774737d9d2793e95d217d433e53bcba57e874c"
+    "f291528877e5829020175975baa51efeb562e53191ca2bfe625e08b9693578fd"
 )
 TOLERANCE = 1e-12
 
