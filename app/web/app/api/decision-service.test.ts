@@ -113,4 +113,33 @@ describe("generated-contract decision service client", () => {
       status: 503,
     });
   });
+
+  it("rejects a malformed 2xx body from every operation instead of returning it (QA F-14)", async () => {
+    const service = createDecisionServiceClient({
+      baseUrl: "https://decision.example.test",
+      fetch: async () => json({}),
+    });
+    const calls: Array<() => Promise<unknown>> = [
+      () => service.runAnalysis({ scenario: "wind_led" }),
+      () => service.getRankedResults("run-1"),
+      () => service.getSiteDetail("run-1", "cell-1"),
+      () => service.getExclusions("run-1"),
+      () => service.getDataQuality(),
+      () => service.getRunCells("run-1"),
+      () => service.getSanityCheck(),
+    ];
+    for (const call of calls) {
+      await expect(call()).rejects.toMatchObject({
+        name: "MalformedResponseError",
+        status: 200,
+      });
+    }
+    const listOfJunk = createDecisionServiceClient({
+      baseUrl: "https://decision.example.test",
+      fetch: async () => json({ rows: "nope" }),
+    });
+    await expect(
+      listOfJunk.compareScenarios({ scenario_a: "wind_led", scenario_b: "grid_led" }),
+    ).rejects.toMatchObject({ name: "MalformedResponseError" });
+  });
 });

@@ -3,8 +3,9 @@
  *
  * Request and response shapes come exclusively from `generated.ts`, which is
  * produced from the live FastAPI OpenAPI document.  This wrapper only names
- * the seven service operations and turns non-2xx responses into one consistent
- * error; it contains no decision or data-transformation logic.
+ * the service operations, turns non-2xx responses into one consistent error and
+ * rejects a 2xx body of the wrong shape (`./validate`, QA F-14); it contains no
+ * decision or data-transformation logic.
  *
  * S3-03a adds the seventh operation, `getRunCells`, the map's single data path.
  * S3-08 adds the eighth operation, `getSanityCheck`, the sanity panel's data path.
@@ -12,6 +13,16 @@
 import createClient from "openapi-fetch";
 
 import type { components, paths } from "./generated";
+import {
+  expectCellCollection,
+  expectComparison,
+  expectDataQuality,
+  expectExcludedRows,
+  expectRankedRows,
+  expectRunHandle,
+  expectSanityCheck,
+  expectSiteDetail,
+} from "./validate";
 
 export type RunRequest = components["schemas"]["RunRequest"];
 export type RunHandle = components["schemas"]["RunHandle"];
@@ -108,7 +119,7 @@ export function createDecisionServiceClient(
         body: request,
       });
       if (data === undefined) throw new DecisionServiceError(response.status, error);
-      return data;
+      return expectRunHandle("run analysis", response.status, data);
     },
 
     async getRankedResults(runId, filter = {}) {
@@ -122,7 +133,7 @@ export function createDecisionServiceClient(
         },
       );
       if (data === undefined) throw new DecisionServiceError(response.status, error);
-      return data;
+      return expectRankedRows("ranked results", response.status, data);
     },
 
     async getSiteDetail(runId, cellId) {
@@ -131,7 +142,7 @@ export function createDecisionServiceClient(
         { params: { path: { run_id: runId, cell_id: cellId } } },
       );
       if (data === undefined) throw new DecisionServiceError(response.status, error);
-      return data;
+      return expectSiteDetail("site detail", response.status, data);
     },
 
     async getExclusions(runId) {
@@ -140,7 +151,7 @@ export function createDecisionServiceClient(
         { params: { path: { run_id: runId } } },
       );
       if (data === undefined) throw new DecisionServiceError(response.status, error);
-      return data;
+      return expectExcludedRows("exclusions", response.status, data);
     },
 
     async compareScenarios(request) {
@@ -149,13 +160,13 @@ export function createDecisionServiceClient(
         { body: request },
       );
       if (data === undefined) throw new DecisionServiceError(response.status, error);
-      return data;
+      return expectComparison("scenario comparison", response.status, data);
     },
 
     async getDataQuality() {
       const { data, error, response } = await client.GET("/data-quality");
       if (data === undefined) throw new DecisionServiceError(response.status, error);
-      return data;
+      return expectDataQuality("data quality", response.status, data);
     },
 
     async getRunCells(runId) {
@@ -164,13 +175,13 @@ export function createDecisionServiceClient(
         { params: { path: { run_id: runId } } },
       );
       if (data === undefined) throw new DecisionServiceError(response.status, error);
-      return data;
+      return expectCellCollection("map cells", response.status, data);
     },
 
     async getSanityCheck() {
       const { data, error, response } = await client.GET("/sanity-check");
       if (data === undefined) throw new DecisionServiceError(response.status, error);
-      return data;
+      return expectSanityCheck("sanity check", response.status, data);
     },
   };
 }

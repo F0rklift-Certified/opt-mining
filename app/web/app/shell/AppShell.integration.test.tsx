@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import type { DecisionService, SiteDetail } from "../api/decision-service";
+import { expectRankedRows } from "../api/validate";
 import { BASELINE_CRITERIA } from "./AnalysisControls";
 import AppShell from "./AppShell";
 
@@ -750,5 +751,22 @@ describe("AppShell shared selection: map click (S3-03b + S3-04)", () => {
       ["run-wind-1", RANK_2],
       ["run-wind-1", RANK_2],
     ]);
+  });
+});
+
+describe("AppShell with a malformed service response (QA F-14)", () => {
+  it("reports a `{}` ranked-results body as an alert instead of crashing", async () => {
+    // The real client guard (api/validate.ts) applied to a `{}` body, as the
+    // client does for every operation; jsdom lacks fetch's Response, so the
+    // guard is called directly rather than through createDecisionServiceClient.
+    const service = serviceWithFlaggedDataset();
+    service.getRankedResults = jest.fn(async () => expectRankedRows("ranked results", 200, {}));
+
+    render(<AppShell service={service} />);
+
+    expect(
+      await screen.findByText(/unexpected response for ranked results/i),
+    ).toBeInTheDocument();
+    expect(controlsRegion()).toBeInTheDocument();
   });
 });
