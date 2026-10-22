@@ -264,3 +264,18 @@ describe("SiteDetailPanel — sparse payloads", () => {
     expect(within(rowFor("new_indicator")).getByText("4.500")).toBeInTheDocument();
   });
 });
+
+describe("SiteDetailPanel — demand columns from the integrated row", () => {
+  it("labels demand location confidence and shows the MVA figure only once", () => {
+    const site: SiteDetail = {
+      ...ELIGIBLE,
+      features: { ...ELIGIBLE.features, load_within_radius_mva: 128.4, demand_coord_confidence: "low" },
+    };
+    const { container } = render(<SiteDetailPanel site={site} />);
+    expect(screen.getByText("Demand location confidence")).toBeInTheDocument();
+    expect(screen.queryByText("load_within_radius_mva")).not.toBeInTheDocument();
+    expect(screen.queryByText("demand_coord_confidence")).not.toBeInTheDocument();
+    expect(container.textContent?.match(/MVA/g)?.length).toBe(1);
+  });
+});
+

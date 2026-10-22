@@ -52,6 +52,12 @@ export const CRITERIA: Readonly<Record<string, FieldDisplay>> = {
 /** Other integrated-table columns the detail view shows as site context. */
 export const CONTEXT_FIELDS: Readonly<Record<string, FieldDisplay>> = {
   source_region: { label: "AEMO demand region", unit: null, digits: 0, group: "demand" },
+  demand_coord_confidence: {
+    label: "Demand location confidence",
+    unit: null,
+    digits: 0,
+    group: "demand",
+  },
   dist_connection_km: {
     label: "Distance to connection point",
     unit: "km",
@@ -78,14 +84,17 @@ export const CONTEXT_FIELDS: Readonly<Record<string, FieldDisplay>> = {
 
 /**
  * Columns never shown as context: the centroid (rendered as the Location
- * line) and the raw exclusion columns (rendered from the explanation's
- * `exclusion_reasons`, which carries the same reasons as code + text pairs).
+ * line), the raw exclusion columns (rendered from the explanation's
+ * `exclusion_reasons`, which carries the same reasons as code + text pairs)
+ * and `load_within_radius_mva` (rendered as the "Nearby network load" read-out
+ * from the served `demand_load_mva`).
  */
 export const HIDDEN_CONTEXT_FIELDS: ReadonlySet<string> = new Set([
   "centroid_lat",
   "centroid_lon",
   "exclusion_reason",
   "triggered_rules",
+  "load_within_radius_mva",
 ]);
 
 export const GROUP_LABELS: Readonly<Record<FieldGroup, string>> = {
