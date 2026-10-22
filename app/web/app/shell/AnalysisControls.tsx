@@ -45,7 +45,7 @@ export const FEATURE_SOURCES: Record<string, string> = {
   dist_transmission_km:
     "Source: Geoscience Australia transmission lines (≥132 kV) — straight-line distance from each cell centroid in EPSG:3577 (Australian Albers).",
   demand_proxy:
-    "Source: AEMO regional annual-mean demand distributed within each NEM region by a weighting surface — ABS UCL 2021 urban footprint (default) or, under the load_weighted method, real NSW zone-substation maximum demand (DNSP DAPR, geocoded, distance-decay). A proxy for nearness to existing network load, not measured local demand and not a guarantee of spare capacity or offtake.",
+    "Source: real NSW zone-substation maximum demand (MVA) from the Ausgrid, Essential Energy and Endeavour DAPRs, geocoded and spread across cells by distance-decay, then percentile-ranked within each NEM region (default: load_weighted; an ABS UCL urban-footprint method is also selectable). A proxy for nearness to existing network load, not measured local demand and not a guarantee of spare capacity or offtake.",
   dist_substation_km:
     "Source: Geoscience Australia substations — straight-line distance from each cell centroid in EPSG:3577 (Australian Albers).",
   slope_deg:

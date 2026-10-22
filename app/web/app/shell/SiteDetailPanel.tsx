@@ -40,8 +40,9 @@ const COMPONENT_LABELS: Readonly<Record<string, string>> = {
  *   - `slope_deg` is degrees;
  *   - `elevation_m` is metres;
  *   - `demand_proxy` is a dimensionless normalised proxy index ([0, 1]) — a
- *     rank of demand proximity, not a physical quantity — so its "unit" is the
- *     index-scale label `(index, 0–1)` rather than a measurement unit;
+ *     rank of demand proximity, not a physical quantity — so it carries no unit
+ *     here; the tangible figure is shown in the "Nearby network load" (MVA)
+ *     section, and this row is just the scored proxy value;
  *   - `inside_rez` is a boolean flag, so it carries no unit.
  * Unknown feature keys and non-numeric values carry no unit.
  */
@@ -51,7 +52,6 @@ const FEATURE_UNITS: Readonly<Record<string, string>> = {
   dist_substation_km: "km",
   slope_deg: "°",
   elevation_m: "m",
-  demand_proxy: "(index, 0–1)",
 };
 
 /** One exclusion reason as served by S2-06: a stable code and verbatim text. */

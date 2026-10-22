@@ -81,9 +81,10 @@ describe("SiteDetailPanel", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Nearby network load")).toBeInTheDocument();
 
-    // The scored demand signal (the proxy index, 0–1) is still shown alongside
-    // the tangible MVA figure, with its index-scale label.
-    expect(screen.getByText("0.730 (index, 0–1)")).toBeInTheDocument();
+    // The scored demand signal (the proxy index) is still shown alongside the
+    // tangible MVA figure — as a bare value, since the tangible meaning now
+    // lives in the "Nearby network load" (MVA) section above.
+    expect(screen.getByText("0.730")).toBeInTheDocument();
 
     // Verbatim explanation strings.
     expect(screen.getByText("Higher-ranked candidate under the selected assumptions and criteria")).toBeInTheDocument();
