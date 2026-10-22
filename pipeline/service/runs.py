@@ -109,13 +109,15 @@ def _run_id_for(
     Content-addressed on the resolved weights (and the scenario name, when the
     Run came from one, so the same weight set requested two ways stays
     distinguishable in its handle without materialising twice), the integrated
-    input's sha256 and the explanation templates' sha256. Binding the inputs
+    input's sha256, the explanation templates' sha256 and
+    `config.RUN_SCHEMA_VERSION`. Binding the inputs
     means a Run materialised from an older frozen table, or with older
     explanation wording, is never silently reused after the data changes
     (S4-03; ported from S3-10 6fe88a3). Deterministic: the same request over
     the same inputs yields the same id across sessions.
     """
     digest = hashlib.sha256()
+    digest.update(f"schema={config.RUN_SCHEMA_VERSION}\x00".encode("ascii"))
     digest.update(_canonical_weights_bytes(weights))
     if input_sha:
         digest.update(input_sha.encode("ascii"))

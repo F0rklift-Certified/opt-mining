@@ -176,5 +176,11 @@ MAP_SCORE_QUANTILES = (0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0)
 # while staying short enough to sit in a URL path segment.
 RUN_ID_LENGTH = 16
 
+# Salt hashed into every run id. The id already binds the weights, the
+# integrated input and the explanation templates, but not the scoring or
+# materialisation code; bump this whenever a code change alters what a Run
+# directory stores, so Runs written by older code are never reused.
+RUN_SCHEMA_VERSION = "1"
+
 STAGE_NAME = "service"
 MODULE_NAME = "service.runs"
