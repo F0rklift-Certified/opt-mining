@@ -273,3 +273,36 @@ of the raw cell weight, `raw.rank(method="average", pct=True)` in `[0,1]`.
 Change: `pipeline/demand/feature.py` `normalise_proxy(..., mode="percentile")` for
 `load_weighted`; full dependent chain (integration → scoring → shortlist →
 explanation) regenerated.
+
+## Addendum — DISPLAY-ONLY per-cell network-load read-out (`load_within_radius_mva`)
+
+`demand_proxy` is dimensionless (after the percentile flip it is a per-region
+*rank*, not a magnitude), which reads as an abstract "0.000–1.000" index in the
+UI. To give users a tangible megavolt-ampere number, the demand feature now also
+emits a per-cell **`load_within_radius_mva`** column and the Site Detail panel
+renders it as "≈ X MVA network load within ~40 km".
+
+Definition (owner-approved): for each cell it is the **raw sum** of
+zone-substation `max_demand` (MVA) over the substations within
+`LOAD_SEARCH_RADIUS_M` (40 km) of the cell centroid — the **same** candidate set
+`compute_load_cell_weights` selects for the distance-decay weight, but summed
+with **no decay kernel, no per-region rescale and no normalisation**. This keeps
+the MVA figure and `demand_proxy` telling a consistent story (a near-city cell
+shows high MVA and a high proxy; a remote REZ wind cell shows low MVA and a low
+proxy).
+
+It is an **ESTIMATE of nearby network load** — *not* demand at the cell, *not*
+spare capacity. Crucially it is **DISPLAY-ONLY**: it is carried through
+integration → scoring → explanation → the service as metadata (mirroring
+`demand_coord_confidence`) and is **never** an input to `demand_proxy`, the
+composite score, the criteria weights or the ranking. The regenerated
+`suitability_score`, `rank` and shortlist are byte-identical to the pre-change
+baseline; the only additions are the new display-only column through the chain,
+its contract/API field (`SiteDetail.demand_load_mva`) and the UI read-out. The
+honest caveats above still hold.
+
+Change: `pipeline/demand/feature.py` `compute_cell_load_mva` / `derive_cell_load_mva`;
+the column carried as context (`integration` demand LayerSpec + `BASE_COLUMNS`,
+`scoring.config.CARRIED_CONTEXT_COLUMNS`); `SiteDetail.demand_load_mva` +
+CONTRACT.md + OpenAPI snapshot + typed client; `SiteDetailPanel.tsx` read-out;
+full dependent chain regenerated.

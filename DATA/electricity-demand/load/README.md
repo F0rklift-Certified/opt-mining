@@ -17,6 +17,25 @@ geocoding and the model.
 | `unmatched_substations.csv` | The **name-only** substations that could NOT be geocoded by any of the three name sources and were **dropped** (never given invented coordinates). Portal rows never appear here. Listed for review. |
 | `raw/` | The unmodified source workbooks/PDFs (Essential, Ausgrid, Endeavour). SHAs in `SOURCES.md`. |
 
+## DISPLAY-ONLY per-cell network-load read-out (`load_within_radius_mva`)
+Alongside the dimensionless `demand_proxy`, the demand feature now emits a
+per-cell **`load_within_radius_mva`** column: the **raw sum** of zone-substation
+`max_demand` (**MVA**) over the substations within `LOAD_SEARCH_RADIUS_M`
+(40 km) of the cell centroid — the **same** candidate set `load_weighted` uses
+for its distance-decay weight, but summed with **no decay kernel, no per-region
+rescale and no normalisation**. It is a tangible megavolt-ampere figure surfaced
+in the Site Detail panel so a user sees a real MVA number for demand, reading
+"≈ X MVA network load within ~40 km".
+
+It is an **ESTIMATE of nearby network load** — *not* demand *at* the cell, *not*
+spare capacity, *not* a guarantee of offtake. It is **DISPLAY-ONLY context**:
+it is carried through integration → scoring → explanation → the service as
+metadata (mirroring `demand_coord_confidence`) and is **never** an input to
+`demand_proxy`, the composite suitability score, the criteria weights or the
+ranking. Demand continues to score on the normalised `demand_proxy` at weight
+0.15. A cell with no substation in range is `0` MVA; under the selectable
+`uniform` / `urban_weighted` methods (no load points) the column is null.
+
 ## Coverage & the data as it stands (honest summary)
 
 - **Ausgrid — 177 rows**: *recorded* peak demand, summer 2024/25 (MVA).

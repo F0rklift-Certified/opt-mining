@@ -346,6 +346,7 @@
           },
           "exclusion_assertions": {
             "items": {
+              "additionalProperties": true,
               "type": "object"
             },
             "title": "Exclusion Assertions",
@@ -682,16 +683,29 @@
             "title": "Contributions",
             "type": "object"
           },
+          "demand_load_mva": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Demand Load Mva"
+          },
           "eligible": {
             "default": false,
             "title": "Eligible",
             "type": "boolean"
           },
           "explanation": {
+            "additionalProperties": true,
             "title": "Explanation",
             "type": "object"
           },
           "features": {
+            "additionalProperties": true,
             "title": "Features",
             "type": "object"
           },

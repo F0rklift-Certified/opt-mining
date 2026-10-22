@@ -102,7 +102,14 @@ CARRIED_COLUMNS = ("centroid_lat", "centroid_lon")
 # Carried only WHERE present on the integrated table (back-compatible with an
 # older integrated table that lacks it).
 DEMAND_COORD_CONFIDENCE_COLUMN = _integration_config.DEMAND_COORD_CONFIDENCE_COLUMN
-CARRIED_CONTEXT_COLUMNS = (DEMAND_COORD_CONFIDENCE_COLUMN,)
+# `load_within_radius_mva` is the integrated table's DISPLAY-ONLY per-cell
+# network-load read-out (raw sum of nearby zone-substation max demand, MVA). It
+# is carried through verbatim as context — never a criterion, never read by the
+# scoring core, and never affecting the score, the contributions or the rank —
+# so the Site Detail panel can surface a tangible MVA figure alongside the
+# dimensionless demand_proxy. Carried only WHERE present (back-compatible).
+DEMAND_LOAD_MVA_COLUMN = _integration_config.DEMAND_LOAD_MVA_COLUMN
+CARRIED_CONTEXT_COLUMNS = (DEMAND_COORD_CONFIDENCE_COLUMN, DEMAND_LOAD_MVA_COLUMN)
 
 # --- Numerics ---
 # Tolerance for "the per-criterion contributions reconstruct the score".

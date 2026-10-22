@@ -97,6 +97,30 @@ function formatRank(value: number | null | undefined): string {
     : "Not ranked";
 }
 
+/**
+ * The demand load search radius in kilometres, quoted in the network-load
+ * read-out label. This is the pipeline's `LOAD_SEARCH_RADIUS_M`
+ * (`pipeline/demand/config.py`, 40 000 m) expressed in km — the SAME radius the
+ * served `demand_load_mva` figure sums over. It is a display label only; the UI
+ * performs no distance arithmetic.
+ */
+const DEMAND_LOAD_SEARCH_RADIUS_KM = 40;
+
+/**
+ * Format the DISPLAY-ONLY network-load read-out (MVA). The served
+ * `demand_load_mva` is an ESTIMATE of nearby network load — the raw sum of
+ * zone-substation max demand within the demand search radius of the cell — not
+ * demand *at* the cell and not spare capacity. Rendered as
+ * `≈ <value> MVA network load within ~<radius> km`, rounded to whole MVA. The
+ * UI does no arithmetic beyond rounding the served number for display. Returns
+ * `null` when the figure is absent/null (a non-load_weighted Run, or a cell
+ * with no nearby substation on an older dataset).
+ */
+function formatDemandLoadMva(value: number | null | undefined): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return `≈ ${Math.round(value)} MVA network load within ~${DEMAND_LOAD_SEARCH_RADIUS_KM} km`;
+}
+
 /** Component-score values are finite numbers served by the engine. */
 function formatComponent(value: number): string {
   return Number.isFinite(value) ? value.toFixed(3) : "—";
@@ -160,6 +184,7 @@ export default function SiteDetailPanel({ site }: SiteDetailPanelProps): JSX.Ele
 
   const contributions = Object.entries(site.contributions ?? {});
   const features = Object.entries(site.features ?? {});
+  const demandLoadMva = formatDemandLoadMva(site.demand_load_mva);
 
   return (
     <div className="om-detail">
@@ -169,6 +194,19 @@ export default function SiteDetailPanel({ site }: SiteDetailPanelProps): JSX.Ele
         <div><dt>Suitability score</dt><dd>{formatScore(site.suitability_score)}</dd></div>
         <div><dt>Rank</dt><dd>{formatRank(site.rank)}</dd></div>
       </dl>
+
+      {demandLoadMva && (
+        <section className="om-detail__section">
+          <h4 className="om-detail__heading">Nearby network load</h4>
+          <p className="om-detail__demand-load">{demandLoadMva}</p>
+          <p className="om-detail__demand-load-note">
+            Estimate of nearby network load (sum of zone-substation max demand
+            within the search radius), not demand at the cell and not spare
+            capacity. Shown for context only — it is not used in scoring or
+            ranking. The scored demand signal is the demand proxy index below.
+          </p>
+        </section>
+      )}
 
       {headline && <p className="om-detail__headline">{headline}</p>}
 

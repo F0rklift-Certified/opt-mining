@@ -5,8 +5,8 @@
       "csv_file": "DATA/explanation/optmining_site-explanations_2026_nsw.csv",
       "stage": "explanation",
       "product_type": "derived",
-      "generated_utc": "2026-10-21T23:48:35+00:00",
-      "git_commit": "cc647d664654ac34d120779167ec72a61a8d825c-dirty",
+      "generated_utc": "2026-10-22T00:34:05+00:00",
+      "git_commit": "1e8a9532338a71d69a74c861adf2ad7119aec4a5-dirty",
       "records": 47311,
       "sha256_json": "fb4213cb9eee8b8f46b7343202d1e4bb77d18ebd183eb5b8d2f7de60d770b34e",
       "sha256_csv": "d18e222cd7d9b24f2bd3fd52655a1ddba17ac1ee181d8ef554601a1e1bef99e8",
@@ -17,7 +17,7 @@
           "name": "scored_table",
           "path": "DATA/scoring/optmining_suitability-score_2026_nsw.gpkg",
           "layer": "suitability_score",
-          "sha256": "ab5d5c5b59b25230f362f922cdee484e264387fac57066f8cc60a1611c08e7bc"
+          "sha256": "10deeb239d468b5713f5399b2a10941f9f5cc309169c6a2d3530159c653152c3"
         },
         {
           "name": "integrated_feature_table",

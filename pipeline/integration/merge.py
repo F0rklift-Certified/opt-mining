@@ -132,6 +132,12 @@ def layer_specs() -> list[LayerSpec]:
             stage="demand.feature",
             columns={
                 "demand_proxy": "demand_proxy",
+                # DISPLAY-ONLY per-cell network-load read-out (MVA). Carried
+                # verbatim as INFORMATIONAL context (like demand_coord_confidence):
+                # it is NOT in SCORED_FEATURE_COLUMNS, so it never enters
+                # n_missing_features, the S1-09 confidence score, the composite
+                # score or the ranking. Null under uniform/urban_weighted.
+                "load_within_radius_mva": config.DEMAND_LOAD_MVA_COLUMN,
                 "source_region": "source_region",
                 "demand_confidence": "confidence_flag",
             },
@@ -282,7 +288,7 @@ GRID_COLUMNS = ("cell_id", "centroid_lat", "centroid_lon", "area_km2")
 BASE_COLUMNS = [
     "cell_id", "centroid_lat", "centroid_lon", "area_km2",
     "wind_speed", "wind_confidence",
-    "demand_proxy", "source_region", "demand_confidence", "demand_coord_confidence",
+    "demand_proxy", "load_within_radius_mva", "source_region", "demand_confidence", "demand_coord_confidence",
     "dist_transmission_km", "dist_substation_km", "dist_connection_km",
     "inside_rez", "rez_name", "infra_confidence",
     "elevation_m", "slope_deg", "tri", "land_use", "protected_area",

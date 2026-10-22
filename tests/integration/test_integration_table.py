@@ -129,6 +129,9 @@ def _demand_frame():
     return pd.DataFrame({
         "cell_id": CELL_IDS,
         "demand_proxy": pd.Series([1.0, 1.0, 1.0, 1.0, np.nan, 1.0], dtype="float64"),
+        # DISPLAY-ONLY network-load read-out (MVA): carried as context, never
+        # scored. Values are arbitrary raw sums (0 where none in range).
+        "load_within_radius_mva": pd.Series([128.4, 0.0, 14.58, 6826.41, 0.0, 50.0], dtype="float64"),
         "allocation_method": ["uniform"] * 6,
         "source_region": ["NSW1", "NSW1", "NSW1", "NSW1", None, "NSW1"],
         "confidence_flag": ["high", "high", "medium", "high", "low", "high"],
@@ -351,7 +354,7 @@ class TestReadLayer:
 EXPECTED_BASE_COLUMNS = [
     "cell_id", "centroid_lat", "centroid_lon", "area_km2",
     "wind_speed", "wind_confidence",
-    "demand_proxy", "source_region", "demand_confidence", "demand_coord_confidence",
+    "demand_proxy", "load_within_radius_mva", "source_region", "demand_confidence", "demand_coord_confidence",
     "dist_transmission_km", "dist_substation_km", "dist_connection_km",
     "inside_rez", "rez_name", "infra_confidence",
     "elevation_m", "slope_deg", "tri", "land_use", "protected_area",

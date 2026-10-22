@@ -45,7 +45,7 @@ def test_property_2_one_row_per_cell_exact_schema(n):
     proxy = pd.Series([1.0] * n)
     out = build_feature_table(grid, proxy, "uniform", source, assign_confidence(source, proxy))
     assert len(out) == n
-    assert out.columns.tolist() == ["cell_id", "demand_proxy", "allocation_method", "source_region", "confidence_flag", "geometry"]
+    assert out.columns.tolist() == ["cell_id", "demand_proxy", "load_within_radius_mva", "allocation_method", "source_region", "confidence_flag", "geometry"]
 
 
 @settings(max_examples=100, deadline=None)

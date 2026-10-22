@@ -83,6 +83,17 @@ LOAD_POINTS_LAYER = "load_points"
 LOAD_MVA_COLUMN = "max_demand"
 FEATURE_TABLE_NAME = "aemo_demand-proxy_2026_nsw.gpkg"
 FEATURE_TABLE_LAYER = "demand_proxy"
+# DISPLAY-ONLY per-cell 'network load within the decay radius' column (MVA).
+# For each cell this is the RAW SUM of zone-substation max demand (MVA) over the
+# geocoded substations within LOAD_SEARCH_RADIUS_M of the cell centroid — the
+# SAME candidate set compute_load_cell_weights selects, but summed WITHOUT the
+# decay kernel, WITHOUT any per-region rescale and WITHOUT normalisation. It is
+# a tangible megavolt-ampere ESTIMATE of nearby network load (not demand AT the
+# cell, not spare capacity) surfaced for display only; it is NEVER an input to
+# demand_proxy, the composite score, the weights or the ranking. A cell with no
+# substation in range is 0 MVA; under uniform/urban_weighted (no load points)
+# the column is null for every cell.
+LOAD_WITHIN_RADIUS_MVA_COLUMN = "load_within_radius_mva"
 METHOD_REPORT_NAME = "demand_feature_method.md"
 FEATURE_MANIFEST_NAME = "download_manifest.json"
 # Sidecar CSV carrying the per-cell demand coordinate-confidence tier

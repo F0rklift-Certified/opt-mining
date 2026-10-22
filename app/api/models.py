@@ -144,6 +144,10 @@ class SiteDetail(BaseModel):
     rank: int | None = None
     eligible: bool = False
     explanation: dict[str, Any] = Field(default_factory=dict)
+    # DISPLAY-ONLY estimate of nearby network load within the demand decay radius
+    # (MVA); read verbatim from the integrated table's `load_within_radius_mva`
+    # column. Never an input to the score/rank. Null when absent/not applicable.
+    demand_load_mva: float | None = None
 
 
 class ExcludedRow(BaseModel):

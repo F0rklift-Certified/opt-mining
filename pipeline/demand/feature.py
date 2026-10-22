@@ -314,6 +314,100 @@ def _exp_decay(distance_m: float, decay_length_m: float) -> float:
     return math.exp(-distance_m / decay_length_m)
 
 
+def compute_cell_load_mva(
+    grid_3577: gpd.GeoDataFrame,
+    load_points_3577: gpd.GeoDataFrame,
+) -> pd.Series:
+    """Per-cell DISPLAY-ONLY 'network load within the decay radius' in MVA.
+
+    For each cell this is the RAW SUM of zone-substation max demand (MVA) over
+    the geocoded substations within ``config.LOAD_SEARCH_RADIUS_M`` of the cell
+    centroid (distances in EPSG:3577 metres):
+
+        load_within_radius_mva[cell] = Σ_s  max_demand_mva_s
+            over substations s within LOAD_SEARCH_RADIUS_M of the cell centroid.
+
+    It REUSES the exact candidate-selection :func:`compute_load_cell_weights`
+    uses (buffer the cell centroids by the search radius, ``gpd.sjoin`` against
+    the load points, then keep points whose precise centroid-to-point distance
+    is within the radius), but it applies **NO decay kernel, NO per-region
+    rescale and NO normalisation** — it is a tangible megavolt-ampere figure,
+    not a weight. The same ``max_demand (MVA) > 0`` filter the weight path
+    applies is applied here, so a zero/negative-MVA row (e.g. the documented
+    ``Pindari = 0`` substation) contributes nothing.
+
+    This is an ESTIMATE of nearby network load surfaced for display only. It is
+    NEVER an input to ``demand_proxy``, the composite score, the weights or the
+    ranking.
+
+    Returns a float Series indexed like ``grid_3577``: a cell with no substation
+    in range gets ``0.0`` MVA (documented). Deterministic — the result is a sum
+    over a set of within-radius points and does not depend on iteration order.
+    """
+    index = grid_3577.index
+    load_mva = pd.Series(0.0, index=index, dtype="float64")
+
+    if load_points_3577 is None or len(load_points_3577) == 0:
+        return load_mva
+
+    load = load_points_3577[[config.LOAD_MVA_COLUMN, "geometry"]].copy()
+    load = load[load[config.LOAD_MVA_COLUMN].notna()].reset_index(drop=True)
+    # Same MVA > 0 filter as compute_load_cell_weights: a zero/negative-MVA row
+    # adds no load and must not contribute to the figure.
+    load = load[load[config.LOAD_MVA_COLUMN].astype(float) > 0.0].reset_index(drop=True)
+    if len(load) == 0:
+        return load_mva
+    load["load_index"] = load.index
+    load["load_mva"] = load[config.LOAD_MVA_COLUMN].astype(float)
+
+    radius = float(config.LOAD_SEARCH_RADIUS_M)
+    centroids = grid_3577.geometry.centroid
+    cell_buffers = gpd.GeoDataFrame(
+        {"cell_id": grid_3577["cell_id"].to_numpy(), "cell_index": index},
+        geometry=centroids.buffer(radius),
+        crs=grid_3577.crs,
+    )
+    candidates = gpd.sjoin(
+        cell_buffers,
+        load[["load_index", "load_mva", "geometry"]],
+        how="inner",
+        predicate="intersects",
+    )
+    if len(candidates) == 0:
+        return load_mva
+
+    # Deterministic accumulation order (cell_id, then substation index).
+    candidates = candidates.sort_values(["cell_id", "load_index"], kind="mergesort")
+
+    load_geoms = load.geometry
+    for row in candidates.itertuples(index=False):
+        cell_idx = row.cell_index
+        dist = float(centroids.loc[cell_idx].distance(load_geoms.loc[row.load_index]))
+        if dist > radius:
+            continue
+        load_mva.loc[cell_idx] += float(row.load_mva)
+    return load_mva
+
+
+def derive_cell_load_mva(
+    grid_3577: gpd.GeoDataFrame,
+    method: str,
+    load_points_3577: gpd.GeoDataFrame | None = None,
+) -> pd.Series | None:
+    """Method-aware wrapper for the DISPLAY-ONLY per-cell MVA read-out.
+
+    The figure is only meaningful under ``load_weighted`` (the only method with
+    load points). Under ``uniform`` / ``urban_weighted`` there are no load
+    points, so there is no network-load figure to report: this returns ``None``
+    and the demand feature output carries a null ``load_within_radius_mva``
+    column for every cell. It never feeds back into ``demand_proxy``, the score,
+    the weights or the ranking.
+    """
+    if method == "load_weighted" and load_points_3577 is not None and len(load_points_3577):
+        return compute_cell_load_mva(grid_3577, load_points_3577)
+    return None
+
+
 def compute_demand_coord_confidence(
     grid_3577: gpd.GeoDataFrame,
     load_points_3577: gpd.GeoDataFrame,
@@ -523,11 +617,20 @@ def assign_confidence(source_region: pd.Series, proxy: pd.Series, boundary_indic
     return result
 
 
-def build_feature_table(grid: gpd.GeoDataFrame, proxy: pd.Series, method: str, source_region: pd.Series, confidence: pd.Series) -> gpd.GeoDataFrame:
+def build_feature_table(grid: gpd.GeoDataFrame, proxy: pd.Series, method: str, source_region: pd.Series, confidence: pd.Series, load_mva: pd.Series | None = None) -> gpd.GeoDataFrame:
     source_values = source_region.astype(object).where(source_region.notna(), None)
+    # DISPLAY-ONLY per-cell network-load figure (MVA). Under load_weighted this
+    # is the raw sum of nearby substation max demand (0 where none in range);
+    # under uniform/urban_weighted (no load points) it is null for every cell.
+    # It is NEVER an input to demand_proxy, the score, the weights or the rank.
+    if load_mva is not None:
+        load_values = load_mva.reindex(grid.index).to_numpy()
+    else:
+        load_values = pd.Series(float("nan"), index=grid.index, dtype="float64").to_numpy()
     out = gpd.GeoDataFrame({
         "cell_id": grid["cell_id"].tolist(),
         "demand_proxy": proxy.to_numpy(),
+        config.LOAD_WITHIN_RADIUS_MVA_COLUMN: load_values,
         "allocation_method": method,
         "source_region": source_values.to_numpy(),
         "confidence_flag": confidence.to_numpy(),
@@ -673,6 +776,7 @@ def write_method_report(stats: dict, path: Path) -> None:
             f"- Non-coverage weight floor: {stats.get('demand_weight_floor')}.",
             f"- Geocoding match rate: {stats.get('geocode_matched')} of {stats.get('geocode_load_rows')} substations matched (portal {stats.get('geocode_matched_portal')} + GA {stats.get('geocode_matched_ga')} + OSM {stats.get('geocode_matched_osm')} + Nominatim {stats.get('geocode_matched_nominatim')}; the {stats.get('geocode_matched_portal')} Endeavour rows carry precise portal coordinates [`coord_source='portal'`] and bypass name-geocoding; {stats.get('geocode_osm_low_confidence')} OSM low-confidence; all Nominatim matches are lower-confidence PLACE centroids [`coord_source='nominatim'`, `nominatim_low_confidence=True`] that an analyst can down-weight/audit; {stats.get('geocode_unmatched')} unmatched, dropped and listed).",
             f"- Per-region demand_proxy spread (min/median/max, nunique): `{json.dumps(stats.get('proxy_spread', {}), sort_keys=True)}`.",
+            f"- DISPLAY-ONLY `{config.LOAD_WITHIN_RADIUS_MVA_COLUMN}` column (MVA): the RAW SUM of zone-substation `{config.LOAD_MVA_COLUMN}` (MVA) over the geocoded substations within the search radius ({config.LOAD_SEARCH_RADIUS_M/1000:.0f} km) of the cell centroid — the SAME candidate set as the distance-decay weight, but summed with NO decay kernel, NO per-region rescale and NO normalisation. It is a tangible ESTIMATE of nearby network load (not demand AT the cell, not spare capacity), surfaced for display only in the Site Detail panel. It is NEVER an input to `demand_proxy`, the composite score, the weights or the ranking (carried through integration → scoring → explanation → service as metadata, like `demand_coord_confidence`). A cell with no substation in range is 0 MVA; under uniform/urban_weighted (no load points) the column is null. Distribution: `{json.dumps(stats.get('load_within_radius_mva_summary', {}), sort_keys=True)}`.",
             f"- Demand coordinate-confidence tier (INFORMATIONAL, surface-only metadata) written to sidecar `{config.COORD_CONFIDENCE_SIDECAR_NAME}`: `{json.dumps(stats.get('coord_confidence_counts', {}), sort_keys=True)}`. `low` = a Nominatim low-confidence PLACE centroid or an OSM low-confidence load point lies within the search radius of the cell centroid (it contributes to the cell's load weight); `high` = assigned cell whose contributing points are all precise (GA/portal/OSM-high) or which has no load point in range; `n/a` = outside every NEM region (unassigned). The tier NEVER feeds back into `demand_proxy`, the composite score, the weights or the ranking — it is metadata that lets an analyst audit whether a cell's demand signal rode a low-confidence geocoded substation.",
             f"- Floored (no-coverage) assigned cells: {stats.get('floored_cell_count', 0)}.",
             f"- Cells: {stats['n_cells']}; outside-region: {stats['n_outside_region']}; boundary/tie-break candidates: {stats['boundary_cell_count']}.",
@@ -695,12 +799,18 @@ def write_method_report(stats: dict, path: Path) -> None:
 
 def validate_feature_table(table: gpd.GeoDataFrame, grid: gpd.GeoDataFrame, source: pd.Series, raw: pd.Series, aggregate: pd.DataFrame) -> dict:
     """No-silent-pass checks used immediately before writing outputs."""
-    required = ["cell_id", "demand_proxy", "allocation_method", "source_region", "confidence_flag"]
+    required = ["cell_id", "demand_proxy", config.LOAD_WITHIN_RADIUS_MVA_COLUMN, "allocation_method", "source_region", "confidence_flag"]
     checks = {
         "row_count": len(table) == len(grid),
         "cell_id_set": set(table.cell_id) == set(grid.cell_id) and table.cell_id.is_unique,
         "schema": table.columns.tolist() == required + ["geometry"],
         "proxy_range": table.demand_proxy.dropna().between(0, 1).all(),
+        # DISPLAY-ONLY MVA read-out: a raw non-negative sum (never normalised),
+        # so the only invariant is non-negativity where present. It is metadata
+        # and never gates the score, so no range/conservation check applies.
+        "load_mva_non_negative": bool(
+            table[config.LOAD_WITHIN_RADIUS_MVA_COLUMN].dropna().ge(0).all()
+        ),
         "source_regions": set(table.source_region.dropna()).issubset(set(aggregate.REGIONID)),
         "confidence_enum": set(table.confidence_flag.dropna()).issubset(set(config.CONFIDENCE_LEVELS)),
     }
@@ -759,6 +869,29 @@ def record_provenance(feature_path: Path, stats: dict) -> None:
     obj = json.loads(manifest.read_text()) if manifest.exists() else {}
     obj[feature_path.name] = {"sha256": digest, "bytes": feature_path.stat().st_size, "utc": utc_now(), "derived_proxy": True}
     atomic_write_text(manifest, json.dumps(obj, indent=2) + "\n")
+
+
+def _load_mva_summary(load_mva: pd.Series | None) -> dict:
+    """Distribution summary of the DISPLAY-ONLY per-cell MVA read-out (reporting).
+
+    Returns ``{}`` when there is no figure (uniform/urban_weighted). Otherwise
+    reports how many cells carry > 0 MVA and the min/median/max over cells with
+    > 0 MVA (a cell with no substation in range is 0 by definition, so the > 0
+    subset is the informative population). Rounded for a stable report.
+    """
+    if load_mva is None:
+        return {}
+    values = load_mva.dropna()
+    positive = values[values > 0.0]
+    summary = {
+        "cells_with_positive_mva": int((values > 0.0).sum()),
+        "cells_zero_mva": int((values <= 0.0).sum()),
+    }
+    if len(positive):
+        summary["positive_min"] = round(float(positive.min()), 3)
+        summary["positive_median"] = round(float(positive.median()), 3)
+        summary["positive_max"] = round(float(positive.max()), 3)
+    return summary
 
 
 def _proxy_spread(proxy: pd.Series, source_region: pd.Series) -> dict:
@@ -840,7 +973,12 @@ def run(verbose: bool = False, allocation_method: str | None = None, grid_path: 
     normalisation_mode = "percentile" if allocation_method == "load_weighted" else "linear"
     proxy = normalise_proxy(raw, source, mode=normalisation_mode)
     confidence = assign_confidence(source, proxy, boundary_indices, floored_indices)
-    table = build_feature_table(grid, proxy, allocation_method, source, confidence)
+    # DISPLAY-ONLY per-cell 'network load within the decay radius' (MVA): the raw
+    # sum of nearby substation max demand, reusing the weight path's candidate
+    # selection but with no decay/rescale/normalisation. load_weighted only;
+    # None (-> null column) under uniform/urban_weighted. Never scored/ranked.
+    load_mva = derive_cell_load_mva(grid_3577, allocation_method, load_3577)
+    table = build_feature_table(grid, proxy, allocation_method, source, confidence, load_mva)
     output_path = config.OUTPUT_DIR / config.FEATURE_TABLE_NAME
     report_path = config.OUTPUT_DIR / config.METHOD_REPORT_NAME
     assigned_regions = set(source.dropna().astype(str))
@@ -861,6 +999,7 @@ def run(verbose: bool = False, allocation_method: str | None = None, grid_path: 
         stats["load_search_radius_m"] = float(config.LOAD_SEARCH_RADIUS_M)
         stats["load_mva_column"] = config.LOAD_MVA_COLUMN
         stats["floored_cell_count"] = len(floored_indices) if floored_indices is not None else 0
+        stats["load_within_radius_mva_summary"] = _load_mva_summary(load_mva)
         # Carry the geocoding provenance from the layer's manifest entry (built
         # by geocode_load) so the method report can state the match rate.
         manifest_path = config.OUTPUT_DIR / "metadata" / config.FEATURE_MANIFEST_NAME

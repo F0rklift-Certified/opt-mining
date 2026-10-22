@@ -390,7 +390,9 @@ export interface components {
             /** Contradictions */
             contradictions?: components["schemas"]["SanityContradiction"][];
             /** Exclusion Assertions */
-            exclusion_assertions?: Record<string, unknown>[];
+            exclusion_assertions?: {
+                [key: string]: unknown;
+            }[];
             /**
              * Preliminary Disclaimer
              * @default
@@ -553,15 +555,21 @@ export interface components {
             contributions?: {
                 [key: string]: number;
             };
+            /** Demand Load Mva */
+            demand_load_mva?: number | null;
             /**
              * Eligible
              * @default false
              */
             eligible: boolean;
             /** Explanation */
-            explanation?: Record<string, unknown>;
+            explanation?: {
+                [key: string]: unknown;
+            };
             /** Features */
-            features?: Record<string, unknown>;
+            features?: {
+                [key: string]: unknown;
+            };
             /** Rank */
             rank?: number | null;
             /** Suitability Score */

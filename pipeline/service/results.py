@@ -330,6 +330,17 @@ def get_site_detail(run: RunHandle | str, cell_id: str) -> SiteDetail:
     # The S2-06 Explanation_Structure, resolved by cell_id and carried verbatim.
     explanation = load_explanations().get(cell_id, {})
 
+    # DISPLAY-ONLY per-cell network-load read-out (MVA): read verbatim from the
+    # integrated table's `load_within_radius_mva` column WHERE present. It is an
+    # ESTIMATE of nearby network load surfaced in the Site Detail panel; it is
+    # never scored or ranked. Absent column / null value -> None.
+    demand_load_mva = None
+    mva_col = _scoring_config.DEMAND_LOAD_MVA_COLUMN
+    if mva_col in feature_row.index:
+        mva_value = feature_row[mva_col]
+        if not pd.isna(mva_value):
+            demand_load_mva = float(mva_value)
+
     return SiteDetail(
         cell_id=cell_id,
         features=features,
@@ -338,6 +349,7 @@ def get_site_detail(run: RunHandle | str, cell_id: str) -> SiteDetail:
         rank=_opt_rank(scored_row[rank_col]),
         eligible=eligible,
         explanation=explanation,
+        demand_load_mva=demand_load_mva,
     )
 
 

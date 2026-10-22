@@ -377,6 +377,7 @@ duplicate validator.
 | `rank` | `integer \| null` | The S2-05 rank; identical to `get_ranked_results`. Null for an excluded cell. |
 | `eligible` | `boolean` | Whether the cell passed the S2-03 hard exclusions. |
 | `explanation` | `Explanation_Structure` | The S2-06 deterministic explanation (below). |
+| `demand_load_mva` | `number \| null` | **DISPLAY-ONLY** estimate of nearby network load within the demand decay radius (MVA) — the raw sum of zone-substation max demand (MVA) over the substations within the configured `LOAD_SEARCH_RADIUS_M` of the cell centroid, read verbatim from the integrated table's `load_within_radius_mva` column. An informational estimate of nearby network load (not demand *at* the cell, not spare capacity); **never** an input to `demand_proxy`, the composite score or the rank. `null` when not applicable (a non-`load_weighted` Run, or an older integrated table without the column). |
 
 ### `Explanation_Structure` (Requirement 6.2 — S2-06 fields, carried verbatim)
 

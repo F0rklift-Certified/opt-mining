@@ -21,6 +21,7 @@ const ELIGIBLE: SiteDetail = {
   eligible: true,
   rank: 1,
   suitability_score: 0.912,
+  demand_load_mva: 128.4,
   contributions: {
     wind_speed: 0.501,
     dist_transmission_km: 0.2,
@@ -28,6 +29,7 @@ const ELIGIBLE: SiteDetail = {
   },
   features: {
     wind_speed: 8.4,
+    demand_proxy: 0.73,
     inside_rez: false,
   },
   explanation: {
@@ -63,12 +65,25 @@ describe("SiteDetailPanel", () => {
     // "Wind speed" label appears in both the component-score and feature
     // tables, so assert on a label unique to contributions plus the values.
     expect(screen.getByText("Transmission distance")).toBeInTheDocument();
-    expect(screen.getByText("Demand")).toBeInTheDocument();
+    // "Demand" labels the demand_proxy row in both the component-score table
+    // (contribution) and the Features table (proxy index), so assert presence.
+    expect(screen.getAllByText("Demand").length).toBeGreaterThan(0);
     expect(screen.getByText("0.501")).toBeInTheDocument();
     expect(screen.getAllByText("Wind speed").length).toBeGreaterThan(0);
 
     // A raw/derived feature value appears with its unit of measurement.
     expect(screen.getByText("8.400 m/s")).toBeInTheDocument();
+
+    // The DISPLAY-ONLY network-load read-out: the served MVA figure rounded to
+    // whole MVA, labelled with the search radius, shown as an estimate.
+    expect(
+      screen.getByText("≈ 128 MVA network load within ~40 km"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Nearby network load")).toBeInTheDocument();
+
+    // The scored demand signal (the proxy index, 0–1) is still shown alongside
+    // the tangible MVA figure, with its index-scale label.
+    expect(screen.getByText("0.730 (index, 0–1)")).toBeInTheDocument();
 
     // Verbatim explanation strings.
     expect(screen.getByText("Higher-ranked candidate under the selected assumptions and criteria")).toBeInTheDocument();
@@ -96,6 +111,20 @@ describe("SiteDetailPanel", () => {
     expect(screen.getByText(PROXY_CAVEAT)).toBeInTheDocument();
     expect(container.textContent).not.toMatch(/null/);
     expect(container.textContent).not.toMatch(/best site/i);
+
+    // The network-load read-out is absent when no MVA figure is served.
+    expect(screen.queryByText("Nearby network load")).not.toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/MVA/);
+  });
+
+  it("omits the network-load read-out when demand_load_mva is null", () => {
+    const nullMva: SiteDetail = { ...ELIGIBLE, demand_load_mva: null };
+    render(<SiteDetailPanel site={nullMva} />);
+
+    expect(screen.queryByText("Nearby network load")).not.toBeInTheDocument();
+    expect(screen.queryByText(/MVA network load/)).not.toBeInTheDocument();
+    // The other facts still render.
+    expect(screen.getByText("0.912")).toBeInTheDocument();
   });
 
   it("renders without throwing when optional explanation arrays are absent", () => {

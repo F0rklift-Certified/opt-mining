@@ -156,6 +156,16 @@ class SiteDetail:
     explanation :
         The S2-06 Explanation_Structure for the cell, carried through verbatim
         (the eligible-path or excluded-path record exactly as S2-06 wrote it).
+    demand_load_mva :
+        DISPLAY-ONLY estimate of the network load within the demand decay radius
+        for the cell, in MVA — the raw sum of zone-substation max demand over the
+        substations within the configured search radius of the cell centroid,
+        read verbatim from the integrated table's ``load_within_radius_mva``
+        column. It is an informational ESTIMATE of nearby network load (not
+        demand AT the cell, not spare capacity) and is NEVER an input to
+        ``demand_proxy``, the composite score or the rank. ``None`` when the
+        column is absent/null (a non-load_weighted Run, or a cell with no nearby
+        substation under an older integrated table).
     """
 
     cell_id: str
@@ -165,6 +175,7 @@ class SiteDetail:
     rank: int | None = None
     eligible: bool = False
     explanation: dict[str, Any] = field(default_factory=dict)
+    demand_load_mva: float | None = None
 
     def to_dict(self) -> dict:
         """Serialise to the CONTRACT.md §5 `SiteDetail` shape."""
@@ -176,6 +187,7 @@ class SiteDetail:
             "rank": self.rank,
             "eligible": self.eligible,
             "explanation": dict(self.explanation),
+            "demand_load_mva": self.demand_load_mva,
         }
 
 
