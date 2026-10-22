@@ -161,6 +161,8 @@ SCORED_GPKG_FILENAME = _scoring_config.OUTPUT_FILENAME
 SCORED_CSV_FILENAME = _scoring_config.CSV_FILENAME
 SCORED_LAYER = _scoring_config.OUTPUT_LAYER
 RUN_MANIFEST_FILENAME = "run.json"
+# The S2-06 Explanation_Structure generated with THIS Run's weights (S4-03).
+RUN_EXPLANATIONS_FILENAME = "explanations.json"
 
 # Probabilities at which `get_run_cells` reports the eligible population's
 # suitability_score (CONTRACT.md §5 `CellCollection.score_quantiles`, v1.2.2).

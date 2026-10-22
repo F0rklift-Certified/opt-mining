@@ -743,6 +743,51 @@ body {
   gap: 0.2rem;
 }
 
+/* S4-03: the theme (and proxy flag) under each criterion name. */
+.om-detail__theme {
+  display: block;
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: var(--om-muted);
+}
+
+.om-detail__note {
+  margin: 0.3rem 0 0;
+  font-size: 0.8rem;
+  color: var(--om-muted);
+}
+
+/* Context tables: label column left-aligned and compact. */
+.om-detail__context th {
+  text-align: left;
+  font-weight: 500;
+  width: 45%;
+}
+
+/*
+ * Data-confidence badge. The level is always written out in text; the border
+ * colour only reinforces it (never colour alone).
+ */
+.om-confidence {
+  display: inline-block;
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  border: 1.5px solid var(--om-border);
+  text-transform: capitalize;
+  font-weight: 600;
+}
+
+.om-confidence--high {
+  border-color: var(--om-success-border);
+  background: var(--om-success-bg);
+}
+
+.om-confidence--medium,
+.om-confidence--low {
+  border-color: var(--om-warning-border);
+  background: var(--om-warning-bg);
+}
+
 /*
  * Fixed 2×2 grid: analysis controls (top-left), interactive map (top-right),
  * ranked results (bottom-left), site detail/explanation (bottom-right). On

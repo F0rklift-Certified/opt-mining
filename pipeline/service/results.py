@@ -323,13 +323,25 @@ def get_site_detail(run: RunHandle | str, cell_id: str) -> SiteDetail:
     feature_names = _run_feature_names(run_id)
     if not feature_names:
         feature_names = list(contributions.keys())
+    # Then the rest of the cell's integrated row — coordinates, elevation, land
+    # use, protected-area and REZ names, per-domain and overall confidence —
+    # copied verbatim, so the detail view can show the geographic and
+    # data-quality context S4-03 requires without inferring anything (ported
+    # from S3-10 6fe88a3). The scoring criteria stay first; `cell_id` and
+    # `eligible` are already top-level SiteDetail fields, so not repeated here.
+    already_top_level = {cell_col, _service_config.ELIGIBLE_COLUMN}
+    feature_names = list(dict.fromkeys(
+        feature_names
+        + [c for c in feature_row.index if c not in already_top_level]
+    ))
     features = _features_for(feature_row, feature_names)
 
     eligible = bool(feature_row[_service_config.ELIGIBLE_COLUMN]) \
         if _service_config.ELIGIBLE_COLUMN in feature_row.index else False
 
-    # The S2-06 Explanation_Structure, resolved by cell_id and carried verbatim.
-    explanation = load_explanations().get(cell_id, {})
+    # The S2-06 Explanation_Structure THIS Run materialised with its own
+    # weights, resolved by cell_id and carried verbatim (S4-03).
+    explanation = load_explanations(run_id).get(cell_id, {})
 
     # DISPLAY-ONLY per-cell network-load read-out (MVA): read verbatim from the
     # integrated table's `load_within_radius_mva` column WHERE present. It is an

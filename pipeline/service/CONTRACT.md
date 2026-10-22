@@ -1,6 +1,6 @@
 # Decision_Service Contract (S2-08)
 
-**Status: FROZEN at the Sprint 2 / Sprint 3 boundary. Current version: 1.2.2**
+**Status: FROZEN at the Sprint 2 / Sprint 3 boundary. Current version: 1.3**
 (frozen at **1.0**; amended to **1.1** by S3-03a — the `get_run_cells` geometry
 operation; amended to **1.2** by S3-08 — the `get_sanity_check` operation; both
 under the §8 change-control process; see the [Change log](#8-change-log)).
@@ -49,7 +49,7 @@ eligibility decision. The map and the ranking table therefore always represent
 | --- | --- | --- | --- |
 | Scored_Table | S2-05 `pipeline/scoring/` | `DATA/scoring/optmining_suitability-score_2026_nsw.gpkg` (+ `.csv`) | layer `suitability_score` |
 | Eligibility_Table | S2-03 `pipeline/exclusions/` | `DATA/exclusions/optmining_exclusions_2024_nsw.gpkg` | layer default |
-| Explanation_Structure | S2-06 `pipeline/explanation/` | `DATA/explanation/optmining_site-explanations_2026_nsw.json` (+ `.csv`) | JSON records |
+| Explanation_Structure | S2-06 `pipeline/explanation/` | `DATA/service/runs/{run_id}/explanations.json` — generated with that Run's own weights at materialisation (v1.3); the packaged `DATA/explanation/optmining_site-explanations_2026_nsw.json` (default weights) is read only for a Run materialised before v1.3 | JSON records |
 | Scenario presets | S2-07 `pipeline/scoring/scenarios.yaml` | packaged with the engine | named weight sets |
 | Data_Quality_Status | S2-02 `pipeline/validate.py` | `DATA/integration/metadata/integrated_input_validation.json` | check-record JSON |
 
@@ -373,7 +373,7 @@ duplicate validator.
 | Field | Type | Notes |
 | --- | --- | --- |
 | `cell_id` | `string` | Analysis-cell id. |
-| `features` | `{string: value}` | The cell's input feature values (e.g. `wind_speed`, `dist_transmission_km`, `slope_deg`, `inside_rez`, …). |
+| `features` | `{string: value}` | The cell's input feature values: the Run's scoring criteria first (e.g. `wind_speed`, `dist_transmission_km`, `slope_deg`, `inside_rez`), then (v1.3) every other column of the cell's integrated row verbatim — e.g. `centroid_lat`/`centroid_lon`, `elevation_m`, `land_use`, `protected_area_name`, `rez_name`, `source_region`, per-domain `*_confidence`, `data_confidence`, `confidence_score`, `confidence_notes`. `cell_id` and `eligible` are not repeated. Nulls are `null`. |
 | `contributions` | `{string: number}` | Per-criterion contribution (`contrib_{feature}`); the shares sum to `suitability_score`. |
 | `suitability_score` | `number \| null` | The S2-05 score; identical to `get_ranked_results` for this cell (Requirement 2.3). Null for an excluded cell. |
 | `rank` | `integer \| null` | The S2-05 rank; identical to `get_ranked_results`. Null for an excluded cell. |
@@ -595,6 +595,7 @@ returned as empty sets with a `200`, **never** as an error (Requirement 7.4).
 | 1.2 | 2026-10-12 (S3-08) | Added the eighth operation `get_sanity_check` (`GET /sanity-check`) returning a `SanityCheck` that projects the S1-12 Results_Sidecar verbatim (per-check outcomes incl. a synthesized exclusion summary, the known-wind-farm table, the full `issues_for_sprint_2` contradictions, the always-on model-not-trained caveat, and the lineage `run_metadata`; §2 row 1.8, §4.8, §5 `SanityCheck`/`SanityCheckItem`/`SanityContradiction`/`SanityWindFarmRow`/`SanityRunMetadata`). Reuses the existing `EngineOutputError` -> 503 mapping; no change to the v1.0/v1.1 operations or their semantics. | Decision_Engine_Spec §8 change-control; propagated to the generated client (S3-08). |
 | 1.2.1 | 2026-10-12 (S3-08) | Additive field: `SanityWindFarmRow.in_top_band` (`boolean`, default `false`) — the engine's per-row top-ranked-band membership (`rank <= top_band_n`), carried verbatim so the sanity panel renders the "rank <= N" column from an engine-computed field rather than reusing `in_upper_quartile` (the two diverge; §5 `SanityWindFarmRow`). Backward-compatible addition to the v1.2 `get_sanity_check` response; no operation added or removed, no other field changed. | Decision_Engine_Spec §8 change-control; OpenAPI snapshot + generated client regenerated (S3-08). |
 | 1.2.2 | 2026-10-19 (S4-02) | Additive field: `CellCollection.score_quantiles` (`[ScoreQuantile]`, default `[]`) — the eligible cells' `suitability_score` at fixed probabilities, so the map can place continuous colour stops across the real score distribution without sorting in the UI (§4.7, §5 `CellCollection`/`ScoreQuantile`). Descriptive display metadata only; backward-compatible addition to the v1.1 `get_run_cells` response; no operation added or removed, no other field changed. | Decision_Engine_Spec §8 change-control; OpenAPI snapshot + generated client regenerated (S4-02). |
+| 1.3 | 2026-10-19 (S4-03) | `get_site_detail` behaviour: (a) `explanation` is the record the Run materialised with ITS OWN weights (`explanations.json` in the Run directory, built by the S2-06 stage's own assembler/templates/writer), so positive factors and weaknesses agree with the Run's `contributions`; (b) `features` carries the cell's full integrated row after the criteria (§5 `SiteDetail`). `run_analysis`: `run_id` now also hashes the integrated input and the explanation templates, so a Run from an older frozen table is never reused; identical concurrent first materialisations are serialised in-process; site-detail reads reject a Run whose integrated input has since changed (503). No field added or removed from any model; no score, rank or eligibility changes. Ported from S3-10 6fe88a3 (Xinhao Wang). | Decision_Engine_Spec §8 change-control; OpenAPI schema unchanged (no model change). |
 
 Any post-freeze change to this contract or the published OpenAPI schema follows
 the Decision_Engine_Spec §8 change-control process, bumps the version above, and

@@ -392,9 +392,7 @@ export interface components {
             /** Contradictions */
             contradictions?: components["schemas"]["SanityContradiction"][];
             /** Exclusion Assertions */
-            exclusion_assertions?: {
-                [key: string]: unknown;
-            }[];
+            exclusion_assertions?: Record<string, unknown>[];
             /**
              * Preliminary Disclaimer
              * @default
@@ -578,13 +576,9 @@ export interface components {
              */
             eligible: boolean;
             /** Explanation */
-            explanation?: {
-                [key: string]: unknown;
-            };
+            explanation?: Record<string, unknown>;
             /** Features */
-            features?: {
-                [key: string]: unknown;
-            };
+            features?: Record<string, unknown>;
             /** Rank */
             rank?: number | null;
             /** Suitability Score */
