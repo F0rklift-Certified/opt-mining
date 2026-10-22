@@ -54,11 +54,14 @@ RECONCILE_TOLERANCE = 1e-9
 # (AC1..AC12 — the Must set plus AC10/AC12; see design Decision 4).
 EXPECTED_AC_KEYS = tuple(f"AC{n}" for n in range(1, 13))
 
-# Stale tokens from the OLD lineage's demo-script that must NEVER leak into an
-# S3-10 artifact (design "Baseline divergence" / "Stale-value leakage").
+# Stale tokens that must NEVER leak into a release artifact (design "Stale-value
+# leakage"). The two hashes come from the old S3 lineage. Since the QA F-01 fix
+# (2026-10-22) the `outside_nsw_land` rule and the 23,266-eligible baseline are
+# CURRENT, so the pre-fix eligible count (32,525) and that dataset's SHA prefix
+# are the stale values now.
 STALE_TOKENS = (
-    "outside_nsw_land",
-    "23,266",
+    "32,525",
+    "4062224a",
     "604d051bb2deb7d8",
     "e43fd84cddd53cb5",
 )
