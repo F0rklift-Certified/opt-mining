@@ -352,6 +352,22 @@ def split_eligible(scored: gpd.GeoDataFrame) -> tuple[gpd.GeoDataFrame, gpd.GeoD
 # ---------------------------------------------------------------------------
 
 
+def clean_wind_generators(generators: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """
+    Keep one row per operating wind farm for Check 1 (QA F-03).
+
+    The GA extract labels "White Rock Solar Farm" with fuel type Wind and
+    lists Gullen Range Wind Farm twice (two points ~8 km apart), so the raw
+    file overstates the reference set to 16 farms. Names containing "solar"
+    are dropped and repeated names keep their first row. Returns a new frame;
+    the input is not mutated.
+    """
+    name = generators[config.REQUIRED_WIND_GENERATOR_ATTR].astype(str)
+    kept = generators.loc[~name.str.contains("solar", case=False)]
+    kept = kept.drop_duplicates(subset=config.REQUIRED_WIND_GENERATOR_ATTR, keep="first")
+    return kept.reset_index(drop=True)
+
+
 def load_inputs(paths: SanityInputs | None = None) -> LoadedFrames:
     """
     Read all five stage inputs READ-ONLY and return in-memory frames (1.1, 8.1).
@@ -419,12 +435,14 @@ def load_inputs(paths: SanityInputs | None = None) -> LoadedFrames:
 
     # Wind_Generators (GA) — points located to cells in Check 1, so its CRS MUST
     # be resolvable (2.2). The single required attribute is the wind-farm name.
-    wind_generators = _read_vector(
-        config_or(paths.wind_generators_path, config.WIND_GENERATORS_PATH),
-        layer=None,
-        source_name="Wind_Generators",
-        required_columns=(config.REQUIRED_WIND_GENERATOR_ATTR,),
-        require_crs=True,
+    wind_generators = clean_wind_generators(
+        _read_vector(
+            config_or(paths.wind_generators_path, config.WIND_GENERATORS_PATH),
+            layer=None,
+            source_name="Wind_Generators",
+            required_columns=(config.REQUIRED_WIND_GENERATOR_ATTR,),
+            require_crs=True,
+        )
     )
 
     # The resolved Shortlist (S1-11).

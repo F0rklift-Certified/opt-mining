@@ -149,10 +149,13 @@ def _resolved_input_paths() -> list[Path]:
 
 
 def _n_wind_generators() -> int:
-    """The number of Wind_Generators features — the expected row count of the
-    Known_Wind_Farm_Comparison table (one row per generator)."""
+    """The number of distinct wind farms in Wind_Generators — the expected row
+    count of the Known_Wind_Farm_Comparison table (one row per farm, after the
+    QA F-03 clean-up drops the solar mislabel and the repeated name)."""
     gpd = pytest.importorskip("geopandas")
-    return int(len(gpd.read_file(config.WIND_GENERATORS_PATH)))
+    from pipeline.sanity.load import clean_wind_generators
+
+    return int(len(clean_wind_generators(gpd.read_file(config.WIND_GENERATORS_PATH))))
 
 
 class TestFullNswGridIntegration:
