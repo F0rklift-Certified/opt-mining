@@ -1,7 +1,7 @@
 {
   "release_candidate": "v0.1.0-rc.2 (to be cut on this branch's final S3-10 commit; v0.1.0-rc.1 belongs to the divergent lineage and is left untouched)",
   "branch": "s3-10-final-demo",
-  "frozen_input_sha": "4062224a",
+  "frozen_input_sha": "df7073bd",
   "status_summary": "All Must ACs (AC1-AC9, AC11) and AC10/AC12 are implemented and tested on this branch. 'Met' means the capability exists and is covered by tests; final acceptance is the human Checkpoint-D gate, which an automated green build does not clear.",
   "checkpoint_d": {
     "status": "pending human sign-off",
@@ -11,7 +11,7 @@
     "criterion": "Reproducible NSW integrated dataset consumed by the app",
     "status": "met",
     "evidence": [
-      "DATA/integration/ frozen integrated table (input SHA 4062224a) served by pipeline.service",
+      "DATA/integration/ frozen integrated table (input SHA df7073bd) served by pipeline.service",
       "tests/integration/test_e2e_dataset_engine_app.py drives dataset -> engine -> app via FastAPI TestClient",
       "docs/release/rehearsal.json (data_quality.check_count=28, cells.total=47311)"
     ]
@@ -84,7 +84,7 @@
     "evidence": [
       "ScenarioComparison <- POST /scenario-comparison; Wind-led / Grid-led presets + Custom",
       "tests/service/test_scenarios.py",
-      "docs/release/rehearsal.json scenario_comparison (32,519 of 32,525 cells moved between wind_led and grid_led)"
+      "docs/release/rehearsal.json scenario_comparison (23,261 of 23,266 cells moved between wind_led and grid_led)"
     ]
   },
   "AC10": {
