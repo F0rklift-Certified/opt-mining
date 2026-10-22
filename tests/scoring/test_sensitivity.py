@@ -91,3 +91,15 @@ def test_markdown_lists_one_row_per_run():
     text = sa.render_markdown(result)
     assert text.count("\n| wind_speed ") == len(sa.PERTURBATIONS)
     assert "Integrated table SHA-256: `abc`" in text
+
+
+def test_site_stability_names_robust_and_sensitive_cells():
+    base = pd.Series([1, 2, 3, 4], index=["a", "b", "c", "d"])
+    alt = pd.Series([1, 4, 2, 3], index=["a", "b", "c", "d"])
+    rows = sa.site_stability(base, [alt], top_n=2)
+    by_cell = {row["cell_id"]: row for row in rows}
+    assert set(by_cell) == {"a", "b", "c"}
+    assert by_cell["a"]["share_of_runs_in_top2"] == 1.0  # robust
+    assert by_cell["b"]["share_of_runs_in_top2"] == 0.5  # weight-sensitive
+    assert (by_cell["b"]["best_rank"], by_cell["b"]["worst_rank"]) == (2, 4)
+    assert rows[0]["cell_id"] == "a"

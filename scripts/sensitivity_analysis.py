@@ -21,6 +21,10 @@ run is compared with the baseline ranking:
   - whether the baseline rank-1 cell stays rank 1;
   - the largest rank shift among the baseline top-20 cells.
 
+It also lists every cell that reaches the top 20 in any run, with how many
+runs keep it there and its best and worst rank, so robust and weight-sensitive
+sites can be named.
+
 Nothing is written into the engine's outputs. Results go to:
 
     DATA/sensitivity/optmining_sensitivity_2026_nsw.json
@@ -114,12 +118,35 @@ def compare_rankings(base: pd.Series, alt: pd.Series) -> dict:
     return metrics
 
 
+def site_stability(base: pd.Series, alternatives: list[pd.Series], top_n: int = 20) -> list[dict]:
+    """
+    For every cell in the top `top_n` of the baseline or any alternative run:
+    the share of all runs (baseline included) that keep it in the top `top_n`,
+    and its best and worst rank across them. Sorted most robust first.
+    """
+    rankings = [base, *alternatives]
+    cells = set().union(*(_top(r, top_n) for r in rankings))
+    rows = []
+    for cell in cells:
+        ranks = [int(r.loc[cell]) for r in rankings]
+        rows.append({
+            "cell_id": cell,
+            "baseline_rank": int(base.loc[cell]),
+            f"share_of_runs_in_top{top_n}": sum(rank <= top_n for rank in ranks) / len(ranks),
+            "best_rank": min(ranks),
+            "worst_rank": max(ranks),
+        })
+    key = f"share_of_runs_in_top{top_n}"
+    return sorted(rows, key=lambda row: (-row[key], row["baseline_rank"]))
+
+
 def run_analysis(features: pd.DataFrame, weights: WeightsConfig, scenarios: dict) -> dict:
     """Score the baseline, every perturbation and every scenario; compare each to the baseline."""
     mask = eligible_mask(features)
     bounds = compute_bounds(features.loc[mask], weights.criteria)
     base = eligible_ranks(score_and_rank(features, weights, bounds=bounds), mask)
 
+    alternatives = []
     runs = []
     for criterion in weights.criteria:
         for change in PERTURBATIONS:
@@ -127,6 +154,7 @@ def run_analysis(features: pd.DataFrame, weights: WeightsConfig, scenarios: dict
                 score_and_rank(features, perturb(weights, criterion.feature, change), bounds=bounds),
                 mask,
             )
+            alternatives.append(alt)
             runs.append({
                 "kind": "perturbation",
                 "criterion": criterion.feature,
@@ -136,6 +164,7 @@ def run_analysis(features: pd.DataFrame, weights: WeightsConfig, scenarios: dict
             })
     for name, scenario in scenarios.items():
         alt = eligible_ranks(run_scenario(features, scenario, bounds=bounds), mask)
+        alternatives.append(alt)
         runs.append({"kind": "scenario", "scenario": name, "label": scenario.label,
                      **compare_rankings(base, alt)})
 
@@ -146,6 +175,7 @@ def run_analysis(features: pd.DataFrame, weights: WeightsConfig, scenarios: dict
         "baseline_weights": {c.feature: c.weight for c in weights.criteria},
         "perturbations": list(PERTURBATIONS),
         "runs": runs,
+        "site_stability_top20": site_stability(base, alternatives),
     }
 
 
@@ -189,6 +219,21 @@ def render_markdown(result: dict) -> str:
             f"| {name} | {_fmt(run['spearman_all_eligible'])} | {_fmt(run[tau_key])} "
             f"| {_fmt(run['top20_overlap'])} | {_fmt(run['top50_overlap'])} "
             f"| {_fmt(run['rank1_unchanged'])} | {_fmt(run[shift_key])} |"
+        )
+    lines += [
+        "",
+        "## Site stability (top 20)",
+        "",
+        "Every cell that reaches the top 20 in any run. *Share* is the fraction of all",
+        "runs (baseline, perturbations and scenarios) that keep it in the top 20.",
+        "",
+        "| Cell | Baseline rank | Share of runs in top 20 | Best rank | Worst rank |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for row in result["site_stability_top20"]:
+        lines.append(
+            f"| `{row['cell_id']}` | {row['baseline_rank']} | {row['share_of_runs_in_top20']:.2f} "
+            f"| {row['best_rank']} | {row['worst_rank']} |"
         )
     return "\n".join(lines) + "\n"
 
