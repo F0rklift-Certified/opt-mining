@@ -375,6 +375,246 @@
       "top50_overlap": 0.8
     }
   ],
+  "site_stability_top20": [
+    {
+      "cell_id": "S30.586_E151.586",
+      "baseline_rank": 1,
+      "share_of_runs_in_top20": 1.0,
+      "best_rank": 1,
+      "worst_rank": 20
+    },
+    {
+      "cell_id": "S30.636_E151.586",
+      "baseline_rank": 2,
+      "share_of_runs_in_top20": 1.0,
+      "best_rank": 1,
+      "worst_rank": 10
+    },
+    {
+      "cell_id": "S32.436_E149.036",
+      "baseline_rank": 5,
+      "share_of_runs_in_top20": 1.0,
+      "best_rank": 2,
+      "worst_rank": 10
+    },
+    {
+      "cell_id": "S32.486_E149.086",
+      "baseline_rank": 7,
+      "share_of_runs_in_top20": 1.0,
+      "best_rank": 3,
+      "worst_rank": 11
+    },
+    {
+      "cell_id": "S30.436_E151.536",
+      "baseline_rank": 8,
+      "share_of_runs_in_top20": 1.0,
+      "best_rank": 6,
+      "worst_rank": 15
+    },
+    {
+      "cell_id": "S32.436_E149.086",
+      "baseline_rank": 9,
+      "share_of_runs_in_top20": 1.0,
+      "best_rank": 1,
+      "worst_rank": 15
+    },
+    {
+      "cell_id": "S30.186_E151.636",
+      "baseline_rank": 10,
+      "share_of_runs_in_top20": 1.0,
+      "best_rank": 4,
+      "worst_rank": 13
+    },
+    {
+      "cell_id": "S30.286_E151.636",
+      "baseline_rank": 12,
+      "share_of_runs_in_top20": 1.0,
+      "best_rank": 5,
+      "worst_rank": 18
+    },
+    {
+      "cell_id": "S30.586_E151.536",
+      "baseline_rank": 3,
+      "share_of_runs_in_top20": 0.9629629629629629,
+      "best_rank": 3,
+      "worst_rank": 25
+    },
+    {
+      "cell_id": "S30.536_E151.586",
+      "baseline_rank": 4,
+      "share_of_runs_in_top20": 0.9629629629629629,
+      "best_rank": 4,
+      "worst_rank": 36
+    },
+    {
+      "cell_id": "S30.586_E151.636",
+      "baseline_rank": 6,
+      "share_of_runs_in_top20": 0.9629629629629629,
+      "best_rank": 5,
+      "worst_rank": 29
+    },
+    {
+      "cell_id": "S30.636_E151.636",
+      "baseline_rank": 11,
+      "share_of_runs_in_top20": 0.9629629629629629,
+      "best_rank": 6,
+      "worst_rank": 30
+    },
+    {
+      "cell_id": "S32.486_E149.036",
+      "baseline_rank": 14,
+      "share_of_runs_in_top20": 0.9629629629629629,
+      "best_rank": 12,
+      "worst_rank": 22
+    },
+    {
+      "cell_id": "S30.636_E151.686",
+      "baseline_rank": 15,
+      "share_of_runs_in_top20": 0.9629629629629629,
+      "best_rank": 14,
+      "worst_rank": 38
+    },
+    {
+      "cell_id": "S30.486_E151.586",
+      "baseline_rank": 16,
+      "share_of_runs_in_top20": 0.9629629629629629,
+      "best_rank": 12,
+      "worst_rank": 50
+    },
+    {
+      "cell_id": "S30.686_E151.486",
+      "baseline_rank": 17,
+      "share_of_runs_in_top20": 0.9629629629629629,
+      "best_rank": 14,
+      "worst_rank": 37
+    },
+    {
+      "cell_id": "S32.386_E148.986",
+      "baseline_rank": 13,
+      "share_of_runs_in_top20": 0.9259259259259259,
+      "best_rank": 10,
+      "worst_rank": 42
+    },
+    {
+      "cell_id": "S30.286_E151.686",
+      "baseline_rank": 18,
+      "share_of_runs_in_top20": 0.8518518518518519,
+      "best_rank": 7,
+      "worst_rank": 30
+    },
+    {
+      "cell_id": "S32.436_E148.986",
+      "baseline_rank": 20,
+      "share_of_runs_in_top20": 0.7407407407407407,
+      "best_rank": 19,
+      "worst_rank": 54
+    },
+    {
+      "cell_id": "S32.336_E148.286",
+      "baseline_rank": 19,
+      "share_of_runs_in_top20": 0.7037037037037037,
+      "best_rank": 9,
+      "worst_rank": 116
+    },
+    {
+      "cell_id": "S30.236_E151.586",
+      "baseline_rank": 21,
+      "share_of_runs_in_top20": 0.3333333333333333,
+      "best_rank": 8,
+      "worst_rank": 38
+    },
+    {
+      "cell_id": "S32.386_E148.286",
+      "baseline_rank": 22,
+      "share_of_runs_in_top20": 0.25925925925925924,
+      "best_rank": 16,
+      "worst_rank": 79
+    },
+    {
+      "cell_id": "S32.386_E149.036",
+      "baseline_rank": 28,
+      "share_of_runs_in_top20": 0.07407407407407407,
+      "best_rank": 19,
+      "worst_rank": 54
+    },
+    {
+      "cell_id": "S30.686_E151.536",
+      "baseline_rank": 23,
+      "share_of_runs_in_top20": 0.037037037037037035,
+      "best_rank": 19,
+      "worst_rank": 48
+    },
+    {
+      "cell_id": "S30.786_E151.586",
+      "baseline_rank": 29,
+      "share_of_runs_in_top20": 0.037037037037037035,
+      "best_rank": 20,
+      "worst_rank": 52
+    },
+    {
+      "cell_id": "S32.286_E148.236",
+      "baseline_rank": 35,
+      "share_of_runs_in_top20": 0.037037037037037035,
+      "best_rank": 20,
+      "worst_rank": 184
+    },
+    {
+      "cell_id": "S30.236_E151.786",
+      "baseline_rank": 37,
+      "share_of_runs_in_top20": 0.037037037037037035,
+      "best_rank": 13,
+      "worst_rank": 68
+    },
+    {
+      "cell_id": "S30.836_E151.586",
+      "baseline_rank": 39,
+      "share_of_runs_in_top20": 0.037037037037037035,
+      "best_rank": 17,
+      "worst_rank": 66
+    },
+    {
+      "cell_id": "S30.236_E151.836",
+      "baseline_rank": 44,
+      "share_of_runs_in_top20": 0.037037037037037035,
+      "best_rank": 15,
+      "worst_rank": 78
+    },
+    {
+      "cell_id": "S30.086_E151.686",
+      "baseline_rank": 64,
+      "share_of_runs_in_top20": 0.037037037037037035,
+      "best_rank": 16,
+      "worst_rank": 103
+    },
+    {
+      "cell_id": "S30.086_E151.736",
+      "baseline_rank": 65,
+      "share_of_runs_in_top20": 0.037037037037037035,
+      "best_rank": 18,
+      "worst_rank": 102
+    },
+    {
+      "cell_id": "S34.586_E149.436",
+      "baseline_rank": 107,
+      "share_of_runs_in_top20": 0.037037037037037035,
+      "best_rank": 6,
+      "worst_rank": 951
+    },
+    {
+      "cell_id": "S31.186_E151.686",
+      "baseline_rank": 163,
+      "share_of_runs_in_top20": 0.037037037037037035,
+      "best_rank": 11,
+      "worst_rank": 279
+    },
+    {
+      "cell_id": "S31.136_E151.686",
+      "baseline_rank": 181,
+      "share_of_runs_in_top20": 0.037037037037037035,
+      "best_rank": 14,
+      "worst_rank": 290
+    }
+  ],
   "integrated_sha256": "df7073bd6c0ac9c57baf1273f2dcf2da04d3baf0c697aeeaaab3cea2e60e4da5",
-  "code_version": "f96a66ef5d7ef797c400a89e393c8515d929e0bb"
+  "code_version": "15e5a13ff0ac4fb077754f0cd254694ee8016f81"
 }
