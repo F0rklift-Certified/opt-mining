@@ -35,7 +35,7 @@ test("baseline run → map, shortlist, site detail, re-run, CSV export", async (
   const cellId = ((await firstRow.locator("code").textContent()) ?? "").trim();
   expect(cellId).toMatch(/^S\d+\.\d+_E\d+\.\d+$/);
   await firstRow.click();
-  const detail = region(page, "Site detail and explanation");
+  const detail = region(page, "Site detail / explanation");
   await expect(detail.getByText(cellId)).toBeVisible();
   await expect(detail.getByText("Eligible candidate", { exact: true })).toBeVisible();
 
@@ -53,7 +53,10 @@ test("baseline run → map, shortlist, site detail, re-run, CSV export", async (
   expect(download.suggestedFilename()).toMatch(/\.csv$/);
   const path = await download.path();
   const { readFile } = await import("node:fs/promises");
-  const header = (await readFile(path, "utf-8")).split(/\r?\n/)[0] ?? "";
+  // The export opens with the preliminary-screening disclaimer as a `#` line.
+  const lines = (await readFile(path, "utf-8")).split(/\r?\n/);
+  expect(lines[0]).toMatch(/^# .*preliminary screening/i);
+  const header = lines.find((line) => line !== "" && !line.startsWith("#")) ?? "";
   expect(header).toContain("cell_id");
 });
 
