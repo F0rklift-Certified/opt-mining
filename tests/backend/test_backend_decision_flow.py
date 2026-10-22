@@ -62,27 +62,24 @@ from pipeline.scoring.write import build_scored_table, write_scored_table
 # the recorded/frozen/on-disk hashes agree with each other instead. The content
 # identity is pinned by the reproducible row/eligibility counts below.
 FROZEN_ROWS = 47_311
-FROZEN_ELIGIBLE_ROWS = 32_525
-FROZEN_EXCLUDED_ROWS = 14_786
+FROZEN_ELIGIBLE_ROWS = 23_266
+FROZEN_EXCLUDED_ROWS = 24_045
 
-# Reviewed snapshot update — demand-proxy percentile normalisation
-# (demand-percentile-norm). The committed integrated/scored baseline was
-# regenerated after load_weighted demand_proxy switched from per-region linear
-# max-normalisation to per-region PERCENTILE (rank) normalisation. Under linear
-# max-normalisation the hyper-concentrated distance-decay surface collapsed ~62%
-# of eligible cells below 0.001 and the remote REZ wind cells that dominate the
-# shortlist read ~0.0002 (displayed 0.000), so demand's 0.15 weight did not
-# discriminate. Percentile normalisation restores usable spread (eligible median
-# ~0.44, 0% below 0.001), so demand now visibly participates and the top-5
-# reshuffles modestly (New England / Central-West Orana REZ cells still lead —
-# not degenerate). The eligible/excluded population is unchanged; the scenario
-# rank-change count ticks 32_522 -> 32_524 as demand now moves more cells.
+# Reviewed snapshot update — outside-NSW exclusion (QA F-01, 2026-10-22).
+# The `outside_nsw_land` rule now excludes every cell whose centroid lies
+# outside the ABS NSW boundary, so the eligible population falls from 32,525
+# to 23,266 (the same count S3-10's independent baseline repair reached).
+# Normalisation bounds are taken over eligible cells only, so every score
+# shifts slightly; the baseline top four are unchanged in order and the
+# Central-West Orana cell S32.436_E149.036 enters at rank 5. The explanation
+# digest also reflects S4-03's reworded eligible headline ("Eligible candidate
+# …"). Previous snapshot: demand-proxy percentile normalisation (b2a4a32).
 EXPECTED_BASELINE_TOP_FIVE = (
-    ("S30.586_E151.586", 0.8881182884401134),
-    ("S30.636_E151.586", 0.8851306448627244),
-    ("S30.586_E151.536", 0.8850249800525594),
-    ("S30.536_E151.586", 0.8845321060905232),
-    ("S30.586_E151.636", 0.8823910755478678),
+    ("S30.586_E151.586", 0.8909680392438263),
+    ("S30.636_E151.586", 0.8897308061917274),
+    ("S30.586_E151.536", 0.8881303560021424),
+    ("S30.536_E151.586", 0.8866570780699919),
+    ("S32.436_E149.036", 0.8856950482216077),
 )
 EXPECTED_WIND_LED_TOP_FIVE = (
     "S32.436_E149.086",
@@ -95,12 +92,12 @@ EXPECTED_GRID_LED_TOP_FIVE = (
     "S30.636_E151.586",
     "S30.586_E151.586",
     "S30.586_E151.536",
-    "S30.536_E151.586",
-    "S30.586_E151.636",
+    "S32.436_E149.086",
+    "S32.486_E149.086",
 )
-EXPECTED_SCENARIO_RANK_CHANGES = 32_524
+EXPECTED_SCENARIO_RANK_CHANGES = 23_261
 EXPECTED_EXPLANATION_SHA256 = (
-    "f291528877e5829020175975baa51efeb562e53191ca2bfe625e08b9693578fd"
+    "a864448a36e37562ab77b2f994ecc970b1636dbf41b70eee25cfb281c648e707"
 )
 TOLERANCE = 1e-12
 

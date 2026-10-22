@@ -281,6 +281,14 @@ export const DEFAULT_OPTION_ID: string = "baseline";
  * positive (an all-zero configuration would score nothing). Returns a
  * human-readable message naming the fault, or `null` when valid.
  */
+/**
+ * Largest weight a single criterion may carry — the engine's
+ * `MAX_CRITERION_WEIGHT` (`pipeline/scoring/config.py`). Weights are relative,
+ * so the cap loses nothing; it stops a huge value overflowing the weight sum
+ * (QA F-07). The engine enforces it too; this only reports it before a run.
+ */
+export const MAX_CRITERION_WEIGHT = 100;
+
 export function validateWeights(criteria: Criterion[]): string | null {
   for (const criterion of criteria) {
     if (!Number.isFinite(criterion.weight)) {
@@ -288,6 +296,9 @@ export function validateWeights(criteria: Criterion[]): string | null {
     }
     if (criterion.weight < 0) {
       return `${featureLabel(criterion.feature)} weight cannot be negative.`;
+    }
+    if (criterion.weight > MAX_CRITERION_WEIGHT) {
+      return `${featureLabel(criterion.feature)} weight must be at most ${MAX_CRITERION_WEIGHT}.`;
     }
   }
   if (criteria.every((criterion) => criterion.weight === 0)) {
@@ -376,6 +387,7 @@ export default function AnalysisControls({
                     type="number"
                     step="0.01"
                     min="0"
+                    max={MAX_CRITERION_WEIGHT}
                     aria-label={`${featureLabel(criterion.feature)} weight`}
                     title={weightHelp(criterion)}
                     value={Number.isNaN(criterion.weight) ? "" : criterion.weight}

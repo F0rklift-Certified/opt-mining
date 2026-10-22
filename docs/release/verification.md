@@ -1,5 +1,14 @@
 # Verification evidence — S3-10 release candidate
 
+> **Historical record (Sprint 3).** This log verifies the S3-10 release candidate
+> as built on another worktree. Since then the baseline changed: the
+> `outside_nsw_land` exclusion (QA F-01, 2026-10-22) is now **current**, so the
+> "stale token" sweep below no longer applies, and the current counts are
+> 23,266 eligible / 24,045 excluded (input SHA `df7073bd`). The Sprint 4
+> rehearsal evidence is [`rehearsal.json`](rehearsal.json) and
+> [`demo-script.md`](demo-script.md); the Sprint 4 verification and clean-environment
+> reproduction are recorded in the final handover package.
+
 Branch / worktree: `s3-10-final-demo` at
 `/Users/nb/Desktop/Opt Mining/.worktrees/s3-10-final-demo`.
 

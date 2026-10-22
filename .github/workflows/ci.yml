@@ -68,33 +68,65 @@ jobs:
   docker-build:
     name: Docker Compose build
     runs-on: ubuntu-latest
-    # Build and boot both images, then exercise the same six HTTP operations
-    # as the browser. A successful image build alone cannot catch import-time
-    # shared-library errors, missing input data or rejected CORS requests.
+    # Build and boot both images, exercise the same HTTP operations as the
+    # browser, then drive the UI itself with Playwright (S4-09a). A successful
+    # image build alone cannot catch import-time shared-library errors, missing
+    # input data or rejected CORS requests.
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
 
+      # Production images only (-f skips docker-compose.override.yml): the dev
+      # override mounts app/web into the container, which leaves a root-owned
+      # node_modules on the runner and breaks the host-side Playwright install.
       - name: Build Compose images
         working-directory: app
-        run: docker compose build
+        run: docker compose -f docker-compose.yml build
 
       - name: Start Compose stack
         working-directory: app
-        run: docker compose up -d
+        run: docker compose -f docker-compose.yml up -d
 
       - name: Verify browser-facing service operations
         run: python3 app/smoke_test.py
 
+      # S4-09a: drive the real UI in a browser against the same running stack.
+      - name: Set up Node 20 for the browser E2E
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+
+      - name: Install Playwright
+        working-directory: app/web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run browser end-to-end tests
+        working-directory: app/web
+        env:
+          E2E_BASE_URL: http://localhost:3000
+        run: npm run e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: app/web/playwright-report/
+          retention-days: 14
+
       - name: Show container logs on failure
         if: failure()
         working-directory: app
-        run: docker compose logs --no-color
+        run: docker compose -f docker-compose.yml logs --no-color
 
       - name: Stop Compose stack
         if: always()
         working-directory: app
-        run: docker compose down
+        run: docker compose -f docker-compose.yml down
 
   frontend:
     name: Frontend (Node 20)

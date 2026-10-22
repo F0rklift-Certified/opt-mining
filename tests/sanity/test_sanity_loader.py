@@ -465,3 +465,27 @@ class TestReadOnlyReuse:
         load_inputs(inputs)
         after = {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
         assert before == after
+
+
+def test_clean_wind_generators_drops_solar_and_repeated_names():
+    """QA F-03: the GA extract's solar mislabel and duplicate farm are removed."""
+    import geopandas as gpd
+    from shapely.geometry import Point
+
+    from pipeline.sanity.load import clean_wind_generators
+
+    raw = gpd.GeoDataFrame(
+        {"feature_name": [
+            "Gullen Range Wind Farm",
+            "Gullen Range Wind Farm",
+            "White Rock Solar Farm",
+            "White Rock Wind Farm",
+        ]},
+        geometry=[Point(149.48, -34.69), Point(149.46, -34.61),
+                  Point(151.55, -29.76), Point(151.54, -29.76)],
+        crs="EPSG:4326",
+    )
+    cleaned = clean_wind_generators(raw)
+    assert cleaned["feature_name"].tolist() == ["Gullen Range Wind Farm", "White Rock Wind Farm"]
+    assert cleaned.geometry.iloc[0].equals(Point(149.48, -34.69))
+    assert len(raw) == 4  # input untouched

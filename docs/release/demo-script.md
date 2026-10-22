@@ -1,31 +1,32 @@
 # Demo Script — guidance §10 Required Final Demonstration
 
-A rehearsed, live end-to-end walkthrough of the Opt-Mining MVP for Client
-Checkpoint D. Every concrete value below was **captured during the rehearsal on
-this branch** against the real running stack and is recorded in
-[`rehearsal.json`](rehearsal.json); none is transcribed from any earlier
-lineage.
+A rehearsed, live end-to-end walkthrough of the Opt-Mining MVP for the final
+client demonstration. Every concrete value below was **captured during the
+rehearsal of 2026-10-22** against the real running stack on the Sprint 4
+baseline (outside-NSW exclusion, QA F-01) and is recorded in
+[`rehearsal.json`](rehearsal.json); none is transcribed from an earlier baseline.
 
 Opt-Mining is a **preliminary screening** tool. This demo shows a
 **screening-level** flow that surfaces higher-ranked candidate cells for further
 investigation. It does **not** show the best site to build a wind farm, nor the
 best place to build; it is never a final recommendation or a site approval.
 
-**Rehearsal environment (captured):** API `http://localhost:18010`, web origin
-`http://localhost:13010` (non-default ports, Compose project `opt-mining-s3-10`).
-Frozen input SHA `4062224a`. See [`verification.md`](verification.md) for the
-exact commands and observed Docker/Python/Node versions.
+**Rehearsal environment (captured):** API `http://localhost:8000`, web origin
+`http://localhost:3000`, production Compose stack
+(`docker compose -f docker-compose.yml up --build` from `app/`). Frozen input
+SHA `df7073bd`. Rehearsed with
+`PYTHONPATH=. python app/rehearse_demo.py --output docs/release/rehearsal.json --external-sanity`.
 
 **Captured run ids (regenerated live on this branch):**
 
 | Run | `run_id` |
 | --- | --- |
-| Baseline (default weights) | `9a4c70db9cd5f912` |
-| Wind-led | `a743f7dc0bcabffa` |
-| Grid-led | `2b0d1e4f332babe9` |
+| Baseline (default weights) | `ecb0a6f1443a9908` |
+| Wind-led | `97c0a3ecf702b540` |
+| Grid-led | `8f7c098158bf8301` |
 
-**Captured cell counts:** total **47,311**, eligible **32,525**, excluded
-**14,786** (`data-quality` reported **28** checks passed).
+**Captured cell counts:** total **47,311**, eligible **23,266**, excluded
+**24,045** (`data-quality` reported **28** checks passed).
 
 ---
 
@@ -47,9 +48,8 @@ the sum of applied weights, so they sum to 1.00 only for readability.
 | `inside_rez` | higher is better | 0.10 | 0.10 | 0.15 |
 
 The `demand_proxy` row is a proxy indicator — each NEM region's annual-mean
-figure distributed across its cells by urban footprint (ABS UCL 2021); it is
-**not** measured or actual local demand. It now varies within a region (urban >
-rural) as well as between regions.
+figure spread across its cells by distance to recorded zone-substation load and
+ranked within the region; it is **not** measured or actual local demand.
 
 ---
 
@@ -61,7 +61,7 @@ the API operation in [`app/api/app.py`](../../app/api/app.py).
 
 ### Step 1 — Start from the documented environment
 
-- **Action:** `docker compose up --build` from `app/`; open the web origin and
+- **Action:** `docker compose -f docker-compose.yml up --build` from `app/`; open the web origin and
   the API `/docs`. The `DataQualityBanner` (← `GET /data-quality`) renders.
 - **Evidence:** both URLs reachable; `smoke_test.py` PASS line captured in
   [`verification.md`](verification.md); `data-quality` passed with **28** checks.
@@ -73,13 +73,13 @@ the API operation in [`app/api/app.py`](../../app/api/app.py).
   **Baseline** is selected (`DEFAULT_OPTION_ID = "baseline"`) and the six-criterion
   weight table is shown with per-source and interpretation tooltips.
 - **Evidence:** the Baseline weights 0.35 / 0.20 / 0.15 / 0.10 / 0.10 / 0.10 and
-  the on-mount Baseline run id `9a4c70db9cd5f912`.
+  the on-mount Baseline run id `ecb0a6f1443a9908`.
 
 ### Step 3 — Run the screening
 
 - **Action:** show the on-mount run (or click **Run analysis**); internally
   `POST /runs` with explicit Baseline weights via `buildRunRequest`.
-- **Evidence:** run id `9a4c70db9cd5f912`; **32,525** eligible of **47,311**
+- **Evidence:** run id `ecb0a6f1443a9908`; **23,266** eligible of **47,311**
   cells; the map and the top-10 shortlist populate.
 
 ### Step 4 — Show exclusions and explain one excluded site
@@ -88,9 +88,10 @@ the API operation in [`app/api/app.py`](../../app/api/app.py).
   one excluded cell's detail (`GET /runs/{run_id}/sites/{cell_id}` →
   `SiteDetailPanel` "Why excluded"). A high wind value cannot override an
   exclusion.
-- **Evidence (captured):** excluded cell **`S28.186_E152.386`**, reason code
-  **`excessive_slope`** ("Slope exceeds 15°"), with `suitability_score` = null
-  and `rank` = null. This is a real F16 code from this branch's seven.
+- **Evidence (captured):** excluded cell **`S28.186_E141.036`**, reason code
+  **`outside_nsw_land`** ("Outside NSW (cell centre is not in New South
+  Wales)"), with `suitability_score` = null and `rank` = null. A good second
+  example to open live is any cell inside a national park (`protected_area`).
 
 ### Step 5 — Show the ranked shortlist and the map
 
@@ -98,15 +99,17 @@ the API operation in [`app/api/app.py`](../../app/api/app.py).
   `GET /runs/{run_id}/results?top_n=10`) and Interactive map
   (`region-interactive-map`, `CellMap` ← `GET /runs/{run_id}/cells`). Click a
   shortlist row and a map cell; the shared selection shows the same cell in both.
-- **Evidence (captured top band, Wind-led run `a743f7dc0bcabffa`):**
+- **Evidence (captured top band, Wind-led run `97c0a3ecf702b540`):**
 
   | Rank | `cell_id` | Suitability score |
   | --- | --- | --- |
-  | 1 | `S31.186_E151.686` | 0.9139 |
-  | 2 | `S31.186_E151.736` | 0.9085 |
-  | 3 | `S31.136_E151.686` | 0.9065 |
-  | 4 | `S31.236_E151.686` | 0.9050 |
-  | 5 | `S32.436_E149.086` | 0.8996 |
+  | 1 | `S32.436_E149.086` | 0.8824 |
+  | 2 | `S32.436_E149.036` | 0.8765 |
+  | 3 | `S32.486_E149.086` | 0.8760 |
+  | 4 | `S30.186_E151.636` | 0.8731 |
+  | 5 | `S30.286_E151.636` | 0.8726 |
+
+  The Baseline run's rank 1 is `S30.586_E151.586` (score 0.8910).
 
   The CSV export (`shortlistExport.ts`) can be shown opportunistically here; its
   leading `#` disclaimer line carries the screening-level framing into the file.
@@ -117,18 +120,18 @@ the API operation in [`app/api/app.py`](../../app/api/app.py).
   `SiteDetailPanel`): total score, per-criterion component scores
   (contributions), raw/derived features, headline, positive factors and
   weaknesses. The **demand-proxy caveat** section is visible.
-- **Evidence (captured):** rank-1 cell `S31.186_E151.686`, score
-  **0.9139051757537562**. Its six contributions sum to the score with difference
-  `0.00e+00` (within `RECONCILE_TOLERANCE` = 1e-9):
+- **Evidence (captured, Wind-led run):** rank-1 cell `S32.436_E149.086` (the
+  Bodangora Wind Farm cell), score **0.8823676167551172**. Its six contributions
+  sum to the score within `RECONCILE_TOLERANCE` = 1e-9:
 
   | Criterion | Contribution |
   | --- | --- |
-  | `wind_speed` | 0.486109 |
-  | `dist_transmission_km` | 0.141622 |
-  | `demand_proxy` | 0.100000 |
+  | `wind_speed` | 0.473281 |
+  | `dist_transmission_km` | 0.148823 |
   | `inside_rez` | 0.100000 |
-  | `dist_substation_km` | 0.047248 |
-  | `slope_deg` | 0.038926 |
+  | `demand_proxy` | 0.071835 |
+  | `dist_substation_km` | 0.049641 |
+  | `slope_deg` | 0.038788 |
 
   The `demand_proxy` contribution reflects a proxy indicator; it is **not**
   measured or actual local demand.
@@ -140,10 +143,10 @@ the API operation in [`app/api/app.py`](../../app/api/app.py).
   `scenario_a` / `scenario_b` (the endpoint also accepts explicit
   `weights_a` / `weights_b`); (b) select **Grid-led** and Run to re-rank the
   live map/shortlist.
-- **Evidence (captured, Wind-led vs Grid-led):** **32,525** rows;
-  **32,519** cells moved (|rank_a − rank_b| ≥ 1) — a strong, honest
-  "how/why ranking changes" signal. Example moved cell `S31.186_E151.686`:
-  **rank 1 under Wind-led → rank 21 under Grid-led** (delta −20). The move is
+- **Evidence (captured, Wind-led vs Grid-led):** **23,266** rows;
+  **23,261** cells moved (|rank_a − rank_b| ≥ 1) — a strong, honest
+  "how/why ranking changes" signal. Example moved cell `S32.436_E149.086`:
+  **rank 1 under Wind-led → rank 4 under Grid-led** (delta −3). The move is
   explained by the weight shift away from `wind_speed` (0.55 → 0.25) and toward
   `dist_transmission_km` (0.15 → 0.35). The rank-delta count here is non-zero;
   had it been zero the rehearsal would record that honestly rather than fail.
@@ -155,19 +158,20 @@ the API operation in [`app/api/app.py`](../../app/api/app.py).
   model-not-trained caveat, per-check PASS/FAIL, the known-wind-farm quartile
   table (top-ranked-band column), the REZ-representation outcome and the full
   contradictions list; note the baseline-vs-scenario disclosure strip.
-- **Evidence (captured):** `top_band_n` = 20; `contradiction_count` = 2; most
-  references in the upper quartile; `Bodangora Wind Farm` in the top band (rank
-  2, ~99.997th percentile).
+- **Evidence (captured):** `top_band_n` = 20; `contradiction_count` = 2; 11 of
+  the 14 operating wind farms in the upper quartile; `Bodangora Wind Farm` in the
+  top band (rank 9, ~99.97th percentile). The reference set excludes the GA
+  extract's mislabelled solar farm and duplicate Gullen Range row (QA F-03).
 
 #### Reference caveats (honest anomalies)
 
 The sanity stage **discloses** divergences, it does not tune them away:
 
-- `Boco Rock` sits outside the upper quartile (rank 11,225, ~65.49th
+- `Boco Rock` sits outside the upper quartile (rank 6,184, ~73.4th
   percentile) — an honest divergence.
 - `Taralga Wind Farm` and `Rye Park Wind Farm` have null rank/percentile: their
   nearest grid cell is excluded/unscored.
-- Scenario movement is near-total (32,519 of 32,525) — expected given the large
+- Scenario movement is near-total (23,261 of 23,266) — expected given the large
   weight swing between Wind-led and Grid-led, and recorded as evidence rather
   than tuned.
 

@@ -163,7 +163,7 @@ def _reconcile(
         )
 
 
-def _read_extra_columns(path: Path) -> pd.DataFrame:
+def read_extra_columns(path: Path) -> pd.DataFrame:
     """
     Read the S2-06b input columns the scoring loader drops.
 
@@ -328,8 +328,29 @@ def load_explanation_inputs(
 
     # S2-06b inputs the scoring loader drops: the F16 exclusion_reasons and the
     # confidence_notes text. Read once here, indexed by cell_id.
-    extra = _read_extra_columns(integrated_path)
+    extra = read_extra_columns(integrated_path)
 
+    return assemble_explanation_inputs(
+        scored_table, features, weights, extra, scored_table_path, integrated_path
+    )
+
+
+def assemble_explanation_inputs(
+    scored_table: gpd.GeoDataFrame,
+    features: pd.DataFrame,
+    weights: WeightsConfig,
+    extra: pd.DataFrame,
+    scored_table_path: Path,
+    integrated_path: Path,
+) -> ExplanationInputs:
+    """
+    Steps 4–6 of `load_explanation_inputs` over inputs already in memory.
+
+    Shared by the file-based S2-06 stage and per-Run materialisation in the
+    decision service (S4-03), so a Run's explanations come from the SAME
+    reconciliation and bands as the stage, driven by THAT Run's resolved
+    weights rather than the packaged default. Ported from S3-10 6fe88a3.
+    """
     # Bounds and the pure scoring core over the eligible population — the same
     # code the scoring stage runs, so the norms are the ones behind the scores.
     mask = eligible_mask(features)

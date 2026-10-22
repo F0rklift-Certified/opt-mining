@@ -182,6 +182,43 @@ def read_feature_tables(
     return geographic, wind, demand
 
 
+def nsw_land_field(cells: gpd.GeoDataFrame) -> dict[str, bool]:
+    """
+    Whether each cell's centroid is covered by the ABS NSW state boundary,
+    boundary included, tested in EPSG:3577.
+
+    The analysis grid's bounding box spills into Queensland, Victoria, South
+    Australia and the ACT, and those cells carry real wind/slope/demand values,
+    so nothing else excludes them (QA F-01). This is a centroid screening mask,
+    not a claim that every part of a coarse border cell is NSW land. A missing
+    or ambiguous boundary halts the build; it must never pass open.
+    Ported from S3-10 55dd987 (Xinhao Wang).
+    """
+    path = config.NSW_BOUNDARY_PATH
+    if not Path(path).exists():
+        raise RuntimeError(f"ABS state boundary source not found: {path}")
+    states = gpd.read_file(path)
+    if "state_code_2021" not in states.columns:
+        raise ValueError(f"ABS state boundary lacks state_code_2021: {path}")
+    nsw = states.loc[states["state_code_2021"].astype(str) == config.NSW_STATE_CODE]
+    if len(nsw) != 1 or nsw.geometry.isna().any() or nsw.geometry.is_empty.any():
+        raise ValueError("ABS state boundary must contain exactly one non-empty NSW geometry")
+    nsw_geom = nsw.to_crs(config.COMPUTATION_CRS).geometry.iloc[0]
+
+    if {"centroid_lon", "centroid_lat"}.issubset(cells.columns):
+        coords = cells[["centroid_lon", "centroid_lat"]].to_numpy(dtype=float)
+        if not np.isfinite(coords).all():
+            raise ValueError("Grid centroids must be finite for the NSW land mask")
+        points = gpd.GeoSeries(
+            gpd.points_from_xy(coords[:, 0], coords[:, 1]), crs=config.STORAGE_CRS
+        ).to_crs(config.COMPUTATION_CRS)
+    else:
+        # A grid without stored centroids: derive them in the equal-area CRS.
+        points = cells.geometry.to_crs(config.COMPUTATION_CRS).centroid
+    inside = points.covered_by(nsw_geom)
+    return dict(zip(cells["cell_id"], inside.astype(bool)))
+
+
 # ---------------------------------------------------------------------------
 # Assembly
 # ---------------------------------------------------------------------------
@@ -205,6 +242,7 @@ def build_cell_table(
     if verbose:
         print("    Reading geographic + wind + demand feature tables (joined on cell_id)...")
     geographic, wind, demand = read_feature_tables(n_cells)
+    inside_nsw = nsw_land_field(cells)
 
     # Inner-join on cell_id. The grid frame carries the output geometry; the
     # feature tables carry the scalar fields. The join must be 1:1 and cover
@@ -242,6 +280,9 @@ def build_cell_table(
             # exclude the cell via the `missing_demand_data` rule rather than
             # let it be scored on missing critical data.
             "demand_proxy": rec.demand_proxy,
+            # Centroid inside the ABS NSW boundary (QA F-01): cells in QLD,
+            # VIC, SA and the ACT are excluded by `outside_nsw_land`.
+            "inside_nsw_land": inside_nsw[rec.cell_id],
         }
         eligible, reason_pairs = rules_mod.evaluate_cell_detailed(fields, rules)
         # Derive the backward-compatible human string + machine name list from

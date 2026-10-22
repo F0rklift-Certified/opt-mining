@@ -449,14 +449,45 @@ body {
  * swatch colours mirror the CellMap layer paint.
  */
 .om-map__legend {
-  list-style: none;
   margin: 0.5rem 0 0;
+  font-size: 0.82rem;
+  color: var(--om-text);
+}
+
+.om-map__legend-title {
+  margin: 0 0 0.25rem;
+  font-weight: 600;
+}
+
+/* S4-02: continuous eligible-score bar, painted from the layer's own stops. */
+.om-map__ramp {
+  height: 0.75rem;
+  max-width: 22rem;
+  border-radius: 2px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+.om-map__ramp-labels {
+  display: flex;
+  justify-content: space-between;
+  max-width: 22rem;
+  margin: 0.15rem 0 0;
+  color: var(--om-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.om-map__legend-note {
+  margin: 0.25rem 0 0.4rem;
+  color: var(--om-muted);
+}
+
+.om-map__legend-keys {
+  list-style: none;
+  margin: 0;
   padding: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem 1rem;
-  font-size: 0.82rem;
-  color: var(--om-text);
 }
 
 .om-map__legend li {
@@ -474,9 +505,9 @@ body {
   flex: none;
 }
 
-/* Mid-stop of the eligible score ramp (#fee5d9 -> #fb6a4a -> #a50f15). */
+/* Middle colour of the eligible score ramp (SCORE_RAMP in cell-layers.ts). */
 .om-map__swatch--eligible {
-  background: #fb6a4a;
+  background: #ef3b2c;
 }
 
 /* Matches excludedEnvLayer circle-color. */
@@ -487,6 +518,26 @@ body {
 /* Matches excludedNoDataLayer circle-color. */
 .om-map__swatch--nodata {
   background: #c7ccd1;
+}
+
+/* Matches the selected-cell outline (solid dark square). */
+.om-map__swatch--selected {
+  border-radius: 0;
+  border: 2.5px solid #111827;
+  background: transparent;
+}
+
+/* Matches the hover outline (dashed grey square). */
+.om-map__swatch--hover {
+  border-radius: 0;
+  border: 1.5px dashed #374151;
+  background: transparent;
+}
+
+/* Matches the outside-NSW mask fill (#0b1a2b at 35% opacity). */
+.om-map__swatch--mask {
+  border-radius: 0;
+  background: rgba(11, 26, 43, 0.35);
 }
 
 /*
@@ -690,6 +741,51 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
+}
+
+/* S4-03: the theme (and proxy flag) under each criterion name. */
+.om-detail__theme {
+  display: block;
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: var(--om-muted);
+}
+
+.om-detail__note {
+  margin: 0.3rem 0 0;
+  font-size: 0.8rem;
+  color: var(--om-muted);
+}
+
+/* Context tables: label column left-aligned and compact. */
+.om-detail__context th {
+  text-align: left;
+  font-weight: 500;
+  width: 45%;
+}
+
+/*
+ * Data-confidence badge. The level is always written out in text; the border
+ * colour only reinforces it (never colour alone).
+ */
+.om-confidence {
+  display: inline-block;
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  border: 1.5px solid var(--om-border);
+  text-transform: capitalize;
+  font-weight: 600;
+}
+
+.om-confidence--high {
+  border-color: var(--om-success-border);
+  background: var(--om-success-bg);
+}
+
+.om-confidence--medium,
+.om-confidence--low {
+  border-color: var(--om-warning-border);
+  background: var(--om-warning-bg);
 }
 
 /*

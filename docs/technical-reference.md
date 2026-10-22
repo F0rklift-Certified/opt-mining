@@ -21,9 +21,9 @@ source document and this page links to it; this page does not fork a second copy
 
 > ⚠️ **The electricity demand layer is a PROXY.** `demand_proxy` is a normalized
 > proxy *indicator*, **never** measured or actual local demand. Each NEM region's
-> annual-mean operational demand figure is distributed across its cells by urban
-> footprint (ABS UCL 2021), so the proxy **varies within a region** (urban cells
-> score higher than rural) while remaining coarse between regions. See the method report,
+> annual-mean operational demand figure is spread across its cells by distance to real NSW zone substations weighted by
+> their recorded load (`load_weighted`), then expressed as a percentile within the
+> region (a rank position, not a magnitude). See the method report,
 > [`DATA/electricity-demand/demand_feature_method.md`](../DATA/electricity-demand/demand_feature_method.md),
 > and data specification §4.2.3. It is described as a proxy everywhere it appears.
 
@@ -163,7 +163,7 @@ Only eligible cells are scored; the S1-07 exclusion layer rejects ineligible lan
 so it is never ranked as if it were developable. Exclusion is a separate,
 auditable stage — never hidden inside scoring. Rules are **data**, loaded from
 [`pipeline/exclusions/exclusion_rules.yaml`](../pipeline/exclusions/exclusion_rules.yaml);
-a cell may trigger several. The seven frozen F16 reason codes
+a cell may trigger several. The eight F16 reason codes
 (Decision-Engine Specification §6.5) are:
 
 1. `protected_area` — any CAPAD protected-area overlap (binary, frozen decision Q6)
@@ -173,6 +173,10 @@ a cell may trigger several. The seven frozen F16 reason codes
 5. `offshore_or_marine` — cell centre is not on land
 6. `missing_slope_data` — no valid slope value
 7. `missing_demand_data` — no valid demand-proxy value
+8. `outside_nsw_land` — cell centre outside the ABS 2021 NSW boundary (added
+   2026-10-22 for QA F-01; ACT cells are excluded too)
+
+On the current baseline 23,266 of 47,311 cells are eligible.
 
 Authoritative source: data specification
 [§4.6 Eligibility Table](../DATA/data-specification/sprint1_data_specification.md).
@@ -191,10 +195,11 @@ read with any result:
 - **Relative scores.** Normalisation is min-max over the eligible population, so a
   cell's score is **relative to the candidate set** and is not a portable absolute
   rating; it changes if the eligible population changes.
-- **Demand is a proxy.** `demand_proxy` distributes each NEM region's demand by
-  urban footprint (ABS UCL 2021; never measured local demand), so it now varies
-  within a region (urban > rural) but stays coarse between regions; the ranking
-  is driven mostly by the other five criteria.
+- **Demand is a proxy.** `demand_proxy` spreads each NEM region's demand by
+  distance to recorded zone-substation load and ranks it within the region; it
+  is never measured local demand.
+- **Border cells.** A cell is in or out of NSW by its centre point, so border
+  and coastal cells can straddle the boundary.
 - **Linear normalisation.** Distance criteria are normalised linearly; a
   logarithmic transform is defensible but is an explicit future modelling choice.
 - **No cost/yield/engineering grade.** The score is a strategic screening

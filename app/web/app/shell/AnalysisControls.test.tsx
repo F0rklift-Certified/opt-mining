@@ -183,6 +183,24 @@ describe("validateWeights", () => {
     expect(validateWeights(criteria)).toMatch(/cannot be negative/i);
   });
 
+  it("rejects a weight above the engine cap (QA F-07)", () => {
+    for (const weight of [1e308, 101]) {
+      const criteria = BASELINE_CRITERIA.map((c, i) => (i === 0 ? { ...c, weight } : c));
+      expect(validateWeights(criteria)).toMatch(/at most 100/i);
+    }
+    const atCap = BASELINE_CRITERIA.map((c, i) => (i === 0 ? { ...c, weight: 100 } : c));
+    expect(validateWeights(atCap)).toBeNull();
+  });
+
+  it("shows an error and disables Run for a 1e308 weight (QA F-07)", () => {
+    const onRun = jest.fn();
+    const huge = BASELINE_CRITERIA.map((c, i) => (i === 0 ? { ...c, weight: 1e308 } : c));
+    renderControls({ baselineCriteria: huge, onRun });
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/at most 100/i);
+    expect(screen.getByRole("button", { name: /run analysis/i })).toBeDisabled();
+  });
+
   it("rejects all-zero weights", () => {
     const criteria = BASELINE_CRITERIA.map((c) => ({ ...c, weight: 0 }));
     expect(validateWeights(criteria)).toMatch(/at least one weight/i);

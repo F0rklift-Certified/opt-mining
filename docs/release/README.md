@@ -11,6 +11,12 @@ farm, and is **never** a tool for the best place to build — no final
 recommendation, no site approval. The electricity-demand input is a **proxy**;
 it is **not** measured or actual local demand.
 
+> **Sprint 4 update (2026-10-22).** The demo script, limitations and
+> rehearsal evidence in this folder now describe the Sprint 4 baseline (23,266
+> eligible cells after the outside-NSW exclusion). `verification.md` and
+> `readiness.json` remain the Sprint 3 records. The final release is tagged
+> `v1.0.0`.
+
 ## Status — pre-review, not yet accepted
 
 This is a **pre-review release candidate** (`v0.1.0-rc.2`, to be cut on this

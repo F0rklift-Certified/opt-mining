@@ -35,6 +35,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from ..scoring import config as _scoring_config
@@ -322,13 +323,25 @@ def get_site_detail(run: RunHandle | str, cell_id: str) -> SiteDetail:
     feature_names = _run_feature_names(run_id)
     if not feature_names:
         feature_names = list(contributions.keys())
+    # Then the rest of the cell's integrated row — coordinates, elevation, land
+    # use, protected-area and REZ names, per-domain and overall confidence —
+    # copied verbatim, so the detail view can show the geographic and
+    # data-quality context S4-03 requires without inferring anything (ported
+    # from S3-10 6fe88a3). The scoring criteria stay first; `cell_id` and
+    # `eligible` are already top-level SiteDetail fields, so not repeated here.
+    already_top_level = {cell_col, _service_config.ELIGIBLE_COLUMN}
+    feature_names = list(dict.fromkeys(
+        feature_names
+        + [c for c in feature_row.index if c not in already_top_level]
+    ))
     features = _features_for(feature_row, feature_names)
 
     eligible = bool(feature_row[_service_config.ELIGIBLE_COLUMN]) \
         if _service_config.ELIGIBLE_COLUMN in feature_row.index else False
 
-    # The S2-06 Explanation_Structure, resolved by cell_id and carried verbatim.
-    explanation = load_explanations().get(cell_id, {})
+    # The S2-06 Explanation_Structure THIS Run materialised with its own
+    # weights, resolved by cell_id and carried verbatim (S4-03).
+    explanation = load_explanations(run_id).get(cell_id, {})
 
     # DISPLAY-ONLY per-cell network-load read-out (MVA): read verbatim from the
     # integrated table's `load_within_radius_mva` column WHERE present. It is an
@@ -589,19 +602,45 @@ def get_run_cells(run: RunHandle | str) -> CellCollection:
             )
 
     features: list[CellFeature] = []
+    eligible_scores: list[float] = []
     for _, row in frame.iterrows():
         score = _opt_score(row[score_col])
         rank = _opt_rank(row[rank_col])
+        # The IDENTICAL eligible rule get_ranked_results applies.
+        eligible = score is not None and rank is not None
+        if eligible:
+            eligible_scores.append(score)
         features.append(
             CellFeature(
                 cell_id=str(row[cell_col]),
                 centroid_lon=float(row[lon_col]),
                 centroid_lat=float(row[lat_col]),
-                # The IDENTICAL eligible rule get_ranked_results applies.
-                eligible=score is not None and rank is not None,
+                eligible=eligible,
                 suitability_score=score,
                 rank=rank,
             )
         )
 
-    return CellCollection(run_id=run_id, features=features)
+    return CellCollection(
+        run_id=run_id,
+        features=features,
+        score_quantiles=_score_quantiles(eligible_scores),
+    )
+
+
+def _score_quantiles(scores: list[float]) -> list[tuple[float, float]]:
+    """
+    The eligible population's served scores at each `MAP_SCORE_QUANTILES`
+    probability (linear interpolation, numpy's default), as
+    ``(quantile, suitability_score)`` pairs. A descriptive statistic of the
+    engine's scores for the map's colour scale — no score, rank or eligibility
+    is changed or derived. Empty when there is no eligible cell.
+    """
+    if not scores:
+        return []
+    probabilities = _service_config.MAP_SCORE_QUANTILES
+    values = np.quantile(np.asarray(scores, dtype=float), probabilities)
+    return [
+        (float(quantile), float(value))
+        for quantile, value in zip(probabilities, values)
+    ]

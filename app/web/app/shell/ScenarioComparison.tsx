@@ -48,6 +48,7 @@ import type {
 } from "../api/decision-service";
 import {
   featureLabel,
+  MAX_CRITERION_WEIGHT,
   validateWeights,
   type WeightingOption,
 } from "./AnalysisControls";
@@ -232,6 +233,7 @@ function SideChooser({
                       type="number"
                       step="0.01"
                       min="0"
+                      max={MAX_CRITERION_WEIGHT}
                       aria-label={`Custom ${side} ${featureLabel(criterion.feature)} weight`}
                       value={Number.isNaN(criterion.weight) ? "" : criterion.weight}
                       disabled={loading}

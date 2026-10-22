@@ -173,6 +173,7 @@ class TestPackagedDefaultRulesFile:
             "offshore_or_marine",
             "missing_slope_data",
             "missing_demand_data",
+            "outside_nsw_land",
         }
 
     def test_slope_threshold_matches_project_default(self):
@@ -546,7 +547,7 @@ def _make_cell(lon, lat, cell_id, half=0.025):
 @pytest.fixture
 def synthetic_pipeline(tmp_path, monkeypatch):
     """
-    Seven synthetic cells, one clean and one per default rule, wired up as the
+    Eight synthetic cells, one clean and one per default rule, wired up as the
     JOINED per-cell feature tables the migrated stage now reads — a synthetic
     geographic feature table, a synthetic wind feature table and a synthetic
     demand-proxy feature table, all keyed on cell_id — via monkeypatched
@@ -568,6 +569,7 @@ def synthetic_pipeline(tmp_path, monkeypatch):
         ("CELL_OFFSHORE",  153.40, -30.0, 5.0,  "Grazing", False, "",             False, False, 8.0,  100.0),
         ("CELL_NO_WIND",   151.90, -30.0, 5.0,  "Grazing", False, "",             False, True,  None, 100.0),
         ("CELL_NO_DEMAND", 149.00, -35.4, 5.0,  "Grazing", False, "",             False, True,  8.0,  None),
+        ("CELL_OUTSIDE",   152.00, -27.5, 5.0,  "Grazing", False, "",             False, True,  8.0,  100.0),
     ]
 
     grid = gpd.GeoDataFrame(
@@ -624,8 +626,17 @@ def synthetic_pipeline(tmp_path, monkeypatch):
     demand_path = tmp_path / "demand_proxy.gpkg"
     demand_gdf.to_file(demand_path, driver="GPKG", layer="demand_proxy")
 
+    # --- synthetic ABS state boundary: NSW covers every cell but CELL_OUTSIDE ---
+    states_path = tmp_path / "states.geojson"
+    gpd.GeoDataFrame(
+        {"state_code_2021": ["1", "3"]},
+        geometry=[box(148.0, -36.0, 154.0, -28.0), box(148.0, -28.0, 154.0, -26.0)],
+        crs="EPSG:4326",
+    ).to_file(states_path, driver="GeoJSON")
+
     # --- wire up config ---
     monkeypatch.setattr(excl_config, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(excl_config, "NSW_BOUNDARY_PATH", states_path)
     monkeypatch.setattr(excl_config, "GRID_PATH", grid_path)
     monkeypatch.setattr(excl_config, "GEOGRAPHIC_FEATURE_PATH", geo_path)
     monkeypatch.setattr(excl_config, "GEOGRAPHIC_FEATURE_LAYER", "geographic_features")
@@ -645,7 +656,7 @@ class TestApplyEndToEnd:
 
         result = run(verbose=False)
 
-        assert result["n_cells"] == 7
+        assert result["n_cells"] == 8
         assert result["validation"]["passed"] == result["validation"]["total"]
 
         table = gpd.read_file(result["eligibility_table"]).set_index("cell_id")
@@ -685,6 +696,10 @@ class TestApplyEndToEnd:
         assert "Missing demand data" in table.loc["CELL_NO_DEMAND", "exclusion_reason"]
         assert "missing_demand_data" in table.loc["CELL_NO_DEMAND", "triggered_rules"]
 
+        # Centroid outside the ABS NSW boundary -> outside_nsw_land (QA F-01).
+        assert table.loc["CELL_OUTSIDE", "eligible"] == False  # noqa: E712
+        assert table.loc["CELL_OUTSIDE", "triggered_rules"] == "outside_nsw_land"
+
         # data_flags no longer carries the New-England urban coverage-window
         # note (removed in the feature-table migration): urban_area is now
         # statewide-definite from the joined geographic feature table. The
@@ -698,7 +713,7 @@ class TestApplyEndToEnd:
         result = run(verbose=False)
         report_text = Path(result["report"]).read_text()
         assert "Exclusion layer summary" in report_text
-        assert "Total cells: **7**" in report_text
+        assert "Total cells: **8**" in report_text
         assert "protected_area" in report_text
         # The report documents the machine+human paired reason schema.
         assert "Exclusion reason schema" in report_text
