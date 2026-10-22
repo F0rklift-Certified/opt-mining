@@ -1,0 +1,1123 @@
+{
+  "components": {
+    "schemas": {
+      "CellCollection": {
+        "description": "A Run's cells as a GeoJSON FeatureCollection (CONTRACT.md \u00a75, \u00a74.7).\n\nOne Point Feature per Scored_Table cell (eligible and excluded alike),\ncarrying each cell's EPSG:4326 centroid verbatim. The set of `eligible`\nFeatures equals the set `get_ranked_results` returns for the Run (\u00a77 P1).",
+        "properties": {
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/CellFeature"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "type": {
+            "const": "FeatureCollection",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "run_id"
+        ],
+        "title": "CellCollection",
+        "type": "object"
+      },
+      "CellFeature": {
+        "description": "One analysis cell as a GeoJSON Point Feature (CONTRACT.md \u00a75, \u00a74.7).",
+        "properties": {
+          "geometry": {
+            "$ref": "#/components/schemas/CellGeometry"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/CellProperties"
+          },
+          "type": {
+            "const": "Feature",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "geometry",
+          "properties"
+        ],
+        "title": "CellFeature",
+        "type": "object"
+      },
+      "CellGeometry": {
+        "description": "A cell centroid's GeoJSON Point geometry (CONTRACT.md \u00a75, \u00a74.7).\n\n`coordinates` are ``[centroid_lon, centroid_lat]`` in EPSG:4326, carried\nthrough verbatim from the Scored_Table \u2014 no reprojection (CONTRACT.md \u00a71).",
+        "properties": {
+          "coordinates": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "title": "Coordinates",
+            "type": "array"
+          },
+          "type": {
+            "const": "Point",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "coordinates"
+        ],
+        "title": "CellGeometry",
+        "type": "object"
+      },
+      "CellProperties": {
+        "description": "A map cell's non-geometric properties (CONTRACT.md \u00a75, \u00a74.7).\n\n`eligible` is the same predicate `get_ranked_results` uses (score AND rank\nboth non-null); `suitability_score` / `rank` are null for an excluded cell.",
+        "properties": {
+          "cell_id": {
+            "title": "Cell Id",
+            "type": "string"
+          },
+          "eligible": {
+            "title": "Eligible",
+            "type": "boolean"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          },
+          "suitability_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suitability Score"
+          }
+        },
+        "required": [
+          "cell_id",
+          "eligible"
+        ],
+        "title": "CellProperties",
+        "type": "object"
+      },
+      "Criterion": {
+        "description": "One scored criterion inside a `Weights` configuration (CONTRACT.md \u00a75).\n\nMirrors the `scoring_weights.yaml` / scenario `criteria` entry so it is\nvalidated by the SAME engine parser (`pipeline/scoring/weights.py`), never a\nduplicate validator \u2014 hence no field constraints (e.g. weight >= 0, the\ndirection enum) are re-declared here.",
+        "properties": {
+          "direction": {
+            "title": "Direction",
+            "type": "string"
+          },
+          "feature": {
+            "title": "Feature",
+            "type": "string"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "weight": {
+            "title": "Weight",
+            "type": "number"
+          }
+        },
+        "required": [
+          "feature",
+          "weight",
+          "direction",
+          "rationale"
+        ],
+        "title": "Criterion",
+        "type": "object"
+      },
+      "DataQualityCheck": {
+        "description": "One data-quality check record (CONTRACT.md \u00a75, S2-02 shape).",
+        "properties": {
+          "expected": {
+            "title": "Expected",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "observed": {
+            "title": "Observed",
+            "type": "string"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "expected",
+          "observed",
+          "passed"
+        ],
+        "title": "DataQualityCheck",
+        "type": "object"
+      },
+      "DataQualityStatus": {
+        "description": "The S2-02 Data_Quality_Status for the frozen integrated dataset (CONTRACT.md \u00a75).",
+        "properties": {
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/DataQualityCheck"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "passed": {
+            "default": false,
+            "title": "Passed",
+            "type": "boolean"
+          }
+        },
+        "title": "DataQualityStatus",
+        "type": "object"
+      },
+      "ExcludedRow": {
+        "description": "One excluded cell's eligibility reason(s) for a Run (CONTRACT.md \u00a75).",
+        "properties": {
+          "cell_id": {
+            "title": "Cell Id",
+            "type": "string"
+          },
+          "reason_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reason Codes",
+            "type": "array"
+          },
+          "reason_text": {
+            "default": "",
+            "title": "Reason Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cell_id"
+        ],
+        "title": "ExcludedRow",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "RankedRow": {
+        "description": "One eligible cell's ranked result for a Run (CONTRACT.md \u00a75).",
+        "properties": {
+          "cell_id": {
+            "title": "Cell Id",
+            "type": "string"
+          },
+          "key_components": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Key Components",
+            "type": "object"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "suitability_score": {
+            "title": "Suitability Score",
+            "type": "number"
+          }
+        },
+        "required": [
+          "cell_id",
+          "suitability_score",
+          "rank"
+        ],
+        "title": "RankedRow",
+        "type": "object"
+      },
+      "RunHandle": {
+        "description": "Identifies one materialised Run (CONTRACT.md \u00a75).",
+        "properties": {
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario"
+          },
+          "weights_id": {
+            "title": "Weights Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "weights_id"
+        ],
+        "title": "RunHandle",
+        "type": "object"
+      },
+      "RunRequest": {
+        "description": "Request body for `run_analysis` \u2014 `POST /runs` (CONTRACT.md \u00a74.1, \u00a75).\n\nExactly one of `weights` / `scenario` must be given; that one-of rule is\nenforced by the `run_analysis` operation (which returns 422 on a fault),\nnot by this model, so both fields are nullable here. The backend does NOT\nvalidate weights itself \u2014 it passes them to the engine parser.",
+        "properties": {
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario"
+          },
+          "weights": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Weights"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "RunRequest",
+        "type": "object"
+      },
+      "SanityCheck": {
+        "description": "The S1-12 sanity-check / validation result (CONTRACT.md \u00a75, \u00a74.8, S3-08).\n\nMirrors `pipeline/service/models.py::SanityCheck` field-for-field: the\nalways-on model-not-trained `caveat`, the `preliminary_disclaimer`, the\nlineage `run_metadata`, the normalised per-check `checks` (incl. the\nsynthesized exclusion summary), the full `contradictions` list, the\nknown-wind-farm `wind_farms` table, the top-ranked band `top_band_n`, and the\nper-landmark `exclusion_assertions` \u2014 all carried verbatim. `exclusion_assertions`\nis a free-form mapping list so the mirror neither renames nor reorders the\nsanity stage's assertion fields.",
+        "properties": {
+          "caveat": {
+            "default": "",
+            "title": "Caveat",
+            "type": "string"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/SanityCheckItem"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "contradictions": {
+            "items": {
+              "$ref": "#/components/schemas/SanityContradiction"
+            },
+            "title": "Contradictions",
+            "type": "array"
+          },
+          "exclusion_assertions": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Exclusion Assertions",
+            "type": "array"
+          },
+          "preliminary_disclaimer": {
+            "default": "",
+            "title": "Preliminary Disclaimer",
+            "type": "string"
+          },
+          "run_metadata": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SanityRunMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "top_band_n": {
+            "default": 0,
+            "title": "Top Band N",
+            "type": "integer"
+          },
+          "wind_farms": {
+            "items": {
+              "$ref": "#/components/schemas/SanityWindFarmRow"
+            },
+            "title": "Wind Farms",
+            "type": "array"
+          }
+        },
+        "title": "SanityCheck",
+        "type": "object"
+      },
+      "SanityCheckItem": {
+        "description": "One normalised sanity-check outcome (CONTRACT.md \u00a75, \u00a74.8, S3-08).",
+        "properties": {
+          "expected": {
+            "title": "Expected",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "observed": {
+            "title": "Observed",
+            "type": "string"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "expected",
+          "observed",
+          "passed"
+        ],
+        "title": "SanityCheckItem",
+        "type": "object"
+      },
+      "SanityContradiction": {
+        "description": "One documented sanity contradiction / issue (CONTRACT.md \u00a75, \u00a74.8).",
+        "properties": {
+          "check": {
+            "title": "Check",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "investigation_note": {
+            "title": "Investigation Note",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "check",
+          "description",
+          "kind",
+          "investigation_note"
+        ],
+        "title": "SanityContradiction",
+        "type": "object"
+      },
+      "SanityRunMetadata": {
+        "description": "The sanity result's lineage metadata (CONTRACT.md \u00a75, \u00a74.8).",
+        "properties": {
+          "n_cells": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N Cells"
+          },
+          "n_eligible": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N Eligible"
+          },
+          "pipeline_version": {
+            "default": "",
+            "title": "Pipeline Version",
+            "type": "string"
+          },
+          "resolved_shortlist_path": {
+            "default": "",
+            "title": "Resolved Shortlist Path",
+            "type": "string"
+          },
+          "run_timestamp": {
+            "default": "",
+            "title": "Run Timestamp",
+            "type": "string"
+          }
+        },
+        "title": "SanityRunMetadata",
+        "type": "object"
+      },
+      "SanityWindFarmRow": {
+        "description": "One known-wind-farm comparison row (CONTRACT.md \u00a75, \u00a74.8).",
+        "properties": {
+          "cell_id": {
+            "title": "Cell Id",
+            "type": "string"
+          },
+          "in_top_band": {
+            "default": false,
+            "title": "In Top Band",
+            "type": "boolean"
+          },
+          "in_upper_quartile": {
+            "default": false,
+            "title": "In Upper Quartile",
+            "type": "boolean"
+          },
+          "notes": {
+            "default": "",
+            "title": "Notes",
+            "type": "string"
+          },
+          "percentile": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percentile"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "wind_farm": {
+            "title": "Wind Farm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "wind_farm",
+          "cell_id"
+        ],
+        "title": "SanityWindFarmRow",
+        "type": "object"
+      },
+      "ScenarioComparison": {
+        "description": "A per-cell ranking comparison between two scenarios (CONTRACT.md \u00a75).",
+        "properties": {
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "object"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ScenarioComparisonRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "title": "ScenarioComparison",
+        "type": "object"
+      },
+      "ScenarioComparisonRequest": {
+        "description": "Request body for `compare_scenarios` \u2014 `POST /scenario-comparison`\n(CONTRACT.md \u00a74.5, \u00a75).\n\nEach SIDE (A and B) is EITHER a named Scenario key OR an explicit,\nuser-edited `weights` configuration over the same six frozen criteria. For\nside A supply either `scenario_a` or `weights_a` (not both, not neither);\nlikewise for side B. The exactly-one-of-per-side rule is enforced by the\n`compare_scenarios` operation (which passes each side through the engine\nparser and returns 422 on a fault), not by this model \u2014 so every field is\nnullable here. The backend does NOT validate weights itself; it passes them\nto the engine parser (`pipeline/scoring/weights.py`), the single validator.\nThe named-key-only form `{scenario_a, scenario_b}` remains valid unchanged.",
+        "properties": {
+          "scenario_a": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario A"
+          },
+          "scenario_b": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario B"
+          },
+          "weights_a": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Weights"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "weights_b": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Weights"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "ScenarioComparisonRequest",
+        "type": "object"
+      },
+      "ScenarioComparisonRow": {
+        "description": "One cell's rank comparison across two scenarios (CONTRACT.md \u00a75).",
+        "properties": {
+          "cell_id": {
+            "title": "Cell Id",
+            "type": "string"
+          },
+          "rank_a": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank A"
+          },
+          "rank_b": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank B"
+          },
+          "rank_delta": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank Delta"
+          }
+        },
+        "required": [
+          "cell_id"
+        ],
+        "title": "ScenarioComparisonRow",
+        "type": "object"
+      },
+      "SiteDetail": {
+        "description": "One cell's full detail for a Run (CONTRACT.md \u00a75).\n\n`explanation` carries the S2-06 `Explanation_Structure` verbatim (the\neligible-path or excluded-path record exactly as S2-06 wrote it); it is a\nfree-form mapping so the mirror neither renames nor reorders S2-06's fields.",
+        "properties": {
+          "cell_id": {
+            "title": "Cell Id",
+            "type": "string"
+          },
+          "contributions": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Contributions",
+            "type": "object"
+          },
+          "demand_load_mva": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Demand Load Mva"
+          },
+          "eligible": {
+            "default": false,
+            "title": "Eligible",
+            "type": "boolean"
+          },
+          "explanation": {
+            "additionalProperties": true,
+            "title": "Explanation",
+            "type": "object"
+          },
+          "features": {
+            "additionalProperties": true,
+            "title": "Features",
+            "type": "object"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          },
+          "suitability_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suitability Score"
+          }
+        },
+        "required": [
+          "cell_id"
+        ],
+        "title": "SiteDetail",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "Weights": {
+        "description": "Explicit weights configuration for `run_analysis` (CONTRACT.md \u00a75).\n\nMirrors the `scoring_weights.yaml` / scenario `criteria` structure so it is\nvalidated by the same engine parser, never a duplicate validator.",
+        "properties": {
+          "criteria": {
+            "items": {
+              "$ref": "#/components/schemas/Criterion"
+            },
+            "title": "Criteria",
+            "type": "array"
+          }
+        },
+        "title": "Weights",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "The frozen S2-08 Decision_Service exposed over HTTP + OpenAPI. Eight operations, one per endpoint; the API delegates to the pure `pipeline.service` operations and holds no decision logic (CONTRACT.md \u00a71, \u00a72).",
+    "title": "Opt-Mining Decision_Service",
+    "version": "1.2"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/data-quality": {
+      "get": {
+        "description": "`get_data_quality` \u2014 the frozen dataset's S2-02 Data_Quality_Status.",
+        "operationId": "read_data_quality_data_quality_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataQualityStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Read Data Quality"
+      }
+    },
+    "/runs": {
+      "post": {
+        "description": "`run_analysis` \u2014 materialise a Run under the given weights or scenario.\n\nPasses `weights` / `scenario` straight to the operation; the engine parser\nis the single validator (CONTRACT.md \u00a73, \u00a75). No one-of check or weight\ninterpretation is done here.",
+        "operationId": "create_run_runs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunHandle"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Run"
+      }
+    },
+    "/runs/{run_id}/cells": {
+      "get": {
+        "description": "`get_run_cells` \u2014 the Run's cells as a GeoJSON FeatureCollection.\n\n`run_id` is passed straight through; the operation projects the Scored_Table\ninto one Point Feature per cell, carrying each centroid in EPSG:4326\nverbatim. It reuses the centralised `_STATUS_FOR_FAULT` map (missing Run ->\n404, missing/unreadable output or missing centroid column -> 503), so no\nmapping change is needed. This layer never reprojects or re-scores.",
+        "operationId": "read_run_cells_runs__run_id__cells_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CellCollection"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Run Cells"
+      }
+    },
+    "/runs/{run_id}/exclusions": {
+      "get": {
+        "description": "`get_exclusions` \u2014 the Run's excluded cells with their reasons.",
+        "operationId": "read_exclusions_runs__run_id__exclusions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ExcludedRow"
+                  },
+                  "title": "Response Read Exclusions Runs  Run Id  Exclusions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Exclusions"
+      }
+    },
+    "/runs/{run_id}/results": {
+      "get": {
+        "description": "`get_ranked_results` \u2014 the Run's ranked rows, optionally display-filtered.\n\n`top_n` / `min_score` are passed straight through to the operation, which\nowns the pure display-selection (CONTRACT.md \u00a74.2). This layer never\nre-scores, re-ranks, or thresholds.",
+        "operationId": "read_ranked_results_runs__run_id__results_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "top_n",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Top N"
+            }
+          },
+          {
+            "in": "query",
+            "name": "min_score",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Min Score"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RankedRow"
+                  },
+                  "title": "Response Read Ranked Results Runs  Run Id  Results Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Ranked Results"
+      }
+    },
+    "/runs/{run_id}/sites/{cell_id}": {
+      "get": {
+        "description": "`get_site_detail` \u2014 one cell's full detail for a Run.",
+        "operationId": "read_site_detail_runs__run_id__sites__cell_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "cell_id",
+            "required": true,
+            "schema": {
+              "title": "Cell Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Site Detail"
+      }
+    },
+    "/sanity-check": {
+      "get": {
+        "description": "`get_sanity_check` \u2014 the baseline engine output's S1-12 sanity result.\n\nDelegates to the operation, which projects the materialised Results_Sidecar\nverbatim. It reuses the centralised `_STATUS_FOR_FAULT` map (a\nmissing/unreadable sidecar raised as `EngineOutputError` -> 503 naming the\nmissing input), so no mapping change is needed. This layer holds no sanity\narithmetic.",
+        "operationId": "read_sanity_check_sanity_check_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SanityCheck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Read Sanity Check"
+      }
+    },
+    "/scenario-comparison": {
+      "post": {
+        "description": "`compare_scenarios` \u2014 per-cell rank comparison of two weighting sides.\n\nEach side is either a named scenario key or an explicit weights\nconfiguration; both are passed straight to the operation, which routes each\nside through the engine (the single validator). This layer never scores,\nranks, or validates weights.",
+        "operationId": "create_scenario_comparison_scenario_comparison_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScenarioComparisonRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScenarioComparison"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Scenario Comparison"
+      }
+    }
+  }
+}

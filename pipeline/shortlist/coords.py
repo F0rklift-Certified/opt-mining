@@ -139,14 +139,22 @@ def load_grid(
 
 def join_coordinates(shortlist: pd.DataFrame, grid: pd.DataFrame) -> pd.DataFrame:
     """
-    Attach `centroid_lat` / `centroid_lon` to each shortlisted cell by a
-    left-join from the Analysis_Grid on `cell_id`, in EPSG:4326 (Requirement
-    4.2).
+    Attach `centroid_lat` / `centroid_lon` to each shortlisted cell in
+    EPSG:4326 (Requirement 4.2).
+
+    Idempotent to the carried coordinate columns. The S1-10 Scored_Table may
+    already carry `centroid_lat` / `centroid_lon` (scoring's documented
+    carry-through contract, also consumed by the S2-08 ``get_run_cells``
+    endpoint); when it does, those columns are used directly — they are the
+    same grid centroids for the same `cell_id`, so re-joining the grid would
+    only create a duplicate-column collision. When the Scored_Table does NOT
+    carry them, they are left-joined from the Analysis_Grid on `cell_id`.
+    Either way the result carries exactly `centroid_lat` / `centroid_lon`.
 
     PURE: takes two in-memory frames, returns a new in-memory frame; no file
-    I/O and no mutation of the inputs. The left-join preserves the shortlist's
+    I/O and no mutation of the inputs. Both paths preserve the shortlist's
     rank ordering (row order of ``shortlist``), so the caller's S1-10 ordering
-    survives the join.
+    survives.
 
     ``suitability_score``, ``confidence`` and ``rank`` are carried straight
     through from ``shortlist`` (the selected Scored_Table rows) and are never
@@ -163,17 +171,30 @@ def join_coordinates(shortlist: pd.DataFrame, grid: pd.DataFrame) -> pd.DataFram
     """
     coord_cols = list(GRID_COORDINATE_COLUMNS)
 
-    # Only the join key and the two coordinate columns come from the grid; the
-    # scores/confidence/rank are carried from the shortlist unchanged (4.6). If
-    # the grid also happens to carry a column name present on the shortlist
-    # (other than the coordinate columns), we do NOT pull it in.
-    grid_coords = grid[["cell_id", *coord_cols]]
+    # The S1-10 scoring stage DELIBERATELY carries centroid_lat/centroid_lon
+    # through onto the Scored_Table (scoring/config.py CARRIED_COLUMNS: "carried
+    # through so the shortlist stage can locate a cell without re-joining the
+    # grid"), and the S2-08 get_run_cells endpoint reads those same carried
+    # columns. So the shortlist's own frame may ALREADY carry the coordinate
+    # columns. If so, use them directly rather than merging the grid's copies —
+    # a blind merge would collide (pandas suffixes to _x/_y) and the carried
+    # values ARE the grid centroids for the same cell_id. This join is therefore
+    # idempotent to the carried columns: present or absent, the result is the
+    # same documented frame with exactly centroid_lat/centroid_lon.
+    if all(c in shortlist.columns for c in coord_cols):
+        joined = shortlist.copy()
+    else:
+        # Only the join key and the two coordinate columns come from the grid;
+        # the scores/confidence/rank are carried from the shortlist unchanged
+        # (4.6). If the grid also happens to carry a column name present on the
+        # shortlist (other than the coordinate columns), we do NOT pull it in.
+        grid_coords = grid[["cell_id", *coord_cols]]
+        joined = shortlist.merge(grid_coords, on="cell_id", how="left", sort=False)
 
-    joined = shortlist.merge(grid_coords, on="cell_id", how="left", sort=False)
-
-    # Any shortlisted cell_id with no matching grid row now has null coordinates
-    # from the left-join. That is a fail-fast condition — never a fabricated or
-    # null coordinate in the output (4.5).
+    # Any shortlisted cell with a null coordinate — whether carried through from
+    # the Scored_Table or absent after the left-join on an unmatched cell_id —
+    # is a fail-fast condition: never a fabricated or null coordinate in the
+    # output (4.5). Both paths funnel through this one check.
     unmatched_mask = joined[coord_cols].isna().any(axis=1)
     if unmatched_mask.any():
         unmatched_ids = joined.loc[unmatched_mask, "cell_id"].tolist()

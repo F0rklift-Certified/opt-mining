@@ -1,0 +1,154 @@
+{
+  "derived_features": [
+    {
+      "csv_file": "DATA/shortlist/sprint1_shortlist_20261007.csv",
+      "geojson_file": "DATA/shortlist/sprint1_shortlist_20261007.geojson",
+      "stage": "shortlist",
+      "product_type": "derived",
+      "run_timestamp": "2026-10-07T06:16:57+00:00",
+      "pipeline_version": "403817a4e5a11a5d2236710a42a42046d44cc60a-dirty",
+      "sha256_csv": "1e4ef2a8e0c2482837b2c626ebacc31845d5ccad0f54f164aa84d2b193d5c1bd",
+      "sha256_geojson": "0572e0aafa5a003563f6c9d0482eef2ca5836c82d3f402f8ee1a98c9955dd26f",
+      "bytes_csv": 1637,
+      "bytes_geojson": 5895,
+      "effective_top_n": 20,
+      "n_shortlisted": 20,
+      "inputs": [
+        {
+          "name": "scored_table",
+          "path": "DATA/scoring/optmining_suitability-score_2026_nsw.gpkg",
+          "layer": "suitability_score",
+          "sha256": "4127db24a8015a3c3c6e326e5dd2b611e46fec02e7262a399943401eaedce373",
+          "bytes": 15712256
+        },
+        {
+          "name": "analysis_grid",
+          "path": "DATA/grid/nsw_analysis_grid.gpkg",
+          "layer": "nsw_grid",
+          "sha256": "7c7e6433d061f0029331b4e19460abb664535bf21c7ca50fb8fa4511fa90052b",
+          "bytes": 13803520
+        }
+      ]
+    },
+    {
+      "csv_file": "DATA/shortlist/sprint1_shortlist_20261021T010807.csv",
+      "geojson_file": "DATA/shortlist/sprint1_shortlist_20261021T010807.geojson",
+      "stage": "shortlist",
+      "product_type": "derived",
+      "run_timestamp": "2026-10-21T01:08:07+00:00",
+      "pipeline_version": "19057559b8004b93c3a55ac4f69d7c1e30833b12-dirty",
+      "sha256_csv": "77a23312e20c2403d5fe7dd0f0132bb97b254f3e1db059411f21b5f6543852f9",
+      "sha256_geojson": "32ee230e7410afb04db9646c70ee0680450ad5e44e3f9c60704fb7d752f4d78a",
+      "bytes_csv": 1724,
+      "bytes_geojson": 6498,
+      "effective_top_n": 20,
+      "n_shortlisted": 20,
+      "inputs": [
+        {
+          "name": "scored_table",
+          "path": "DATA/scoring/optmining_suitability-score_2026_nsw.gpkg",
+          "layer": "suitability_score",
+          "sha256": "69199ee578ef53a128e7bfe6412cfae7aef2eb507ee7edfdeb1ce035928f820e",
+          "bytes": 15613952
+        },
+        {
+          "name": "analysis_grid",
+          "path": "DATA/grid/nsw_analysis_grid.gpkg",
+          "layer": "nsw_grid",
+          "sha256": "7c7e6433d061f0029331b4e19460abb664535bf21c7ca50fb8fa4511fa90052b",
+          "bytes": 13803520
+        }
+      ]
+    },
+    {
+      "csv_file": "DATA/shortlist/sprint1_shortlist_20261021T234841.csv",
+      "geojson_file": "DATA/shortlist/sprint1_shortlist_20261021T234841.geojson",
+      "stage": "shortlist",
+      "product_type": "derived",
+      "run_timestamp": "2026-10-21T23:48:41+00:00",
+      "pipeline_version": "cc647d664654ac34d120779167ec72a61a8d825c-dirty",
+      "sha256_csv": "b15457c16c40875a387a064ce5d0e2887f3be36e85e1116d8f04ebec468606cb",
+      "sha256_geojson": "cfc866e88ef092e072951e7a8955ce9811ba12859abaaa82c99ab2b808038a76",
+      "bytes_csv": 1720,
+      "bytes_geojson": 6485,
+      "effective_top_n": 20,
+      "n_shortlisted": 20,
+      "inputs": [
+        {
+          "name": "scored_table",
+          "path": "DATA/scoring/optmining_suitability-score_2026_nsw.gpkg",
+          "layer": "suitability_score",
+          "sha256": "ab5d5c5b59b25230f362f922cdee484e264387fac57066f8cc60a1611c08e7bc",
+          "bytes": 15785984
+        },
+        {
+          "name": "analysis_grid",
+          "path": "DATA/grid/nsw_analysis_grid.gpkg",
+          "layer": "nsw_grid",
+          "sha256": "7c7e6433d061f0029331b4e19460abb664535bf21c7ca50fb8fa4511fa90052b",
+          "bytes": 13803520
+        }
+      ]
+    },
+    {
+      "csv_file": "DATA/shortlist/sprint1_shortlist_20261021.csv",
+      "geojson_file": "DATA/shortlist/sprint1_shortlist_20261021.geojson",
+      "stage": "shortlist",
+      "product_type": "derived",
+      "run_timestamp": "2026-10-21T23:49:47+00:00",
+      "pipeline_version": "cc647d664654ac34d120779167ec72a61a8d825c-dirty",
+      "sha256_csv": "b15457c16c40875a387a064ce5d0e2887f3be36e85e1116d8f04ebec468606cb",
+      "sha256_geojson": "cfc866e88ef092e072951e7a8955ce9811ba12859abaaa82c99ab2b808038a76",
+      "bytes_csv": 1720,
+      "bytes_geojson": 6485,
+      "effective_top_n": 20,
+      "n_shortlisted": 20,
+      "inputs": [
+        {
+          "name": "scored_table",
+          "path": "DATA/scoring/optmining_suitability-score_2026_nsw.gpkg",
+          "layer": "suitability_score",
+          "sha256": "ab5d5c5b59b25230f362f922cdee484e264387fac57066f8cc60a1611c08e7bc",
+          "bytes": 15785984
+        },
+        {
+          "name": "analysis_grid",
+          "path": "DATA/grid/nsw_analysis_grid.gpkg",
+          "layer": "nsw_grid",
+          "sha256": "7c7e6433d061f0029331b4e19460abb664535bf21c7ca50fb8fa4511fa90052b",
+          "bytes": 13803520
+        }
+      ]
+    },
+    {
+      "csv_file": "DATA/shortlist/sprint1_shortlist_20261022.csv",
+      "geojson_file": "DATA/shortlist/sprint1_shortlist_20261022.geojson",
+      "stage": "shortlist",
+      "product_type": "derived",
+      "run_timestamp": "2026-10-22T00:34:11+00:00",
+      "pipeline_version": "1e8a9532338a71d69a74c861adf2ad7119aec4a5-dirty",
+      "sha256_csv": "b15457c16c40875a387a064ce5d0e2887f3be36e85e1116d8f04ebec468606cb",
+      "sha256_geojson": "cfc866e88ef092e072951e7a8955ce9811ba12859abaaa82c99ab2b808038a76",
+      "bytes_csv": 1720,
+      "bytes_geojson": 6485,
+      "effective_top_n": 20,
+      "n_shortlisted": 20,
+      "inputs": [
+        {
+          "name": "scored_table",
+          "path": "DATA/scoring/optmining_suitability-score_2026_nsw.gpkg",
+          "layer": "suitability_score",
+          "sha256": "10deeb239d468b5713f5399b2a10941f9f5cc309169c6a2d3530159c653152c3",
+          "bytes": 15970304
+        },
+        {
+          "name": "analysis_grid",
+          "path": "DATA/grid/nsw_analysis_grid.gpkg",
+          "layer": "nsw_grid",
+          "sha256": "7c7e6433d061f0029331b4e19460abb664535bf21c7ca50fb8fa4511fa90052b",
+          "bytes": 13803520
+        }
+      ]
+    }
+  ]
+}

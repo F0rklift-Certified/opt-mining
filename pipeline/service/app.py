@@ -2,10 +2,11 @@
 FastAPI transport shell for the Decision_Service (S2-08, CONTRACT.md §2).
 
 This module is the HTTP surface the Sprint 3 web application integrates against.
-It is a THIN TRANSPORT SHELL and nothing more: it maps each of the six
+It is a THIN TRANSPORT SHELL and nothing more: it maps each of the seven
 transport-agnostic Service_Operations in `pipeline.service`
 (`run_analysis`, `get_ranked_results`, `get_site_detail`, `get_exclusions`,
-`compare_scenarios`, `get_data_quality`) onto an HTTP endpoint, declares the
+`compare_scenarios`, `get_data_quality`, and the v1.1 `get_run_cells`) onto an
+HTTP endpoint, declares the
 Pydantic request/response models the CONTRACT.md §5 data models describe, maps
 the service's honest-failure exceptions onto the CONTRACT.md §6 HTTP statuses,
 and lets FastAPI auto-generate the OpenAPI schema at `/openapi.json` (browsable
@@ -33,6 +34,7 @@ Endpoint mapping (CONTRACT.md §2):
     1.4 get_exclusions      GET  /runs/{run_id}/exclusions
     1.5 compare_scenarios   POST /scenario-comparison
     1.6 get_data_quality    GET  /data-quality
+    1.7 get_run_cells       GET  /runs/{run_id}/cells          (added v1.1)
 
 Error mapping (CONTRACT.md §6):
 
@@ -44,15 +46,15 @@ Error mapping (CONTRACT.md §6):
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, conlist
 
 from ..scoring.weights import ScoringConfigError
 from .quality import get_data_quality
-from .results import get_exclusions, get_ranked_results, get_site_detail
+from .results import get_exclusions, get_ranked_results, get_run_cells, get_site_detail
 from .run_analysis import run_analysis
 from .runs import CellNotFoundError, EngineOutputError, RunNotFoundError
 from .scenarios import compare_scenarios
@@ -153,10 +155,24 @@ class ScenarioComparisonModel(BaseModel):
 
 
 class ScenarioComparisonRequest(BaseModel):
-    """Body of `POST /scenario-comparison` (CONTRACT.md §4.5)."""
+    """Body of `POST /scenario-comparison` (CONTRACT.md §4.5).
 
-    scenario_a: str = Field(..., description="A named Scenario key.")
-    scenario_b: str = Field(..., description="A named Scenario key.")
+    Each side is EITHER a named Scenario key OR an explicit, user-edited
+    `weights` configuration over the same six frozen criteria. Supply exactly
+    one input per side (`scenario_a`/`weights_a` for side A, `scenario_b`/
+    `weights_b` for side B); the one-of-per-side rule is enforced by the
+    `compare_scenarios` operation via the engine parser (422 on a fault), not
+    this model, so every field is nullable. The named-key-only form stays valid.
+    """
+
+    scenario_a: str | None = Field(None, description="A named Scenario key for side A.")
+    scenario_b: str | None = Field(None, description="A named Scenario key for side B.")
+    weights_a: Weights | None = Field(
+        None, description="Explicit weights configuration for side A (custom)."
+    )
+    weights_b: Weights | None = Field(
+        None, description="Explicit weights configuration for side B (custom)."
+    )
 
 
 class DataQualityCheckModel(BaseModel):
@@ -175,6 +191,51 @@ class DataQualityStatusModel(BaseModel):
     checks: list[DataQualityCheckModel] = Field(default_factory=list)
 
 
+class CellGeometry(BaseModel):
+    """A cell centroid's GeoJSON Point geometry (CONTRACT.md §5, §4.7; v1.1).
+
+    `coordinates` are ``[centroid_lon, centroid_lat]`` in EPSG:4326, carried
+    through verbatim from the Scored_Table — no reprojection (CONTRACT.md §1).
+    """
+
+    type: Literal["Point"]
+    coordinates: conlist(float, min_length=2, max_length=2)
+
+
+class CellProperties(BaseModel):
+    """A map cell's non-geometric properties (CONTRACT.md §5, §4.7; v1.1).
+
+    `eligible` is the same predicate `get_ranked_results` uses (score AND rank
+    both non-null); `suitability_score` / `rank` are null for an excluded cell.
+    """
+
+    cell_id: str
+    eligible: bool
+    suitability_score: float | None = None
+    rank: int | None = None
+
+
+class CellFeatureModel(BaseModel):
+    """One analysis cell as a GeoJSON Point Feature (CONTRACT.md §5, §4.7; v1.1)."""
+
+    type: Literal["Feature"]
+    geometry: CellGeometry
+    properties: CellProperties
+
+
+class CellCollectionModel(BaseModel):
+    """A Run's cells as a GeoJSON FeatureCollection (CONTRACT.md §5, §4.7; v1.1).
+
+    One Point Feature per Scored_Table cell (eligible and excluded alike),
+    carrying each cell's EPSG:4326 centroid verbatim. The set of `eligible`
+    Features equals the set `get_ranked_results` returns for the Run (§7 P1).
+    """
+
+    type: Literal["FeatureCollection"]
+    run_id: str
+    features: list[CellFeatureModel] = Field(default_factory=list)
+
+
 class ErrorResponse(BaseModel):
     """The honest-failure error body (CONTRACT.md §6): a fault-naming message."""
 
@@ -187,7 +248,7 @@ class ErrorResponse(BaseModel):
 
 app = FastAPI(
     title="Opt-Mining Decision_Service",
-    version="1.0",
+    version="1.1",
     description=(
         "The thin read-and-serve HTTP layer over the Opt-Mining decision "
         "engine (S2-08). It performs no decision logic: it serves the "
@@ -324,10 +385,19 @@ def get_run_exclusions(run_id: str) -> list[dict]:
 def post_scenario_comparison(body: ScenarioComparisonRequest) -> dict:
     """CONTRACT.md §4.5 — `compare_scenarios` (Requirement 1.5, 4.3).
 
-    Materialises each Scenario as its own S2-05 Run (the engine, reused — never
-    a second scorer, Property P5) and returns a per-cell rank comparison.
+    Materialises each side as its own S2-05 Run — a named scenario or an
+    explicit weights configuration — using the engine, reused (never a second
+    scorer, Property P5), and returns a per-cell rank comparison. The engine is
+    the single weights validator; invalid weights raise ScoringConfigError (422).
     """
-    comparison = compare_scenarios(body.scenario_a, body.scenario_b)
+    weights_a = body.weights_a.model_dump() if body.weights_a is not None else None
+    weights_b = body.weights_b.model_dump() if body.weights_b is not None else None
+    comparison = compare_scenarios(
+        body.scenario_a,
+        body.scenario_b,
+        weights_a=weights_a,
+        weights_b=weights_b,
+    )
     return comparison.to_dict()
 
 
@@ -344,3 +414,21 @@ def get_quality() -> dict:
     render a data-quality banner; a missing status fails honestly (503).
     """
     return get_data_quality().to_dict()
+
+
+@app.get(
+    "/runs/{run_id}/cells",
+    response_model=CellCollectionModel,
+    responses={404: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+    summary="get_run_cells — the Run's cells as a GeoJSON FeatureCollection",
+)
+def get_cells(run_id: str) -> dict:
+    """CONTRACT.md §4.7 — `get_run_cells` (Requirement 1.7; added v1.1).
+
+    Reads the fixed Scored_Table and emits one Point Feature per cell (eligible
+    AND excluded alike), carrying each cell's EPSG:4326 centroid through
+    verbatim — no reprojection and no new geometry arithmetic. The set of
+    `eligible` Features equals the set `get_ranked_results` returns for the Run
+    (Property P1). A missing/unreadable engine output fails honestly (503).
+    """
+    return get_run_cells(run_id).to_dict()

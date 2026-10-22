@@ -5,19 +5,20 @@
 - **CSV:** `DATA/integration/optmining_integrated-features_2026_nsw.csv` (no geometry; the deterministic artefact)
 - **Derived from:**
   - grid: `DATA/grid/nsw_analysis_grid.gpkg` (layer `nsw_grid`, 47,311 rows, SHA-256 `7c7e6433d061f0029331b4e19460abb664535bf21c7ca50fb8fa4511fa90052b`)
-  - wind: `DATA/wind-resource/features/gwa_v4_wind-feature_2025_nsw.gpkg` (layer `wind_features`, 47,311 rows, SHA-256 `ff735ce010f90ff99d308ea32e6c375d3003133225f4168417c36b7bb42e88d6`)
-  - geographic: `DATA/geographic/features/optmining_geographic-features_2024_nsw.gpkg` (layer `geographic_features`, 47,311 rows, SHA-256 `9501883e2cf871d87fb68aa6f483de1a80711ed603b8f0a3a8a828a7e7fcf175`)
+  - wind: `DATA/wind-resource/features/gwa_v4_wind-feature_2025_nsw.gpkg` (layer `wind_features`, 47,311 rows, SHA-256 `2af85ff5f12a0fa66b11e47c36872c651d537d89f4a79c1c1cf4cd739aac8566`)
+  - geographic: `DATA/geographic/features/optmining_geographic-features_2024_nsw.gpkg` (layer `geographic_features`, 47,311 rows, SHA-256 `af9db24669bdaf6d45154987d133d7c03a7b01833c920d601b93fa3057c04031`)
   - infrastructure: `DATA/infrastructure/optmining_infra-features_2026_nsw.gpkg` (layer `infra_features`, 47,311 rows, SHA-256 `12bca14fccc7d89f687d5026dc762b8a1d32f5f4365e8d893e0163881bbe1d8e`)
-  - demand: `DATA/electricity-demand/aemo_demand-proxy_2026_nsw.gpkg` (layer `demand_proxy`, 47,311 rows, SHA-256 `8e9890bf9371de015fe3da7635515ea3e50f5713eab247c683045f0e0e92a646`)
-  - exclusions: `DATA/exclusions/optmining_exclusions_2024_nsw.gpkg` (layer `optmining_exclusions_2024_nsw.gpkg`, 47,311 rows, SHA-256 `c5caa822647024c4b0bb62ad78735b41b0e72aa314e7e288a162233928a771ca`)
+  - demand: `DATA/electricity-demand/aemo_demand-proxy_2026_nsw.gpkg` (layer `demand_proxy`, 47,311 rows, SHA-256 `0a6c168a7b4ebecdb8674f7a0e32c3aa407bdae7331087d2b3025f0c0aad66dc`)
+  - exclusions: `DATA/exclusions/optmining_exclusions_2024_nsw.gpkg` (layer `optmining_exclusions_2024_nsw.gpkg`, 47,311 rows, SHA-256 `e1bebde00500c3969239ad8b33e64e6a5e7f5660bdb32c04362de60f7ef3e172`)
+  - demand_coord_confidence: `DATA/electricity-demand/aemo_demand-coord-confidence_2026_nsw.csv` (layer `(CSV sidecar)`, 47,311 rows, SHA-256 `a4e2bbeede59597e5725d487bda5ed82d3be2eb3b0d1904236b455c303e34c11`)
 - **Method:** left joins on `cell_id` from the S1-02 grid; row count asserted after every join; excluded cells retained with `eligible = False`; no reprojection, no back-filling; composite confidence appended by the S1-09 layer (`confidence.assess()`).
-- **Confidence config:** `pipeline/integration/confidence_weights.yaml` (version `1.0`, SHA-256 `3b34c47b8da6260b53245397491b0f60ed3df68d47434458ed93495295922f93`)
+- **Confidence config:** `pipeline/integration/confidence_weights.yaml` (version `1.0`, SHA-256 `2cd31b17ae28cff604aa6416079275678b137f4b866ee4e1e806088895e1eab8`)
 - **Regenerable:** yes — `python -m pipeline --only integration` (after the five feature stages and `exclusions`).
-- **SHA-256 (GeoPackage):** `b7cd3d261abfdedd613301e0e2fdd07e3381178deb8ce8aff506a066117a1e61`
-- **SHA-256 (CSV):** `263d3d13efa9b221bf079358de5f20601b77cd90b0c3a6ffca4552437c6dd355`
+- **SHA-256 (GeoPackage):** `e1615fba0562172ee88e362101866ee73530a15f4b2959ac48548757589d5731`
+- **SHA-256 (CSV):** `a532a075e9b4ac5beabfa0b4dfdb0e87c0ee2ebc65316dbe1a027fd0f6f7fdb4`
 - **Rows:** 47,311
-- **Generated (UTC):** 2026-09-03T05:09:16+00:00
-- **Git commit:** `2e2c6375949d926579916cd12d140d6bda2f23d8`
+- **Generated (UTC):** 2026-10-22T00:33:29+00:00
+- **Git commit:** `1e8a9532338a71d69a74c861adf2ad7119aec4a5-dirty`
 <!-- END integration.merge derived layer (generated) -->
 
 ## Derived metadata — Input-contract gate (S2-02)
@@ -39,3 +40,24 @@ regenerable — the frozen dataset itself is treated as strictly read-only.
 - **Derived from:** the frozen S1-08 integrated table `DATA/integration/optmining_integrated-features_2026_nsw.gpkg` (layer `integrated_features`) and the input-contract check battery
 - **Method:** `pipeline.validate.run` → `pipeline.validate._run_integrated_input_checks` — emits the Baseline_Manifest record, the list of `{name, expected, observed, passed}` Check_Records, and the `all_passed` verdict; a pure reporter that never mutates the dataset.
 - **Regenerable:** yes — `python -m pipeline --only validate`.
+
+### Re-freeze — statewide-coverage fix (data-spec §8 v1.12, 2026-10-05)
+
+The S2-02 baseline above was **deliberately re-frozen** as part of the statewide-coverage
+fix (a documented re-freeze of a *derived* baseline, not a bypass of the gate — see
+`DATA/data-specification/sprint1_data_specification.md` §8 "Applied — S2-02 … re-freeze, v1.12").
+
+- **Trigger:** the exclusions stage was migrated to join the statewide wind + geographic +
+  demand feature tables and the `missing_demand_data` reason code was added, so the regenerated
+  integrated table's bytes changed and its SHA-256 no longer matched the previous pinned
+  reference.
+- **Old SHA-256:** `8b300ca520ff42028fbb7b09024916580c105967c92fa8ade575c4e006c196fd`
+  (New-England-window baseline, 1,233 eligible cells).
+- **New SHA-256:** `4062224a2b96adace37f5166feb0fb7b7dbd9251e9433ed5028659347d2a1c80`
+  (statewide baseline, 32,525 eligible cells, re-frozen after the `missing_demand_data` rule and
+  the full chain regeneration), recorded by `freeze_baseline(write=True)` with the
+  original `frozen_at_utc` preserved. Re-validation then reports `all_passed = true` and the
+  "Baseline hash matches the frozen reference" check reads "match".
+- **Not a frozen-parameter change:** no §2 decision (Q1–Q7) is touched and geographic extent is
+  not frozen, so the data-spec "Modifying a Frozen Parameter" dual-edit process is not triggered.
+  The re-freeze is reversible (the old hash is in git history and the data-spec §8 record).

@@ -1,0 +1,117 @@
+{
+  "release_candidate": "v0.1.0-rc.2 (to be cut on this branch's final S3-10 commit; v0.1.0-rc.1 belongs to the divergent lineage and is left untouched)",
+  "branch": "s3-10-final-demo",
+  "frozen_input_sha": "4062224a",
+  "status_summary": "All Must ACs (AC1-AC9, AC11) and AC10/AC12 are implemented and tested on this branch. 'Met' means the capability exists and is covered by tests; final acceptance is the human Checkpoint-D gate, which an automated green build does not clear.",
+  "checkpoint_d": {
+    "status": "pending human sign-off",
+    "note": "Checkpoint D (Final acceptance, guidance \u00a711) is a human review gate. A green rehearsal and a passing CI run are NOT Checkpoint-D acceptance; review, merge and client sign-off remain open."
+  },
+  "AC1": {
+    "criterion": "Reproducible NSW integrated dataset consumed by the app",
+    "status": "met",
+    "evidence": [
+      "DATA/integration/ frozen integrated table (input SHA 4062224a) served by pipeline.service",
+      "tests/integration/test_e2e_dataset_engine_app.py drives dataset -> engine -> app via FastAPI TestClient",
+      "docs/release/rehearsal.json (data_quality.check_count=28, cells.total=47311)"
+    ]
+  },
+  "AC2": {
+    "criterion": "Hard exclusions applied before scoring; reason retained",
+    "status": "met",
+    "evidence": [
+      "pipeline/exclusions/ with the seven frozen F16 reason codes; pipeline/exclusions/exclusion_rules.yaml",
+      "GET /runs/{run_id}/exclusions and SiteDetailPanel 'Why excluded'",
+      "tests/exclusions/**",
+      "docs/release/rehearsal.json excluded_example (cell S28.186_E152.386, reason excessive_slope, null score/rank)"
+    ]
+  },
+  "AC3": {
+    "criterion": "Every scoring feature documented (definition / unit / source / direction)",
+    "status": "met",
+    "evidence": [
+      "docs/technical-reference.md \u00a75 and the formula header of pipeline/scoring/scoring_weights.yaml",
+      "app/web/app/shell/AnalysisControls.tsx FEATURE_SOURCES / FEATURE_INTERPRETATION",
+      "Sprint-2-Tasks/decision_engine_specification.md"
+    ]
+  },
+  "AC4": {
+    "criterion": "Normalisation and scoring run outside the UI, covered by tests",
+    "status": "met",
+    "evidence": [
+      "pipeline/scoring/ (pure weighted MCDA); the web shell is asserted decision-free",
+      "tests/backend/test_api_passthrough_purity.py",
+      "tests/scoring/**"
+    ]
+  },
+  "AC5": {
+    "criterion": "Weights configurable; interpretation and defaults documented",
+    "status": "met",
+    "evidence": [
+      "pipeline/scoring/scoring_weights.yaml (user input; editable Baseline 0.35/0.20/0.15/0.10/0.10/0.10)",
+      "app/web/app/shell/AnalysisControls.tsx (editable Baseline + locked Wind-led / Grid-led presets)",
+      "docs/technical-reference.md \u00a75 default-weights table"
+    ]
+  },
+  "AC6": {
+    "criterion": "Component scores, total scores and deterministic rankings for eligible cells",
+    "status": "met",
+    "evidence": [
+      "pipeline/scoring/score.py and rank.py (ties break by ascending cell_id)",
+      "GET /runs/{run_id}/results, RankedShortlist, SiteDetailPanel component scores",
+      "docs/release/rehearsal.json rank_1_detail (contributions reconcile to the score within 1e-9)"
+    ]
+  },
+  "AC7": {
+    "criterion": "Understandable site-level explanations; demand proxy not misrepresented",
+    "status": "met",
+    "evidence": [
+      "pipeline/explanation/ (deterministic, no LLM); SiteDetailPanel demand-proxy caveat section",
+      "tests/backend/test_s309_docs_consistency.py (proxy framing + screening language guard, now covering docs/release/*.md)"
+    ]
+  },
+  "AC8": {
+    "criterion": "Interactive NSW map plus ranked shortlist",
+    "status": "met",
+    "evidence": [
+      "CellMap (GET /runs/{run_id}/cells) and RankedShortlist (GET /runs/{run_id}/results); region fixed to NSW",
+      "app/smoke_test.py exercises both run-scoped endpoints"
+    ]
+  },
+  "AC9": {
+    "criterion": "At least two weighting scenarios / configurations compared",
+    "status": "met",
+    "evidence": [
+      "ScenarioComparison <- POST /scenario-comparison; Wind-led / Grid-led presets + Custom",
+      "tests/service/test_scenarios.py",
+      "docs/release/rehearsal.json scenario_comparison (32,519 of 32,525 cells moved between wind_led and grid_led)"
+    ]
+  },
+  "AC10": {
+    "criterion": "Technical sanity checking against defensible reference locations",
+    "status": "met",
+    "evidence": [
+      "pipeline/ sanity stage + DATA/sanity/optmining_validation-results_2026_nsw.json",
+      "GET /sanity-check; SanityCheckPanel; tests/sanity/**",
+      "docs/release/rehearsal.json sanity (known-wind-farm quartile outcomes, contradiction_count=2, model-not-trained caveat present)"
+    ]
+  },
+  "AC11": {
+    "criterion": "Clean install / run path and technical documentation",
+    "status": "met",
+    "evidence": [
+      "pipeline/README.md, app/README.md, docs/technical-reference.md; single commands python -m pipeline and docker compose up --build",
+      "tests/backend/test_adr_and_run_commands_docs.py; S3-09 completion notes",
+      "docs/release/verification.md (literal commands + observed versions)"
+    ]
+  },
+  "AC12": {
+    "criterion": "Screening-level claims plus documented limitations",
+    "status": "met",
+    "evidence": [
+      "docs/technical-reference.md \u00a77 and screening banners across README / docs; CSV disclaimer line",
+      "docs/release/limitations.md (review-facing restatement + honest Should/Could gaps)",
+      "tests/backend/test_s309_docs_consistency.py (screening + proxy guard across docs/release/*.md)"
+    ]
+  }
+}

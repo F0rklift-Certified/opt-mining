@@ -90,6 +90,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip the aggregation stage.",
     )
+    parser.add_argument(
+        "--skip-feature",
+        action="store_true",
+        help="Skip the demand feature-layer stage.",
+    )
 
     # Input override
     parser.add_argument(
@@ -108,6 +113,20 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help=f"Output directory (default: {config.OUTPUT_DIR})",
+    )
+    parser.add_argument(
+        "--allocation-method",
+        type=str,
+        choices=list(config.ALLOCATION_METHODS),
+        default=config.DEFAULT_ALLOCATION_METHOD,
+        help=(
+            "Demand allocation method for the feature stage "
+            f"(default: {config.DEFAULT_ALLOCATION_METHOD}). 'urban_weighted' "
+            "distributes each region's demand by ABS UCL urban footprint; "
+            "'load_weighted' distributes it by real NSW zone-substation max demand "
+            "(distance-decay around geocoded DNSP DAPR substations); "
+            "'uniform' gives every assigned cell an equal share."
+        ),
     )
     parser.add_argument(
         "--verbose",
@@ -142,6 +161,8 @@ def resolve_stages(args: argparse.Namespace) -> list[str]:
         stages.remove("inspect")
     if args.skip_aggregate:
         stages.remove("aggregate")
+    if args.skip_feature:
+        stages.remove("feature")
 
     return stages
 
@@ -207,7 +228,7 @@ def main():
     # --- Stage: Download ---
     if "download" in stages:
         print(f"\n{'─' * 70}")
-        print("STAGE 1/4: DOWNLOAD")
+        print("STAGE 1/5: DOWNLOAD")
         print(f"{'─' * 70}")
 
         from .download import run as run_download
@@ -238,7 +259,7 @@ def main():
     # --- Stage: Validate ---
     if "validate" in stages:
         print(f"\n{'─' * 70}")
-        print("STAGE 2/4: VALIDATE")
+        print("STAGE 2/5: VALIDATE")
         print(f"{'─' * 70}")
 
         from .validate import run as run_validate
@@ -264,7 +285,7 @@ def main():
     # --- Stage: Inspect ---
     if "inspect" in stages:
         print(f"\n{'─' * 70}")
-        print("STAGE 3/4: INSPECT")
+        print("STAGE 3/5: INSPECT")
         print(f"{'─' * 70}")
 
         from .inspect import run as run_inspect
@@ -285,7 +306,7 @@ def main():
     # --- Stage: Aggregate ---
     if "aggregate" in stages:
         print(f"\n{'─' * 70}")
-        print("STAGE 4/4: AGGREGATE")
+        print("STAGE 4/5: AGGREGATE")
         print(f"{'─' * 70}")
 
         from .aggregate import run as run_aggregate
@@ -306,6 +327,27 @@ def main():
             sys.exit(1)
     else:
         print(f"\n  [skip] Aggregate")
+
+    # --- Stage: Feature ---
+    if "feature" in stages:
+        print(f"\n{'─' * 70}")
+        print("STAGE 5/5: FEATURE")
+        print(f"{'─' * 70}")
+
+        from .feature import run as run_feature
+
+        try:
+            result = run_feature(
+                verbose=args.verbose,
+                allocation_method=args.allocation_method,
+            )
+            outputs_produced.append(("Demand feature table", result["feature_table_path"]))
+            outputs_produced.append(("Method report", result["method_report_path"]))
+        except Exception as e:
+            print(f"\n  FEATURE ERROR: {e}")
+            sys.exit(1)
+    else:
+        print(f"\n  [skip] Feature")
 
     # --- Pipeline Summary ---
     elapsed = time.time() - pipeline_start

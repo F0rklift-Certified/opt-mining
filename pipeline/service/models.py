@@ -10,9 +10,10 @@ service serves, populated verbatim from materialised engine outputs.
 
 `RunHandle` is needed by `run_analysis` (task 2.1), `RankedRow` by
 `get_ranked_results` (task 3.1), `SiteDetail` by `get_site_detail` (task 3.2)
-and `ExcludedRow` by `get_exclusions` (task 3.3); `ScenarioComparison` /
-`ScenarioComparisonRow` by `compare_scenarios` (task 5.1); `DataQualityStatus` /
-`DataQualityCheck` by `get_data_quality` (task 5.2).
+and `ExcludedRow` by `get_exclusions` (task 3.3); `CellFeature` / `CellCollection`
+by `get_run_cells` (the v1.1 geometry operation, CONTRACT.md §4.7);
+`ScenarioComparison` / `ScenarioComparisonRow` by `compare_scenarios` (task 5.1);
+`DataQualityStatus` / `DataQualityCheck` by `get_data_quality` (task 5.2).
 """
 
 from __future__ import annotations
@@ -155,6 +156,16 @@ class SiteDetail:
     explanation :
         The S2-06 Explanation_Structure for the cell, carried through verbatim
         (the eligible-path or excluded-path record exactly as S2-06 wrote it).
+    demand_load_mva :
+        DISPLAY-ONLY estimate of the network load within the demand decay radius
+        for the cell, in MVA — the raw sum of zone-substation max demand over the
+        substations within the configured search radius of the cell centroid,
+        read verbatim from the integrated table's ``load_within_radius_mva``
+        column. It is an informational ESTIMATE of nearby network load (not
+        demand AT the cell, not spare capacity) and is NEVER an input to
+        ``demand_proxy``, the composite score or the rank. ``None`` when the
+        column is absent/null (a non-load_weighted Run, or a cell with no nearby
+        substation under an older integrated table).
     """
 
     cell_id: str
@@ -164,6 +175,7 @@ class SiteDetail:
     rank: int | None = None
     eligible: bool = False
     explanation: dict[str, Any] = field(default_factory=dict)
+    demand_load_mva: float | None = None
 
     def to_dict(self) -> dict:
         """Serialise to the CONTRACT.md §5 `SiteDetail` shape."""
@@ -175,6 +187,7 @@ class SiteDetail:
             "rank": self.rank,
             "eligible": self.eligible,
             "explanation": dict(self.explanation),
+            "demand_load_mva": self.demand_load_mva,
         }
 
 
@@ -226,6 +239,103 @@ class ExcludedRow:
             "cell_id": self.cell_id,
             "reason_codes": list(self.reason_codes),
             "reason_text": self.reason_text,
+        }
+
+
+@dataclass(frozen=True)
+class CellFeature:
+    """
+    One analysis cell's map feature for a Run (CONTRACT.md §5, Requirement 1.7).
+
+    A `CellFeature` is a verbatim projection of one row of the materialised
+    S2-05 Scored_Table into a GeoJSON Point Feature — never a recomputed value.
+    `get_run_cells` (`results.py`) reads the fixed Scored_Table and builds one
+    `CellFeature` per cell (eligible AND excluded alike), carrying the grid
+    centroid through unchanged. The service performs no scoring, ranking or
+    reprojection to produce these: the centroid is the engine's own
+    `centroid_lat`/`centroid_lon` in EPSG:4326, and the score/rank are read
+    from the table (null for an excluded cell). `eligible` is the IDENTICAL
+    predicate `get_ranked_results` uses — a non-null `suitability_score` AND a
+    non-null `rank` — so the eligible set equals the ranked-table set
+    (CONTRACT.md §1, §7 P1, Requirement 2.4).
+
+    Fields
+    ------
+    cell_id :
+        Analysis-cell id, copied byte-for-byte from the Scored_Table so it
+        joins back to the analysis grid on `cell_id`.
+    centroid_lon :
+        The cell centroid's longitude in EPSG:4326, carried through verbatim
+        (the `centroid_lon` the engine wrote); no reprojection.
+    centroid_lat :
+        The cell centroid's latitude in EPSG:4326, carried through verbatim
+        (the `centroid_lat` the engine wrote); no reprojection.
+    eligible :
+        Whether the cell is eligible — ``suitability_score`` AND ``rank`` both
+        non-null, the identical rule `get_ranked_results` applies.
+    suitability_score :
+        The S2-05 `suitability_score`, read from the table; ``None`` for an
+        excluded cell (which carries no score).
+    rank :
+        The S2-05 integer `rank`, read from the table; ``None`` for an excluded
+        cell (which carries no rank).
+    """
+
+    cell_id: str
+    centroid_lon: float
+    centroid_lat: float
+    eligible: bool
+    suitability_score: float | None = None
+    rank: int | None = None
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 GeoJSON `CellFeature` shape."""
+        return {
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [self.centroid_lon, self.centroid_lat],
+            },
+            "properties": {
+                "cell_id": self.cell_id,
+                "eligible": self.eligible,
+                "suitability_score": self.suitability_score,
+                "rank": self.rank,
+            },
+        }
+
+
+@dataclass(frozen=True)
+class CellCollection:
+    """
+    A Run's cells as a GeoJSON FeatureCollection (CONTRACT.md §5, Requirement 1.7).
+
+    A `CellCollection` is a verbatim projection of the materialised S2-05
+    Scored_Table — one Point Feature per cell, carrying each cell's centroid in
+    EPSG:4326 unchanged. `get_run_cells` (`results.py`) builds it; the service
+    performs no scoring, ranking or reprojection (CONTRACT.md §1, Requirement
+    2.4). The map the Web_Application renders from this collection and the
+    ranking table are therefore the SAME engine output: the set of `eligible`
+    Features equals the set `get_ranked_results` returns for the Run (§7 P1).
+
+    Fields
+    ------
+    run_id :
+        Identifier of the materialised Run these cells belong to.
+    features :
+        One `CellFeature` per Scored_Table row, in the table's own row order,
+        carried through verbatim.
+    """
+
+    run_id: str
+    features: list[CellFeature] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 GeoJSON `CellCollection` shape."""
+        return {
+            "type": "FeatureCollection",
+            "run_id": self.run_id,
+            "features": [feature.to_dict() for feature in self.features],
         }
 
 
@@ -400,4 +510,266 @@ class DataQualityStatus:
         return {
             "passed": self.passed,
             "checks": [check.to_dict() for check in self.checks],
+        }
+
+
+@dataclass(frozen=True)
+class SanityCheckItem:
+    """
+    One normalised sanity-check outcome (S3-08, CONTRACT.md §5).
+
+    A `SanityCheckItem` is a verbatim projection of one `{label, expected,
+    observed, passed}` outcome block the S1-12 sanity stage wrote to the
+    Results_Sidecar (the Upper_Quartile and top-band known-wind-farm outcomes,
+    the clustering/correlation/REZ distribution outcomes, and the synthesized
+    exclusion summary). `get_sanity_check` (`sanity.py`) reads those blocks and
+    projects each into this shape; it performs no sanity check of its own and
+    re-derives no verdict (CONTRACT.md §1, Requirement 2). Every check is
+    surfaced — passing and failing alike — so there are no silent passes
+    (CONTRACT.md §5): an ABSENT check block is projected as a visible honest
+    failure (`passed=False`, `observed="not available"`), never omitted.
+
+    Fields
+    ------
+    name :
+        The check label, copied verbatim (e.g. "Upper_Quartile count",
+        "Known-wind-farm top-ranked band", "Exclusion validation").
+    expected :
+        The expected value/condition the sanity stage recorded, as a string.
+    observed :
+        The observed value the sanity stage recorded, as a string.
+    passed :
+        Whether this individual check passed (the sanity stage's own verdict).
+    """
+
+    name: str
+    expected: str
+    observed: str
+    passed: bool
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 `SanityCheckItem` shape."""
+        return {
+            "name": self.name,
+            "expected": self.expected,
+            "observed": self.observed,
+            "passed": self.passed,
+        }
+
+
+@dataclass(frozen=True)
+class SanityContradiction:
+    """
+    One documented sanity contradiction / issue (S3-08, CONTRACT.md §5).
+
+    A `SanityContradiction` is a verbatim projection of one entry in the S1-12
+    Results_Sidecar's `issues_for_sprint_2` list — the superset of anomalies
+    across all four plausibility checks (a known farm on excluded/low-ranked
+    land, a clustering/correlation anomaly, a spot-value anomaly). The service
+    carries each entry through unchanged, inventing no new investigation note
+    (CONTRACT.md §1). The `check` label identifies which plausibility check
+    raised the contradiction so a reviewer can see its source.
+
+    Fields
+    ------
+    check :
+        The plausibility check that raised the contradiction (e.g. "Known Wind
+        Farm Comparison").
+    description :
+        The human-readable description of the contradiction, carried verbatim.
+    kind :
+        The anomaly kind (e.g. "data_issue"), distinguishing a data issue from a
+        legitimate model result.
+    investigation_note :
+        The documented investigation note, carried verbatim.
+    """
+
+    check: str
+    description: str
+    kind: str
+    investigation_note: str
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 `SanityContradiction` shape."""
+        return {
+            "check": self.check,
+            "description": self.description,
+            "kind": self.kind,
+            "investigation_note": self.investigation_note,
+        }
+
+
+@dataclass(frozen=True)
+class SanityWindFarmRow:
+    """
+    One known-wind-farm comparison row (S3-08, CONTRACT.md §5).
+
+    A `SanityWindFarmRow` is a verbatim projection of one row of the S1-12
+    Results_Sidecar's `known_wind_farm_comparison.table` — each GA wind
+    generator located to its containing cell, with that cell's engine
+    `score`/`rank`/`percentile` and the Upper_Quartile flag. The service copies
+    the row through; it computes no score, rank or percentile (CONTRACT.md §1,
+    Requirement 2). The farm label is read from the sidecar's `wind_farm` field
+    (the engine already resolved it from the GA `feature_name` attribute), NOT a
+    `name` attribute.
+
+    Fields
+    ------
+    wind_farm :
+        The resolved wind-farm display name, carried verbatim from the sidecar's
+        `wind_farm` field.
+    cell_id :
+        The containing analysis-cell id.
+    score :
+        The cell's S2-05 `suitability_score`; `None` for an Excluded_Cell.
+    rank :
+        The cell's S2-05 integer `rank`; `None` for an Excluded_Cell.
+    percentile :
+        The cell's score percentile over the eligible population; `None` for an
+        Excluded_Cell.
+    in_upper_quartile :
+        Whether the cell falls in the Upper_Quartile (percentile >= 75).
+    in_top_band :
+        Whether the cell's engine rank falls in the top-ranked band (rank <=
+        `top_band_n`), carried verbatim from the sidecar so the panel renders it
+        under the "rank <= N" header without computing band membership itself
+        (the Upper_Quartile flag and band membership diverge; NFR1).
+    notes :
+        The sanity stage's per-row note, carried verbatim.
+    """
+
+    wind_farm: str
+    cell_id: str
+    score: float | None = None
+    rank: int | None = None
+    percentile: float | None = None
+    in_upper_quartile: bool = False
+    in_top_band: bool = False
+    notes: str = ""
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 `SanityWindFarmRow` shape."""
+        return {
+            "wind_farm": self.wind_farm,
+            "cell_id": self.cell_id,
+            "score": self.score,
+            "rank": self.rank,
+            "percentile": self.percentile,
+            "in_upper_quartile": self.in_upper_quartile,
+            "in_top_band": self.in_top_band,
+            "notes": self.notes,
+        }
+
+
+@dataclass(frozen=True)
+class SanityRunMetadata:
+    """
+    The sanity result's lineage metadata (S3-08, CONTRACT.md §5).
+
+    A `SanityRunMetadata` is a verbatim projection of the S1-12 Results_Sidecar's
+    `run_metadata` block — the run timestamp, pipeline version, resolved
+    shortlist path and cell counts that let a reviewer confirm the sanity result
+    reflects the same engine generation as the map/shortlist (FR5/AC7). Every
+    field defaults to empty / `None` so a sidecar missing `run_metadata` (or a
+    field within it) projects cleanly — the panel renders "lineage metadata
+    unavailable" rather than crashing, and the service never asserts a lineage it
+    cannot evidence.
+
+    Fields
+    ------
+    run_timestamp :
+        The UTC Run_Timestamp the sanity stage stamped; empty when absent.
+    pipeline_version :
+        The pipeline version the sanity run recorded; empty when absent.
+    resolved_shortlist_path :
+        The resolved shortlist path the sanity run read; empty when absent.
+    n_cells :
+        The total analysis-cell count; `None` when absent.
+    n_eligible :
+        The eligible-cell count; `None` when absent.
+    """
+
+    run_timestamp: str = ""
+    pipeline_version: str = ""
+    resolved_shortlist_path: str = ""
+    n_cells: int | None = None
+    n_eligible: int | None = None
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 `SanityRunMetadata` shape."""
+        return {
+            "run_timestamp": self.run_timestamp,
+            "pipeline_version": self.pipeline_version,
+            "resolved_shortlist_path": self.resolved_shortlist_path,
+            "n_cells": self.n_cells,
+            "n_eligible": self.n_eligible,
+        }
+
+
+@dataclass(frozen=True)
+class SanityCheck:
+    """
+    The S1-12 sanity-check / validation result for the baseline engine output
+    (S3-08, CONTRACT.md §5).
+
+    A `SanityCheck` mirrors the S1-12 machine-readable Results_Sidecar the sanity
+    stage materialised: the always-on model-not-trained `caveat`, the
+    `preliminary_disclaimer`, the lineage `run_metadata`, the normalised list of
+    per-check outcomes (incl. the synthesized exclusion summary), the full
+    contradictions list, the known-wind-farm comparison table, the top-ranked
+    band N, and the per-landmark exclusion assertions — all carried through
+    VERBATIM. `get_sanity_check` (`sanity.py`) reads that sidecar and projects it
+    into this shape; it performs no sanity check, re-runs nothing and re-derives
+    no verdict (CONTRACT.md §1, Requirement 2). This is how the Web_Application
+    surfaces the sanity result reachable from the app shell (FR4/AC6), with the
+    caveat always shown (FR2/AC3) and the lineage visible (FR5/AC7); a
+    missing/unreadable sidecar fails honestly rather than fabricating a passing
+    verdict (Requirement 7.3).
+
+    Fields
+    ------
+    caveat :
+        The always-on model-not-trained-to-reproduce caveat (FR2/AC3), carried
+        verbatim from the sidecar's top-level `caveat`.
+    preliminary_disclaimer :
+        The preliminary-screening disclaimer, carried verbatim.
+    run_metadata :
+        The lineage metadata (FR5/AC7); `None` when the sidecar carries none.
+    checks :
+        The six normalised per-check outcomes, including the synthesized
+        exclusion summary. Every check is surfaced — no silent passes.
+    contradictions :
+        The full `issues_for_sprint_2` list (all four checks' anomalies).
+    wind_farms :
+        The known-wind-farm comparison table rows, carried verbatim.
+    top_band_n :
+        The top-ranked band N (rank <= N) the top-band outcome used, so the panel
+        can render "rank <= N" without arithmetic.
+    exclusion_assertions :
+        The per-landmark exclusion-validation assertions, carried verbatim for an
+        optional sub-table.
+    """
+
+    caveat: str = ""
+    preliminary_disclaimer: str = ""
+    run_metadata: SanityRunMetadata | None = None
+    checks: list[SanityCheckItem] = field(default_factory=list)
+    contradictions: list[SanityContradiction] = field(default_factory=list)
+    wind_farms: list[SanityWindFarmRow] = field(default_factory=list)
+    top_band_n: int = 0
+    exclusion_assertions: list[dict] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        """Serialise to the CONTRACT.md §5 `SanityCheck` shape."""
+        return {
+            "caveat": self.caveat,
+            "preliminary_disclaimer": self.preliminary_disclaimer,
+            "run_metadata": (
+                self.run_metadata.to_dict() if self.run_metadata is not None else None
+            ),
+            "checks": [check.to_dict() for check in self.checks],
+            "contradictions": [c.to_dict() for c in self.contradictions],
+            "wind_farms": [w.to_dict() for w in self.wind_farms],
+            "top_band_n": self.top_band_n,
+            "exclusion_assertions": [dict(a) for a in self.exclusion_assertions],
         }

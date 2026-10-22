@@ -4,8 +4,8 @@
       "output_file": "DATA/integration/optmining_integrated-features_2026_nsw.gpkg",
       "csv_file": "DATA/integration/optmining_integrated-features_2026_nsw.csv",
       "stage": "integration",
-      "generated_utc": "2026-09-03T05:09:16+00:00",
-      "git_commit": "2e2c6375949d926579916cd12d140d6bda2f23d8",
+      "generated_utc": "2026-10-22T00:33:29+00:00",
+      "git_commit": "1e8a9532338a71d69a74c861adf2ad7119aec4a5-dirty",
       "rows": 47311,
       "columns": [
         "cell_id",
@@ -15,8 +15,10 @@
         "wind_speed",
         "wind_confidence",
         "demand_proxy",
+        "load_within_radius_mva",
         "source_region",
         "demand_confidence",
+        "demand_coord_confidence",
         "dist_transmission_km",
         "dist_substation_km",
         "dist_connection_km",
@@ -39,10 +41,10 @@
         "confidence_score",
         "confidence_notes"
       ],
-      "sha256_gpkg": "b7cd3d261abfdedd613301e0e2fdd07e3381178deb8ce8aff506a066117a1e61",
-      "sha256_csv": "263d3d13efa9b221bf079358de5f20601b77cd90b0c3a6ffca4552437c6dd355",
-      "bytes_gpkg": 32821248,
-      "bytes_csv": 23132200,
+      "sha256_gpkg": "e1615fba0562172ee88e362101866ee73530a15f4b2959ac48548757589d5731",
+      "sha256_csv": "a532a075e9b4ac5beabfa0b4dfdb0e87c0ee2ebc65316dbe1a027fd0f6f7fdb4",
+      "bytes_gpkg": 25681920,
+      "bytes_csv": 17073419,
       "inputs": [
         {
           "name": "grid",
@@ -59,7 +61,7 @@
           "layer": "wind_features",
           "rows": 47311,
           "crs": "EPSG:4326",
-          "sha256": "ff735ce010f90ff99d308ea32e6c375d3003133225f4168417c36b7bb42e88d6",
+          "sha256": "2af85ff5f12a0fa66b11e47c36872c651d537d89f4a79c1c1cf4cd739aac8566",
           "bytes": 13803520
         },
         {
@@ -68,8 +70,8 @@
           "layer": "geographic_features",
           "rows": 47311,
           "crs": "EPSG:4326",
-          "sha256": "9501883e2cf871d87fb68aa6f483de1a80711ed603b8f0a3a8a828a7e7fcf175",
-          "bytes": 13049856
+          "sha256": "af9db24669bdaf6d45154987d133d7c03a7b01833c920d601b93fa3057c04031",
+          "bytes": 14888960
         },
         {
           "name": "infrastructure",
@@ -86,8 +88,8 @@
           "layer": "demand_proxy",
           "rows": 47311,
           "crs": "EPSG:4326",
-          "sha256": "8e9890bf9371de015fe3da7635515ea3e50f5713eab247c683045f0e0e92a646",
-          "bytes": 13324288
+          "sha256": "0a6c168a7b4ebecdb8674f7a0e32c3aa407bdae7331087d2b3025f0c0aad66dc",
+          "bytes": 14155776
         },
         {
           "name": "exclusions",
@@ -95,13 +97,22 @@
           "layer": "optmining_exclusions_2024_nsw.gpkg",
           "rows": 47311,
           "crs": "EPSG:4326",
-          "sha256": "c5caa822647024c4b0bb62ad78735b41b0e72aa314e7e288a162233928a771ca",
-          "bytes": 19959808
+          "sha256": "e1bebde00500c3969239ad8b33e64e6a5e7f5660bdb32c04362de60f7ef3e172",
+          "bytes": 16560128
+        },
+        {
+          "name": "demand_coord_confidence",
+          "path": "DATA/electricity-demand/aemo_demand-coord-confidence_2026_nsw.csv",
+          "layer": "(CSV sidecar)",
+          "rows": 47311,
+          "crs": "EPSG:4326",
+          "sha256": "a4e2bbeede59597e5725d487bda5ed82d3be2eb3b0d1904236b455c303e34c11",
+          "bytes": 1027790
         }
       ],
       "confidence_weights": {
         "path": "pipeline/integration/confidence_weights.yaml",
-        "sha256": "3b34c47b8da6260b53245397491b0f60ed3df68d47434458ed93495295922f93",
+        "sha256": "2cd31b17ae28cff604aa6416079275678b137f4b866ee4e1e806088895e1eab8",
         "version": "1.0"
       }
     }

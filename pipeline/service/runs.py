@@ -258,12 +258,45 @@ def materialise_run(
     target = run_dir(run_id)
     manifest_path = target / config.RUN_MANIFEST_FILENAME
     gpkg_path = target / config.SCORED_GPKG_FILENAME
+    # Reuse an existing materialisation ONLY when its Scored_Table is actually
+    # READABLE. A momentarily read-only run store can leave a TRUNCATED .gpkg on
+    # disk while run.json still got written; the files-exist check alone would
+    # then reuse that corrupt artefact forever, wedging every later read behind
+    # an honest-but-permanent 503. Probing readability turns such a partial
+    # write into a cache MISS so the Run self-heals by re-materialising over it
+    # (the writer's tmp-sibling + os.replace makes the overwrite safe). The
+    # content-addressed idempotency for a healthy Run is unchanged: a valid
+    # existing output is still reused without re-scoring.
     if manifest_path.exists() and gpkg_path.exists():
+        if _scored_table_readable(run_id):
+            if verbose:
+                print(f"  reusing materialised run {run_id}")
+            return RunHandle(
+                run_id=run_id, weights_id=weights_id, scenario=scenario_key
+            )
         if verbose:
-            print(f"  reusing materialised run {run_id}")
-        return RunHandle(run_id=run_id, weights_id=weights_id, scenario=scenario_key)
+            print(f"  re-materialising run {run_id}: existing output unreadable")
 
     return _materialise(run_id, resolved, scenario_key, weights_id, verbose)
+
+
+def _scored_table_readable(run_id: str) -> bool:
+    """
+    Lightweight validity probe for a materialised Run's Scored_Table.
+
+    Reuses the read path's own loader (`load_scored_table`) so "readable" means
+    exactly what every read operation requires — no second notion of validity to
+    drift from the one the service serves against. Pure I/O: it opens the
+    GeoPackage and makes no scoring, ranking or normalisation decision. Returns
+    ``True`` only when the table opens cleanly; a corrupt/truncated artefact
+    (which raises ``EngineOutputError`` from the loader) returns ``False`` so the
+    caller treats it as a cache miss and re-materialises.
+    """
+    try:
+        load_scored_table(run_id)
+    except (EngineOutputError, RunNotFoundError):
+        return False
+    return True
 
 
 # --------------------------------------------------------------------------- #
@@ -558,5 +591,52 @@ def load_validation_result() -> dict:
         raise EngineOutputError(
             f"Data_Quality_Status {path} is not the expected object "
             f"(got {type(result).__name__}); it carries no verdict or checks."
+        )
+    return result
+
+
+def load_sanity_result() -> dict:
+    """
+    Load the materialised S1-12 Results_Sidecar verbatim (CONTRACT.md §4.8, §5).
+
+    Reads the JSON sidecar the S1-12 sanity stage (`pipeline/sanity/`) wrote
+    (`config.sanity_result_path()`, composed from the producing module's own
+    constant) and returns the parsed object UNCHANGED — the per-check outcomes,
+    the known-wind-farm table, the exclusion assertions, the `issues_for_sprint_2`
+    contradictions, the `caveat`/`preliminary_disclaimer`, and `run_metadata`
+    exactly as the sanity stage emitted them. The service re-runs no check and
+    re-derives no verdict; it surfaces the sanity stage's own output (CONTRACT.md
+    §1, Requirement 2).
+
+    The Results_Sidecar is a screening-level artefact for the baseline engine
+    output — it is resolved once from its fixed location rather than per-Run,
+    mirroring the S2-02 Data_Quality_Status, the S2-03 Eligibility_Table and the
+    S2-06 explanation output.
+
+    Raises
+    ------
+    EngineOutputError
+        The Results_Sidecar is missing, unreadable, or not the expected object
+        shape — the error NAMES the missing input rather than fabricating a
+        result or a passing verdict (Requirement 7.3). A missing sanity result
+        is never silently treated as "passed".
+    """
+    path = config.sanity_result_path()
+    if not path.exists():
+        raise EngineOutputError(
+            f"Sanity Results_Sidecar is missing: {path}. Run "
+            f"`python -m pipeline --only sanity` to materialise the S1-12 "
+            f"sanity result before the sanity check can be served."
+        )
+    try:
+        result = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise EngineOutputError(
+            f"Sanity Results_Sidecar {path} is unreadable: {exc}"
+        ) from exc
+    if not isinstance(result, dict):
+        raise EngineOutputError(
+            f"Sanity Results_Sidecar {path} is not the expected object "
+            f"(got {type(result).__name__}); it carries no checks or caveat."
         )
     return result

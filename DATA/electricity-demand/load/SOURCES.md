@@ -1,0 +1,201 @@
+# NSW zone-substation maximum demand — sources, method and licence notes
+
+Prepared 19 October 2026 (Australia/Sydney); Endeavour added 21 October 2026. Output: `nsw_zone_substation_max_demand.csv` (**709 rows**).
+
+## Coverage at a glance
+
+| DNSP | Rows | What `max_demand` is | Status |
+|---|---|---|---|
+| ausgrid | 177 | **Recorded** peak demand, summer 2024/25, MVA | Complete |
+| essential | 366 | **POE50 forecast** peak demand, summer 2025/26, MVA. Essential publishes no recorded per-substation maximum demand | Complete, but forecast, not recorded. See caveat 1 |
+| endeavour | 166 | **Recorded** actual peak demand, higher of summer/winter 2025 `Actual (MVA)`, MVA | **Complete** (portal pop-up extraction). See "Endeavour: now extracted" and `endeavour_portal/SOURCES_endeavour.md` |
+
+The 543 Essential+Ausgrid rows give no coordinates or locality, so their
+`latitude`/`longitude`/`locality` are blank. The 166 Endeavour rows carry
+**precise WGS84 coordinates** from the portal pop-ups (`locality` still blank).
+The 543 original rows are preserved **byte-for-byte**; the 166 Endeavour rows are
+appended after them.
+
+## Download log
+
+All files were fetched on **2026-10-19** by the Claude desktop app's built-in browser on the user's Mac. The cloud workspace's network allowlist blocked these sites. Each file was copied across byte-for-byte, and its SHA-256 matched the hash the browser computed on the original download. Files are stored unmodified under `raw/`.
+
+| Saved file | Download URL | Bytes | SHA-256 |
+|---|---|---|---|
+| `raw/essential/DAPR 2025 BSP, ZS and Lines Extract Summary - V2.xlsx` | https://dapr.essentialenergy.com.au/DAPR%202025%20BSP,%20ZS%20and%20Lines%20Extract%20Summary%20-%20V2.xlsx | 225,487 | eefd0606de5936cea772c3df696360126d401f667605072517cb3d4fbcc225b5 |
+| `raw/essential/DAPR 2025 Limitations Annual Data Essential Energy.xlsx` | https://dapr.essentialenergy.com.au/essential_data/DAPR%202025%20Limitations%20Annual%20Data%20Essential%20Energy.xlsx | 625,965 | 0577b3e030b6b32bad464bc8953d045d62129bc3d0711242ab1d44610bc51bd6 |
+| `raw/essential/DAPR_Essential_Energy_2025.pdf` | https://dapr.essentialenergy.com.au/DAPR_Essential_Energy_2025.pdf | 3,168,057 | 46046845a4f1aaf058df064a7d17d7c94c1cec498f03b5c0a16b22cb7f03bad1 |
+| `raw/ausgrid/Ausgrid_Substation_Capacity_and_Demand_Forecast_2025.xlsx` (served without a filename; named here) | https://aopt-p-001.sitecorecontenthub.cloud/api/public/content/2f1a73b7329b4496bac54d39bbc02e9c?v=ecf15b51 (linked as "Substation Capacity and Demand Forecast" from https://www.ausgrid.com.au/about-us/regulation-and-compliance/network-planning/dtapr) | 105,538 | f9f1d537fa3d39e0223c3fb99408be7d9605d7e04ca6306292f18e0895a8fbda |
+| `raw/endeavour/DAPR 2025.pdf` | https://dapr.endeavourenergy.com.au/endeavour_data/DAPR%202025.pdf | 2,469,600 | 2a958edda1c244f9d48784a00a20fc54e0edd12de946b69e57e71e072162b717 |
+
+**Opened in the browser for inspection but not saved.** None of these supplied rows to the CSV.
+- Ausgrid DTAPR 2025 full report PDF, 26,275,716 bytes: https://aopt-p-001.sitecorecontenthub.cloud/api/public/content/00bf63b95a574b5884bab499b9ae6738?v=fd7159e6. I used it only for the column definitions on PDF page 41 (printed pp. 80–81), which define "Actual Load (MVA)" as recorded peak demand. It is too large for the transfer channel available in this session. Download it from the URL if you want a local copy.
+- Ausgrid DTAPR System Limitation Template FY25 (.xlsx, 47,628 bytes, SHA-256 b3316e1f…5935): https://dtapr.ausgrid.com.au/ausgrid_data/DTAPR%20System%20Limitation%20Template%20FY25.xlsx. It covers only about 20 constrained assets.
+- Ausgrid Feeder Forecast (.xls, 407,552 bytes): https://aopt-p-001.sitecorecontenthub.cloud/api/public/content/bc7204761acf46139a99308926ef36ca?v=d3d782f4. It covers sub-transmission feeders, not zone substations.
+
+## Extraction method
+
+- **Ausgrid.** Sheet `Actual Demand (ZS)`, column G ("Summer" → "2024/25 (MVA)"). There is one row per named zone substation, rows 7–183. The workbook also has an `Actual Demand (STS)` sheet for subtransmission substations, which is excluded because it is not zone substations. Winter 2024 actuals (column M) and earlier years are in the same sheet if you want them.
+- **Essential.** Sheet `ZSSummer`, column L ("Forecast (MVA)" → "25/26"), rows 3–368. The DAPR PDF (page 17) states that all published forecasts are POE50. A matching `ZSWinter` sheet has the 2026 winter forecasts.
+- Values were read with openpyxl exactly as stored in the cells. No rounding, conversion or gap-filling was done. No source cell was empty or non-numeric, so no `max_demand` is blank.
+- `source_page` gives the sheet, row and column of each figure.
+- The Essential portal's map data files (`serve.php?file=…csv`, e.g. `dapr_spatial_mapping.csv`) are encrypted. I did not try to decode them. They are the likely home of substation coordinates.
+
+## Caveats and flagged rows
+
+0. **How these magnitudes enter the proxy (percentile-normalised).** These MVA figures set only the *relative within-region shape* of the `load_weighted` distance-decay surface; the AEMO NEM-region aggregate sets the level and the per-region rescale conserves it exactly. The resulting `demand_proxy` is then **per-region PERCENTILE (rank) normalised**, not linear-max normalised — each eligible cell's value is its rank-quantile within its NEM region, a *rank-position* in `[0,1]`, not a magnitude. Percentile was chosen because the decay surface is hyper-concentrated and linear max-normalisation collapsed almost every remote cell toward 0.000 (unusable); see `../load/README.md` → "Normalisation" and the demand feature method report. The forecast-vs-recorded mix below is immaterial to a rank of a shape.
+
+1. **Essential figures are forecasts, not recorded demand.** Each row says so in `data_year`. The DAPR PDF gives recorded maximum demand only for the network as a whole (Figure 3). Recorded per-substation load traces are on a separate page, https://www.essentialenergy.com.au/our-network/network-projects/zone-substation-reports. Those were not used, because taking the peak from a trace is a derived number, not a transcription. Mixing these rows with Ausgrid's recorded actuals in a scoring model compares like with unlike, so decide whether to keep them.
+2. **Season choice.** Both DNSPs publish summer and winter figures. Summer was used throughout. Some substations peak in winter, so their summer figure is not their annual maximum.
+3. **Essential `ZSSummer` includes some sub-transmission substations.** Examples are `Terranora 110/66kV` at 97.37 MVA and `Yanco 33/11kV`. Some sites are also split by voltage, such as `Cudgen 11kV` and `Cudgen 33kV`. All are kept as printed. Filter them out if you need zone substations only.
+4. **`Pindari` (essential) = 0** as printed in the source. (A zero/negative-MVA row contributes nothing to either the distance-decay weight or the display-only `load_within_radius_mva` read-out — both apply an `MVA > 0` filter.)
+5. **DISPLAY-ONLY `load_within_radius_mva` read-out.** These same MVA magnitudes also feed a per-cell `load_within_radius_mva` column: the **raw sum** of `max_demand` (MVA) over substations within the 40 km search radius of the cell centroid (no decay, no rescale, no normalisation). It is surfaced in the Site Detail panel as an **estimate of nearby network load** ("≈ X MVA network load within ~40 km") — *not* demand at the cell, *not* spare capacity. It is **DISPLAY-ONLY context and never an input to `demand_proxy`, the score or the ranking** (unlike the shape-setting use in item 0). See `../load/README.md` → "DISPLAY-ONLY per-cell network-load read-out".
+
+## 10-row verification
+
+The 10 rows were chosen by `random.sample` with seed 20261019. Each was re-checked against the **live** source file in the browser, using a second spreadsheet reader (SheetJS) and lookup by substation name rather than row number. **All 10 match. None are uncertain.**
+
+| dnsp | substation | CSV value | Source value | Source location |
+|---|---|---|---|---|
+| essential | Moama | 14.68 | 14.68 | ZSSummer r333 L |
+| essential | Wenna | 2.86 | 2.86 | ZSSummer r126 L |
+| essential | Moruya Town | 5.63 | 5.63 | ZSSummer r220 L |
+| ausgrid | OLYMPIC PARK | 30.52 | 30.52 | Actual Demand (ZS) r122 G |
+| essential | Coolamon | 5.06 | 5.06 | ZSSummer r302 L |
+| essential | Woodlawn | 5.59 | 5.59 | ZSSummer r276 L |
+| essential | Rappville | 0.55 | 0.55 | ZSSummer r31 L |
+| essential | Yanco 33/11kV | 2.71 | 2.71 | ZSSummer r360 L (row is sub-transmission; see caveat 3) |
+| essential | Kootingal | 6.68 | 6.68 | ZSSummer r144 L |
+| essential | Terranora 110/66kV | 97.37 | 97.37 | ZSSummer r8 L (row is sub-transmission; see caveat 3) |
+
+Extra checks: `Pindari` = 0 confirmed the same way. Every column header used was asserted in code before extraction ("Forecast (MVA)"/"25/26"; "Summer"/"2024/25 (MVA)").
+
+## Endeavour: now extracted (was previously missing)
+
+The Endeavour DAPR 2025 PDF (sections 6.0 and 6.5, PDF pp. 33 and 40) says the zone-substation capacity and demand figures are published **only** in the DAPR Mapping Portal — none of the portal's exportable tables (DAPR Template, Feeder Overload, Historic Load Trace) is a zone-substation demand table, and substation figures appear only in individual map pop-ups. The owner has since made a knowing **INTERNAL-USE** decision (consistent with Essential/Ausgrid) to extract those pop-ups.
+
+**Result:** 166 recorded-actual zone substations were transcribed from the portal's rendered "Report Data for X" panels (readable HTML table text, not pixels), each with its map-marker WGS84 position. The full acquisition log — 186 markers inspected (166 with recorded demand, 20 excluded as proposed/no-recorded-demand and listed by name), the exact demand field chosen (higher of summer/winter `Actual (MVA)` 2025), SHA-256s, a 10-row live re-verification, the flagged rows, the season-year label ambiguity, and the verbatim NER 5.13.2 disclaimer — is in **`endeavour_portal/SOURCES_endeavour.md`**. The 166 rows are appended to `nsw_zone_substation_max_demand.csv`; they bypass name-geocoding and are emitted with `coord_source="portal"`.
+
+## Coordinates: OpenStreetMap (ODbL) — separate from the demand magnitudes
+
+The 543 Essential+Ausgrid rows carry demand **magnitudes** but no coordinates.
+Coordinates are added separately by `pipeline.demand.geocode_load` from three
+point layers: Geoscience Australia (primary, already in-repo, open),
+**OpenStreetMap-Overpass (second)** and **Nominatim OSM place-geocoding (third,
+lower-confidence)**. OSM supplies the urban distribution zone substations the GA
+transmission layer lacks; Nominatim supplies suburb/locality centroids for the
+names neither of the first two carries (chiefly the Ausgrid Hunter/Newcastle
+block).
+
+The 166 **Endeavour** rows are different: they arrive **already carrying precise
+WGS84 coordinates** from the Endeavour DAPR portal map markers, so they take the
+**coordinates-already-present fast-path** in `geocode_load` — emitted directly
+with `coord_source="portal"`, GA-precise confidence, **bypassing** GA/OSM/
+Nominatim. These Endeavour coordinates come from the Endeavour portal (NOT OSM)
+and are precise substation positions; they are **not** ODbL-licensed OSM data.
+
+- **OSM acquisition.** `scripts/_acquire_osm_substations_nsw.py` makes one
+  read-only Overpass POST for named `power=substation` nodes/ways inside the NSW
+  admin area, drops `substation=traction`/`rail`, and writes
+  `DATA/infrastructure/substations/osm_substations_nsw.geojson` (EPSG:4326). The
+  snapshot manifest (`DATA/infrastructure/metadata/download_manifest.json`)
+  records the dataset, Overpass URL, the **exact query string**, retrieval time,
+  feature count, bytes, SHA-256, CRS, and the licence credit below. The pipeline
+  reads the frozen snapshot, never the live API.
+- **Overpass query (recorded verbatim in the manifest):**
+  ```
+  [out:json][timeout:120];
+  area["ISO3166-2"="AU-NSW"][admin_level=4]->.nsw;
+  (
+    node["power"="substation"]["name"](area.nsw);
+    way["power"="substation"]["name"](area.nsw);
+  );
+  out tags center;
+  ```
+- **Nominatim acquisition (third tier, lower-confidence PLACE centroids).**
+  `scripts/_acquire_nominatim_substations_nsw.py` reads
+  `unmatched_substations.csv` (the GA+Overpass-unmatched names only, ~87, **not**
+  all 543) and geocodes each ONE at a time against the public Nominatim endpoint
+  `https://nominatim.openstreetmap.org/search`, single-threaded, at **≤1
+  request/second** (`time.sleep(1.1)`), with a descriptive User-Agent
+  (`opt-mining-nsw/1.0 …`; stock library UAs are rejected by the policy).
+  - **Per-name query:** `q="<substation_name> NSW"`, `format=json`, `limit=1`,
+    `countrycodes=au`. A deterministic **one-shot base-name fallback** strips a
+    trailing directional qualifier (`North/South/East/West/Central`) or
+    descriptor (`Town/Uni/Hospital`) and retries once when the full name yields
+    no usable result; the query string that produced each stored coordinate is
+    recorded in `query_string_used`.
+  - **Safeguards (reject or flag, never invent):** hard NSW bounding box
+    (lat −37.51…−28.16, lon 141.0…153.7); auto-accept only `class ∈ {boundary,
+    place}`; reject `class ∈ {highway, waterway, railway, tourism, amenity}`; an
+    **importance floor of 0.15** (tuned against the full run — good admin hits
+    sit ≥0.16, street/POI junk ≤0.053–0.107); `needs_review=true` is flagged for
+    base-name-fallback hits and near-floor importance. Results failing the bbox
+    are recorded `bbox_pass=false` and not written as usable coordinates.
+  - **Snapshot:** `DATA/infrastructure/substations/nominatim_substations_nsw.geojson`
+    (EPSG:4326), one Point per resolved name with properties `queried_name`,
+    `query_string_used`, `display_name`, `latitude`, `longitude`, `osm_class`,
+    `osm_type`, `importance`, `bbox_pass`, `needs_review`, sorted by
+    `queried_name` so the bytes are stable. The snapshot manifest
+    (`DATA/infrastructure/metadata/download_manifest.json`) records the search
+    URL, per-name query params, retrieval time, feature count, bytes, SHA-256,
+    CRS, the importance/bbox thresholds used, the licence credit below, and a
+    prominent pointer to the **Nominatim usage policy**
+    (https://operations.osmfoundation.org/policies/nominatim/). Current snapshot:
+    **55 of 87 names resolved** (20 Ausgrid + 35 Essential; 28 flagged
+    `needs_review`), importance floor 0.15.
+  - **Usage policy compliance.** The public Nominatim endpoint is governed by
+    the [usage policy](https://operations.osmfoundation.org/policies/nominatim/),
+    which has an explicit clause for LLM/AI-generated code. A one-off geocode of
+    ~87 names, single-threaded at ≤1 req/sec, **cached as this committed
+    snapshot** (the pipeline never re-queries the API at run time) is a
+    permissible "smaller one-time bulk task". Bulk/repeated/pipeline-time use is
+    NOT acceptable; for scale, use a self-hosted Nominatim or a commercial
+    geocoder.
+  - **Centroid caveat.** Nominatim returns a suburb/locality centroid, a few km
+    off the substation — strictly lower precision than GA or an OSM
+    `power=substation` feature. Every match is therefore flagged
+    `coord_source='nominatim'` / `nominatim_low_confidence=True` and is tolerable
+    only against the 15 km decay / 40 km radius of `load_weighted`.
+- **Licence.** OpenStreetMap data (both the Overpass features and the Nominatim
+  centroids) is **© OpenStreetMap contributors, licensed
+  under the Open Database License (ODbL) 1.0**
+  ([openstreetmap.org/copyright](https://www.openstreetmap.org/copyright);
+  [ODbL summary](https://opendatacommons.org/licenses/odbl/summary/)). Baseline
+  obligation is attribution; share-alike attaches only to a *distributed*
+  derived database, not to internal use. Content was rephrased for compliance
+  with licensing restrictions.
+- **Provenance split — different reuse rights.** **Coordinates come from
+  OSM(ODbL) + Nominatim(ODbL) + GA(open) + the Endeavour DAPR portal** (the
+  Endeavour coordinates are precise substation positions from the portal, NOT
+  OSM, and are covered by Endeavour's DAPR disclaimer, not ODbL). **Demand
+  magnitudes come from the DNSP DAPR data
+  (restricted, internal-use only — see the licence findings below).** These are
+  recorded as separate provenances because they carry different redistribution
+  rights: the coordinates could be redistributed under ODbL with attribution,
+  whereas the demand figures are accepted here as a knowing internal-use
+  decision and are **not** licensed for third-party redistribution. If a derived
+  substation *database* built on the OSM coordinates were ever published, that
+  database would need to be offered under ODbL.
+
+## Licence / terms findings (reported, not decided)
+
+None of the three DNSPs publishes the data under an open licence such as CC-BY. I'm not a lawyer, so treat the following as a summary of what each document says, not legal advice. **No terms were accepted, no data request was submitted and no email was sent.**
+
+**Essential Energy**
+- Where the text is: the `Disclaimer` sheet of the BSP/ZS/Lines workbook; DAPR PDF p. 7; the "DAPR Portal Disclaimer" pop-up at https://dapr.essentialenergy.com.au/ (in-page, no separate URL).
+- What it says: the report is published under NER clauses 5.12.2 and 5.13.2 to notify Registered Participants and Interested Parties, and "should only be used for those purposes". Users must independently verify suitability. No warranty is given.
+- Reuse in a third-party screening model: not granted by the published text, and the purpose limit points the other way. Written permission would be needed.
+- Contact: dmcoordinator@essentialenergy.com.au; DM Coordinator, PO Box 5730, Port Macquarie NSW 2444.
+
+**Ausgrid**
+- Where the text is: the "APR Portal Disclaimer" pop-up at https://dtapr.ausgrid.com.au/ (in-page, no separate URL); site terms at https://www.ausgrid.com.au/disclaimer, linked from the DTAPR data page.
+- What it says: the portal disclaimer says its documents belong to Ausgrid and gives no warranty. The site terms say Ausgrid owns or licenses the content and allow printing for personal use. Content may not be reproduced on any other website without Ausgrid's express written permission. They are silent on data or model reuse.
+- Reuse in a third-party screening model: not addressed. Written permission is the route.
+- Contact: the portal has **no data-request link**, contrary to what the brief assumed. The portal's contact is Ausgrid Head of Asset Management & Planning, assetinvestment@ausgrid.com.au, GPO Box 4009 Sydney NSW 2001. The site terms name no permissions contact beyond general enquiries.
+
+**Endeavour Energy**
+- Where the text is: DAPR 2025 PDF p. 2; the "DAPR Portal Disclaimer" pop-up at https://dapr.endeavourenergy.com.au/ (in-page, no separate URL).
+- What it says: published under NER clause 5.13.2; "should only be used for that purpose"; intended for general information only. No warranty is given. The verbatim disclaimer and a note on the browse-wrap term are in `endeavour_portal/SOURCES_endeavour.md`.
+- Reuse in a third-party screening model: not granted by the published text. The project owner has nonetheless made a **knowing INTERNAL-USE decision** to extract and use the portal zone-substation demand (pop-up transcription), **consistent with the Essential and Ausgrid treatment**. This log records that decision; it does not decide the terms. No "accept" gate was clicked, no form was submitted and no email was sent.
+- Contact: consultation@endeavourenergy.com.au; Enterprise Portfolio Management Office, GPO Box 811 Seven Hills NSW 1730. The Network Data Request form mentioned in the brief is **not linked from the portal**, and I did not locate it.

@@ -128,7 +128,7 @@ rather than between neighbouring cells.
 
 | Criterion | Integrated-table column | Units | Source | Direction | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Demand proxy (allocated below the AEMO/NEM region) | `demand_proxy` | normalised 0–1 (uniform allocation of the NEM-region annual mean demand, MW) | AEMO NEM-region annual operational-demand mean, allocated to each cell by its `source_region` | `higher_is_better` | Explicitly a **proxy**, never "measured local demand". Allocated uniformly to every cell within a NEM region (NSW1 = NSW + ACT convention), so it separates regions, not adjacent cells. `source_region` records the region a cell inherits from; the value is null outside every region. |
+| Demand proxy (allocated below the AEMO/NEM region) | `demand_proxy` | normalised 0–1 (NEM-region annual-mean demand, MW, distributed within each region by a weighting surface) | AEMO NEM-region annual operational-demand mean, distributed to cells within each `source_region` by a weighting surface (ABS UCL urban footprint by default, or real NSW zone-substation maximum demand under the `load_weighted` method) | `higher_is_better` | Explicitly a **proxy**, never "measured local demand" and never a guarantee of spare capacity or offtake. The within-region distribution now VARIES between cells (it concentrates near urban footprint or real zone-substation load); per-region totals are conserved exactly (NSW1 = NSW + ACT convention). `source_region` records the region a cell inherits from; the value is null outside every region. |
 
 ### §2.3 Infrastructure Criteria_Group
 
@@ -335,7 +335,7 @@ starting point, not a fixed law.
 | --- | --- | --- | --- |
 | Mean wind speed (`wind_speed`) | **0.35** | `higher_is_better` | Primary resource indicator. Energy yield scales roughly with the cube of wind speed, so it dominates project viability more than any other screening variable and carries the largest single weight. Source: GWA 100 m mean wind speed (spec §4.1.1) — an **input** feature only; the model never predicts wind from wind-derived features (no circular modelling, §3.4). |
 | Distance to transmission (`dist_transmission_km`) | **0.20** | `lower_is_better` | Connection cost is a major capex component and scales with line length, so distance to the nearest ≥132 kV line is the second-strongest discriminator between otherwise similar cells. Source: spec §4.3.1; centroid distance computed in EPSG:3577. |
-| Demand proxy (`demand_proxy`) | **0.15** | `higher_is_better` | Proximity to electrical demand improves offtake prospects and reduces transmission losses. Weighted below the physical grid distances because the MVP proxy is a NEM-region annual mean allocated uniformly to every cell (spec §4.2.3), so it discriminates between regions rather than between neighbouring cells. |
+| Demand proxy (`demand_proxy`) | **0.15** | `higher_is_better` | Proximity to existing network load improves offtake prospects and reduces transmission losses. Weighted below the physical grid distances because the proxy is a NEM-region annual-mean total distributed within each region by a weighting surface (ABS UCL urban footprint by default, or real zone-substation maximum demand under `load_weighted`; spec §4.2.3), so it now varies within a region rather than being one flat per-region value. A proxy, not measured local demand or a guarantee of spare capacity or offtake. |
 | Distance to substation (`dist_substation_km`) | **0.10** | `lower_is_better` | Substation proximity reduces interconnection complexity and works scope. Weighted at half the transmission-line criterion because it is partly collinear with it — a cell near a substation is usually near a line — and double-counting the same effect would inflate it. Source: spec §4.3.2. |
 | Terrain slope (`slope_deg`) | **0.10** | `lower_is_better` | Flatter terrain lowers civil-works, access-road and crane-pad cost and widens turbine-siting options within a cell. A continuous penalty here complements the S1-07 hard exclusion above 15 degrees: cells that pass the gate are still separated by how steep they are. Source: derived Horn slope from SRTM (spec §4.4.6). |
 | Inside a declared NSW REZ (`inside_rez`) | **0.10** | `higher_is_better` | Cells inside a declared NSW Renewable Energy Zone benefit from coordinated network planning, committed transmission investment and an established access regime. Boolean, so it maps to its definitional `{false → 0.0, true → 1.0}` domain (§5.6). Weighted modestly because it is a policy signal rather than a physical measurement, and REZ boundaries change between planning cycles. Source: spec §4.3.3. |
@@ -728,7 +728,7 @@ Scoring_Formula runs (§3.3) and records, for every excluded cell, **why** it wa
   > change), the engine can read it directly.
 
 **The vocabulary.** The machine-readable **codes are exactly the `name` values of the rules in
-`pipeline/exclusions/exclusion_rules.yaml`**. The shipped MVP vocabulary is the four codes below;
+`pipeline/exclusions/exclusion_rules.yaml`**. The shipped vocabulary is the seven codes below;
 because rules are data, not code, the vocabulary is extended or retuned by editing that YAML —
 but as a Contract-frozen decision, any change to a code follows the change-control process of
 §6.2 and must land in every recording location listed below so a downstream consumer's code
@@ -740,6 +740,9 @@ table never goes stale.
 | `missing_wind_data` | `Missing wind data` | no valid wind resource value for the cell |
 | `excessive_slope` | `Slope exceeds {threshold}°` (default 15°) | mean slope above the construction threshold |
 | `urban_area` | `Urban area` | overlaps an ABS Urban Centre/Locality |
+| `offshore_or_marine` | `Offshore or marine (not on land)` | cell centre not on land (Natural Earth land mask) |
+| `missing_slope_data` | `Missing slope data` | no valid slope value for the cell |
+| `missing_demand_data` | `Missing demand data` | no valid demand-proxy value for the cell (maps to no AEMO/NEM region) |
 
 **Pairing contract (what a consumer may rely on).** For any cell:
 
@@ -936,7 +939,7 @@ so each attribute reconciles as `consistent`.
 | feature (column) | `demand_proxy` (§2.2, §4.1) | `feature: demand_proxy` | `consistent` | No divergence — identical column name; verified in §2.5 (P1). |
 | weight | 0.15 (§4.1) | `weight: 0.15` | `consistent` | No divergence — identical default weight (F15). |
 | direction | `higher_is_better` (§2.2, §4.1) | `direction: higher_is_better` | `consistent` | No divergence — identical Direction (F3). |
-| rationale | Proximity to demand improves offtake; weighted below grid distances; NEM-region mean allocated uniformly (§4.1) | `rationale:` (same text) | `consistent` | No divergence — faithful restatement; the "proxy, not measured local demand" framing (§2.2) matches the YAML's "allocated uniformly to every cell" wording. P3 non-empty. |
+| rationale | Proximity to existing network load improves offtake; weighted below grid distances; NEM-region mean distributed within each region by a weighting surface, so it varies within a region (§4.1) | `rationale:` (same text) | `consistent` | No divergence — faithful restatement; the "proxy, not measured local demand or a guarantee of spare capacity" framing (§2.2) matches the YAML's "distributed within each region by a weighting surface … varies within a region" wording. P3 non-empty. |
 
 #### `dist_substation_km`
 

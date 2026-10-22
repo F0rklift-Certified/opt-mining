@@ -90,6 +90,64 @@ def _stub_engine(monkeypatch, ranks_by_scenario: dict[str, dict[str, int]]) -> l
     return requested
 
 
+def _stub_engine_by_key(
+    monkeypatch, ranks_by_key: dict[str, dict[str, int]]
+) -> list[dict]:
+    """
+    Stub the engine reuse path, keying each side's ranks on a per-side KEY and
+    capturing exactly how ``run_analysis`` was invoked for each side.
+
+    Unlike ``_stub_engine`` (which keys on the scenario name), this lets a test
+    drive a side with an explicit ``weights`` dict and still look its ranks up:
+    a scenario side is keyed by its scenario name, a custom side by the stable
+    key ``"custom_a"`` / ``"custom_b"`` derived from call order. Returns the
+    list of ``{"weights", "scenario"}`` call records so a test can assert that a
+    custom side went through ``run_analysis(weights=...)`` — the engine reuse
+    path — rather than any second scorer.
+    """
+    calls: list[dict] = []
+
+    def fake_run_analysis(weights=None, scenario=None, *, verbose=False):
+        # Side is identified by call order: the 1st run_analysis call is side A,
+        # the 2nd is side B (compare_scenarios resolves A then B).
+        side = "a" if len(calls) == 0 else "b"
+        calls.append({"weights": weights, "scenario": scenario})
+        key = scenario if scenario is not None else f"custom_{side}"
+        return RunHandle(run_id=f"run_{key}", weights_id=key, scenario=scenario)
+
+    def fake_get_ranked_results(run, top_n=None, min_score=None):
+        key = run.scenario if run.scenario is not None else run.weights_id
+        ranks = ranks_by_key[key]
+        return [
+            RankedRow(
+                cell_id=cell_id,
+                suitability_score=1.0 / rank,
+                rank=rank,
+                key_components={},
+            )
+            for cell_id, rank in ranks.items()
+        ]
+
+    monkeypatch.setattr(scenarios_module, "run_analysis", fake_run_analysis)
+    monkeypatch.setattr(scenarios_module, "get_ranked_results", fake_get_ranked_results)
+    return calls
+
+
+# A valid, explicit six-criterion weights configuration for the custom-side
+# tests — the same six frozen criteria/directions as the packaged scenarios,
+# with only the weights chosen by the "user".
+_CUSTOM_WEIGHTS: dict = {
+    "criteria": [
+        {"feature": "wind_speed", "weight": 0.40, "direction": "higher_is_better", "rationale": "resource"},
+        {"feature": "dist_transmission_km", "weight": 0.25, "direction": "lower_is_better", "rationale": "grid"},
+        {"feature": "demand_proxy", "weight": 0.10, "direction": "higher_is_better", "rationale": "offtake"},
+        {"feature": "dist_substation_km", "weight": 0.10, "direction": "lower_is_better", "rationale": "interconnect"},
+        {"feature": "slope_deg", "weight": 0.05, "direction": "lower_is_better", "rationale": "terrain"},
+        {"feature": "inside_rez", "weight": 0.10, "direction": "higher_is_better", "rationale": "policy"},
+    ]
+}
+
+
 # --------------------------------------------------------------------------- #
 # The join, ordering, rank_delta and null handling (deterministic, stubbed).   #
 # --------------------------------------------------------------------------- #
@@ -217,7 +275,77 @@ def test_drives_the_engine_once_per_scenario(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Honest failure — an unknown scenario is rejected by the engine parser.      #
+# Custom-weights side — a side may be an explicit weights config, not a preset. #
+# --------------------------------------------------------------------------- #
+
+
+def test_custom_weights_side_drives_the_engine_with_weights(monkeypatch):
+    """A custom side goes through ``run_analysis(weights=...)`` — the engine,
+    reused — rather than a second scorer, and its ranks are carried through."""
+    calls = _stub_engine_by_key(
+        monkeypatch,
+        {
+            "wind_led": {"c1": 1, "c2": 2},
+            "custom_b": {"c1": 2, "c2": 1},
+        },
+    )
+
+    result = compare_scenarios("wind_led", None, weights_b=_CUSTOM_WEIGHTS)
+
+    # Side A went through the engine as a named scenario; side B as explicit
+    # weights (the engine reuse path) — never a second scorer.
+    assert calls[0] == {"weights": None, "scenario": "wind_led"}
+    assert calls[1] == {"weights": _CUSTOM_WEIGHTS, "scenario": None}
+    # The engine's ranks are carried through unchanged.
+    by_cell = {r.cell_id: r for r in result.rows}
+    assert (by_cell["c1"].rank_a, by_cell["c1"].rank_b) == (1, 2)
+    assert (by_cell["c2"].rank_a, by_cell["c2"].rank_b) == (2, 1)
+    assert by_cell["c1"].rank_delta == 1 - 2
+    assert by_cell["c2"].rank_delta == 2 - 1
+
+
+def test_both_sides_custom_weights(monkeypatch):
+    """Both sides may be custom; each is resolved through the engine with its
+    own weights, and a readable custom label is set per side."""
+    calls = _stub_engine_by_key(
+        monkeypatch,
+        {
+            "custom_a": {"c1": 1, "c2": 2},
+            "custom_b": {"c1": 2, "c2": 1},
+        },
+    )
+
+    result = compare_scenarios(
+        None, None, weights_a=_CUSTOM_WEIGHTS, weights_b=_CUSTOM_WEIGHTS
+    )
+
+    assert calls[0] == {"weights": _CUSTOM_WEIGHTS, "scenario": None}
+    assert calls[1] == {"weights": _CUSTOM_WEIGHTS, "scenario": None}
+    # Custom sides are labelled so the UI can name the columns.
+    assert result.labels == {"a": "custom_a", "b": "custom_b"}
+
+
+def test_preset_vs_preset_still_works_unchanged(monkeypatch):
+    """The original named-key-only form is unchanged: scenario keys resolve as
+    scenarios and the labels echo the two keys."""
+    calls = _stub_engine_by_key(
+        monkeypatch,
+        {
+            "wind_led": {"c1": 1},
+            "grid_led": {"c1": 1},
+        },
+    )
+
+    result = compare_scenarios("wind_led", "grid_led")
+
+    assert calls[0] == {"weights": None, "scenario": "wind_led"}
+    assert calls[1] == {"weights": None, "scenario": "grid_led"}
+    assert result.labels == {"a": "wind_led", "b": "grid_led"}
+
+
+# --------------------------------------------------------------------------- #
+# Honest failure — an unknown scenario / invalid weights is rejected by the    #
+# engine parser (no duplicate validator lives in this module).                 #
 # --------------------------------------------------------------------------- #
 
 
@@ -225,6 +353,31 @@ def test_unknown_scenario_raises_via_the_engine_parser(runs_store):
     with pytest.raises(ScoringConfigError, match="unknown scenario"):
         compare_scenarios("does_not_exist", "wind_led")
     # No Run was materialised for the invalid request.
+    assert not runs_store.exists() or not any(runs_store.iterdir())
+
+
+def test_invalid_custom_weights_raise_via_the_engine_parser(runs_store):
+    """Invalid custom weights (a negative weight) are rejected by the ENGINE's
+    own parser — ``ScoringConfigError`` — naming the fault and creating no Run.
+    No duplicate weights validator lives in ``compare_scenarios``."""
+    bad_weights = {
+        "criteria": [
+            {"feature": "wind_speed", "weight": -1.0, "direction": "higher_is_better", "rationale": "x"},
+            {"feature": "dist_transmission_km", "weight": 0.5, "direction": "lower_is_better", "rationale": "x"},
+        ]
+    }
+    # Side A is the invalid custom side, so it is rejected before any Run is
+    # materialised for either side (fail-before-write, Requirement 4.4).
+    with pytest.raises(ScoringConfigError):
+        compare_scenarios(None, "wind_led", weights_a=bad_weights)
+    assert not runs_store.exists() or not any(runs_store.iterdir())
+
+
+def test_side_with_both_scenario_and_weights_raises(runs_store):
+    """A side that supplies BOTH a scenario key and explicit weights violates
+    the engine's exactly-one-of guard and raises ``ScoringConfigError``."""
+    with pytest.raises(ScoringConfigError):
+        compare_scenarios("wind_led", "grid_led", weights_a=_CUSTOM_WEIGHTS)
     assert not runs_store.exists() or not any(runs_store.iterdir())
 
 

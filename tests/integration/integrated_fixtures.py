@@ -77,6 +77,7 @@ from pipeline.validate import SANITY_RANGES  # noqa: E402
 _TEXT_COLUMN_VALUES: dict[str, str] = {
     "wind_confidence": "valid",
     "demand_confidence": "high",
+    "demand_coord_confidence": "n/a",  # surface-only metadata; "n/a" under urban_weighted
     "infra_confidence": "high",
     "geo_confidence": "high",
     "source_region": "NSW1",
