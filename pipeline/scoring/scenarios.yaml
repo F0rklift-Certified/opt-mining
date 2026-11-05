@@ -65,9 +65,11 @@ scenarios:
         weight: 0.10
         direction: higher_is_better
         rationale: >-
-          Proximity to electrical demand improves offtake prospects. A NEM-region
-          annual mean allocated uniformly to every cell (a proxy), so it
-          discriminates between regions rather than neighbouring cells.
+          Proximity to existing network load improves offtake prospects. A
+          NEM-region annual-mean total distributed within each region by a
+          weighting surface (urban footprint by default, or real zone-substation
+          maximum demand under load_weighted), so it varies within a region. A
+          proxy, not measured local demand or a guarantee of spare capacity.
       - feature: dist_substation_km
         weight: 0.05
         direction: lower_is_better
@@ -119,9 +121,11 @@ scenarios:
         weight: 0.10
         direction: higher_is_better
         rationale: >-
-          Proximity to electrical demand improves offtake prospects. A NEM-region
-          annual mean allocated uniformly to every cell (a proxy), so it
-          discriminates between regions rather than neighbouring cells.
+          Proximity to existing network load improves offtake prospects. A
+          NEM-region annual-mean total distributed within each region by a
+          weighting surface (urban footprint by default, or real zone-substation
+          maximum demand under load_weighted), so it varies within a region. A
+          proxy, not measured local demand or a guarantee of spare capacity.
       - feature: dist_substation_km
         weight: 0.10
         direction: lower_is_better

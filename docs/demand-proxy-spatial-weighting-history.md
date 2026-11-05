@@ -1,0 +1,308 @@
+# Demand proxy: from constant 0.150 to real zone-substation load
+
+**Status:** Implemented (merged to `docs/sprint-4-final-backlog`)
+
+**Date:** 2026-10-19 → 2026-10-21
+
+**Scope:** `pipeline/demand/*`, the geocoding of DNSP demand data, the
+integration → scoring → shortlist chain, and the demand-method default.
+
+**Final commit:** `d85372c` (chain of work from `5f8f555` baseline).
+
+---
+
+## Why this document exists
+
+This records a multi-step investigation and implementation that began with a
+single question — *why does every cell show a demand value of 0.150?* — and ended
+with the demand proxy being driven by real NSW zone-substation load as the default
+allocation method. It captures the decisions, the evidence behind each, the data
+provenance, and the honest limitations, so a future reader does not have to
+reconstruct the reasoning from commit history.
+
+---
+
+## The starting problem
+
+Every analysis cell showed the same demand contribution, surfaced in the app as
+`0.150`. Investigation found two compounding causes:
+
+1. **Uniform regional allocation.** The demand feature spread a single NEM-region
+   annual-mean demand figure equally across every cell in the region
+   (`raw_cell_demand = MEAN_DEMAND_MW_region / N_cells_region`). Every assigned
+   cell therefore received an identical raw value.
+2. **Per-region max normalisation on top of that.** Because all cells shared one
+   raw value, `raw / region_max` normalised to `1.0` for every assigned cell.
+
+So the stored `demand_proxy` was literally `1.0` everywhere, and `1.0 × 0.15`
+(its scoring weight) produced the constant `0.150` seen on the map. This was a
+documented MVP limitation, not a bug in the arithmetic.
+
+`demand_proxy` is one of ~9 scoring criteria and carries a weight of **0.15**
+(wind speed is 0.35, distance-to-transmission 0.20). It is a secondary factor.
+
+---
+
+## What changed, in order
+
+The work proceeded as a sequence of investigations, each followed by an
+implement-and-review workflow in an isolated git worktree. The scoring criterion
+itself — `demand_proxy`, `higher_is_better`, weight `0.15`, range `[0, 1]`, one
+row per cell, EPSG:4326 storage / EPSG:3577 compute, per-region demand
+conservation — was **never changed**. Only the *weighting surface* that
+distributes regional demand across cells changed.
+
+### 1. Urban-footprint weighting (`urban_weighted`)
+
+Replaced uniform allocation with a surface weighted by each cell's overlap with
+ABS Urban Centres & Localities (UCL) 2021 urban footprint, reusing the existing
+`_urban_overlap` spatial pattern. Demand is distributed as
+`w_cell / Σ w_region × MEAN_DEMAND_MW_region`, which conserves each region's total
+exactly. Result: NSW1 went from 1 distinct proxy value to 1,337; demand varies
+within a region. Band multipliers were wired in but set to 1.0 (footprint-only
+baseline, tunable later without a schema change). This became the new default at
+the time.
+
+Honest limit: urban footprint is a coarse proxy for electricity demand (no
+load-centre or feeder data).
+
+### 2. Real zone-substation demand (`load_weighted`)
+
+Acquired real max-demand data from the three NSW Distribution Network Service
+Providers' Distribution Annual Planning Reports (DAPRs):
+
+- **Ausgrid** — recorded actual peak demand, summer 2024/25 (MVA).
+- **Essential Energy** — POE50 forecast peak demand, summer 2025/26 (MVA);
+  Essential publishes no recorded per-substation maximum.
+- **Endeavour Energy** — recorded actual, extracted from the DAPR mapping-portal
+  pop-ups (its figures are not published as a table); 166 zone substations.
+
+The model: real zone-substation load sets the **shape** of demand within a
+region; the AEMO regional aggregate still sets the **level**, via a per-region
+rescale (`w_cell = Σ_s load_mva_s · exp(−d/d0)` over substations within a radius,
+then rescaled per NEM region). This preserves exact conservation and absorbs the
+MVA-vs-MW and forecast-vs-recorded mismatches, because only the relative shape is
+used. `d0 = 15 km`, search radius `40 km`.
+
+Introduced as a selectable `--allocation-method load_weighted`; the default stayed
+`urban_weighted` until validated.
+
+### 3. Geocoding the demand data (four tiers)
+
+The DAPR demand rows carried names but (mostly) no coordinates, so substations had
+to be located before their load could be placed on the grid. A deterministic,
+tiered geocoder was built, each tier lower precision than the last and flagged as
+such; unmatched substations are **dropped, never given invented coordinates**:
+
+1. **GA** — Geoscience Australia substation layer (transmission-weighted; precise).
+2. **OSM Overpass** — mapped `power=substation` features (precise), with an
+   operator-agreement gate; recovered the Sydney-metro distribution substations GA
+   lacks.
+3. **Nominatim** — place/suburb centroids for substations absent from OSM
+   features (lower precision; always flagged `nominatim_low_confidence`; tolerable
+   only because of the 15 km decay). Recovered the Ausgrid Hunter/Newcastle block.
+4. **Endeavour portal coordinates** — the Endeavour rows arrived with precise
+   portal marker coordinates, so they bypass name-geocoding entirely
+   (`coord_source="portal"`).
+
+Coverage rose across these steps from 54.5% → 84.0% → 94.1%, and Endeavour added
+166 precise points that closed the Western Sydney / Blue Mountains / Illawarra /
+South Coast gap entirely (that region previously had zero demand data).
+
+### 4. Baseline rebuild + demand-confidence transparency
+
+Before changing the default, two prerequisites landed:
+
+- **Rebuilt the stale committed chain.** The committed integration → scoring →
+  shortlist outputs were still from the legacy `uniform` era (demand_proxy = 1.0).
+  They were regenerated under the then-current `urban_weighted` default so the
+  committed baseline reflected reality.
+- **Added an informational `demand_coord_confidence` column** (high / low / n/a)
+  propagated from the load points through to the scored/shortlist output, so any
+  cell whose demand signal rode a low-confidence (Nominatim/OSM) substation is
+  auditable. It is strictly metadata — it does not feed back into `demand_proxy`,
+  the score, the weights, or the ranking (proven: score/rank bit-identical with
+  and without the column).
+
+### 5. Flipping the default to `load_weighted`
+
+A side-by-side comparison of the shortlists under both methods informed the
+decision (see "The decision to flip" below). The default was then flipped to
+`load_weighted`, the full chain regenerated, and all method-report/provenance docs
+updated. `uniform` and `urban_weighted` remain selectable via `--allocation-method`.
+
+---
+
+## The decision to flip the default
+
+A rigorous comparison (`.agents/tasks/demand-method-comparison/`) scored the grid
+under both methods, changing only the demand input, and found:
+
+- **`load_weighted` fixes a real defect.** On eligible (rural) land,
+  `urban_weighted`'s surface is effectively degenerate (3 distinct values, 72% at
+  the floor). Max-normalisation then handed full demand weight to 44 out-of-state
+  Queensland border cells, none in a REZ, promoting them into NSW's top-100.
+  `load_weighted`'s top-100 is 100% NSW, 100% in-REZ, near measured load.
+- **But demand barely moves the decision-relevant top.** At weight 0.15, the
+  shortlist is governed by wind / transmission / REZ. `load_weighted`'s top-100 is
+  ~98–100% identical to a demand-blind baseline. The visible shortlist payoff is
+  modest; the real win is correctness and the removal of the QLD artefact.
+
+Verdict: **flip**, because it is more accurate, built on real data, and removes a
+concrete artefact — sequenced behind the baseline rebuild and the confidence tier.
+Noted explicitly: if demand should *shape* the shortlist more, the lever is the
+**weight (0.15)**, not the method — a separate, deliberate preference decision.
+
+Post-flip verification confirmed the prediction: top-100 100% NSW / in-REZ, all 44
+QLD artefact cells evicted, conservation exact (≤1e-6), proxy ∈ [0,1], null → low
+confidence, demand weight unchanged at 0.15.
+
+---
+
+## Data provenance and licensing
+
+Provenance is deliberately split, because the parts have different reuse rights:
+
+- **Demand magnitudes** — NSW DNSP DAPR data (Ausgrid, Essential, Endeavour). The
+  DAPR disclaimers restrict the data to their regulatory purpose and are **not**
+  open licences. Use here is a **knowingly accepted internal-use decision by the
+  project owner**, recorded in `DATA/electricity-demand/load/SOURCES.md`. This is
+  not a grant of an open licence.
+- **Coordinates** — GA (open), OSM and Nominatim (© OpenStreetMap contributors,
+  ODbL 1.0), and Endeavour portal marker positions. The ODbL share-alike
+  obligation attaches only to a *distributed* derived database, not to internal
+  use; attribution is required and recorded.
+
+Full acquisition logs, SHAs, per-row caveats and the extraction/verification notes
+live in `DATA/electricity-demand/load/SOURCES.md` and
+`DATA/electricity-demand/load/README.md`.
+
+---
+
+## Honest limitations (carried into the method reports)
+
+- **`demand_proxy` is a proxy, not measured local demand or spare capacity.** Max
+  demand is where load *is*, not a guarantee of network headroom or future offtake.
+- **Mixed metrics.** Essential is forecast (POE50); Ausgrid and Endeavour are
+  recorded actuals. Used only for relative shape, but it is a like-with-unlike mix.
+- **Low-confidence coordinates exist.** 55 Nominatim suburb-centroid points and 21
+  OSM low-confidence points are a few km off the true substation (tolerable under
+  the 15 km decay). They are flagged and, at weight 0.15, do not reach the
+  shortlist — but they would matter if the weight were raised.
+- **Endeavour season/year label is ambiguous.** The DAPR PDF contradicts itself on
+  whether "2025" means summer 2024/25 or 2025/26. Immaterial to the shape-based
+  model; noted, not resolved.
+- **~87 substations remain unmatched.** Genuine non-place asset names and tiny
+  remote localities thin in all coordinate sources. Dropped, listed in
+  `load/unmatched_substations.csv`; their absence barely affects the surface.
+- **Demand is secondary.** At weight 0.15 the proxy does not decide the shortlist;
+  wind, transmission and REZ membership do.
+
+---
+
+## Where things stand
+
+- Default allocation method: **`load_weighted`** (real zone-substation demand
+  across all three NSW DNSPs). `uniform` and `urban_weighted` remain selectable.
+- Geocoding: four-tier (GA → OSM → Nominatim → Endeavour portal), ~94% of
+  substations located, each tier precision-flagged, unmatched dropped not invented.
+- Committed integration → scoring → shortlist outputs reflect the `load_weighted`
+  default; `demand_coord_confidence` surfaces low-confidence demand signals for
+  audit without affecting the ranking.
+- The scoring criterion and its 0.15 weight are unchanged throughout.
+
+## Pointers
+
+- Pipeline: `pipeline/demand/feature.py`, `pipeline/demand/geocode_load.py`,
+  `pipeline/demand/config.py` (`DEFAULT_ALLOCATION_METHOD`).
+- Data & provenance: `DATA/electricity-demand/load/{README.md,SOURCES.md}`,
+  `DATA/electricity-demand/demand_feature_method.md`,
+  `DATA/electricity-demand/DATA_PROVENANCE.md`.
+- Analysis behind the flip: `.agents/tasks/demand-method-comparison/findings.md`
+  (and the earlier `.agents/tasks/spatial-demand-weighting/`,
+  `real-load-demand-data/`, `osm-substation-geocoding/`,
+  `nominatim-geocode-fallback/` investigation reports).
+
+---
+## Addendum — percentile (rank) normalisation for `load_weighted`
+
+After the `load_weighted` flip, the flipped surface exposed a normalisation
+problem rather than a weighting one. `demand_proxy` was per-region **linear
+max-normalised** (`raw / region_max`), and the distance-decay surface
+concentrates demand hyper-locally around substations, so the `exp(-d/15 km)`
+kernel crushes everything remote toward the floor. The result was a proxy that
+had almost no usable spread: **~62% of eligible cells below 0.001 and ~94% below
+0.01**, and the remote New England / Central-West Orana REZ wind cells that
+dominate the shortlist read `demand_proxy` ≈ 0.0002 — **displayed as 0.000
+everywhere**, so the 0.15-weighted criterion stopped discriminating between the
+exact cells it was meant to separate.
+
+A quick transform comparison on the real weights was decisive: a **log**
+transform barely helped (the mass is too close to the floor), while
+**percentile (rank)** normalisation restored a full, legible spread. The fix:
+for `load_weighted` only, `demand_proxy` is now the per-NEM-region rank-quantile
+of the raw cell weight, `raw.rank(method="average", pct=True)` in `[0,1]`.
+
+- **Meaning change (surfaced, not hidden).** The proxy is now a **rank-position**,
+  not a magnitude. A cell at 0.40 is at the 40th percentile of demand proximity
+  *within its region*, not 40% of the regional maximum. This is the right call
+  for a screening discriminator but it loses magnitude meaning — documented in the
+  method report and `load/README.md`.
+- **Spread restored.** Eligible-cell `demand_proxy` now has median ≈ 0.44,
+  p90 ≈ 0.84, **0% below 0.001**, ~13.7k distinct values; the top-20 shortlist
+  cells read ≈ 0.77–0.93 (legible at 3 dp, never 0.000).
+- **Demand now bites.** The top wind cell's demand contribution rises from
+  ≈ 0.00002 to ≈ 0.06, so the shortlist moved **modestly** versus the
+  linear-normalised `load_weighted` baseline (8 of the top-20 retained, the rest a
+  reshuffle; still New England / Central-West Orana REZ cells — not degenerate).
+  Expected and accepted.
+- **Scope & invariants.** Percentile applies to `load_weighted` **only**;
+  `uniform` and `urban_weighted` keep linear max-normalisation and are byte-identical
+  when selected. The demand weight stays **0.15**, eligibility and other features
+  are unchanged, per-region raw-demand conservation still holds exactly (percentile
+  is a presentation of the proxy, not of the conserved raw demand), null→low
+  confidence and the `demand_coord_confidence` metadata column are unchanged.
+- **Ties / determinism.** Average rank is used, so the floor-only cell block maps
+  to the low end of the range; `rank` is a pure function of the values, so repeated
+  runs are byte-identical.
+- The honest caveats above still hold: the proxy is proximity to load, **not** spare
+  capacity; it mixes forecast and recorded figures; some coordinates are
+  low-confidence. Percentile normalisation changes none of that — it only makes the
+  existing signal usable across the shortlist.
+
+Change: `pipeline/demand/feature.py` `normalise_proxy(..., mode="percentile")` for
+`load_weighted`; full dependent chain (integration → scoring → shortlist →
+explanation) regenerated.
+
+## Addendum — DISPLAY-ONLY per-cell network-load read-out (`load_within_radius_mva`)
+
+`demand_proxy` is dimensionless (after the percentile flip it is a per-region
+*rank*, not a magnitude), which reads as an abstract "0.000–1.000" index in the
+UI. To give users a tangible megavolt-ampere number, the demand feature now also
+emits a per-cell **`load_within_radius_mva`** column and the Site Detail panel
+renders it as "≈ X MVA network load within ~40 km".
+
+Definition (owner-approved): for each cell it is the **raw sum** of
+zone-substation `max_demand` (MVA) over the substations within
+`LOAD_SEARCH_RADIUS_M` (40 km) of the cell centroid — the **same** candidate set
+`compute_load_cell_weights` selects for the distance-decay weight, but summed
+with **no decay kernel, no per-region rescale and no normalisation**. This keeps
+the MVA figure and `demand_proxy` telling a consistent story (a near-city cell
+shows high MVA and a high proxy; a remote REZ wind cell shows low MVA and a low
+proxy).
+
+It is an **ESTIMATE of nearby network load** — *not* demand at the cell, *not*
+spare capacity. Crucially it is **DISPLAY-ONLY**: it is carried through
+integration → scoring → explanation → the service as metadata (mirroring
+`demand_coord_confidence`) and is **never** an input to `demand_proxy`, the
+composite score, the criteria weights or the ranking. The regenerated
+`suitability_score`, `rank` and shortlist are byte-identical to the pre-change
+baseline; the only additions are the new display-only column through the chain,
+its contract/API field (`SiteDetail.demand_load_mva`) and the UI read-out. The
+honest caveats above still hold.
+
+Change: `pipeline/demand/feature.py` `compute_cell_load_mva` / `derive_cell_load_mva`;
+the column carried as context (`integration` demand LayerSpec + `BASE_COLUMNS`,
+`scoring.config.CARRIED_CONTEXT_COLUMNS`); `SiteDetail.demand_load_mva` +
+CONTRACT.md + OpenAPI snapshot + typed client; `SiteDetailPanel.tsx` read-out;
+full dependent chain regenerated.

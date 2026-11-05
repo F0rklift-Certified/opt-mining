@@ -19,7 +19,6 @@ on:
   push:
     branches: [main, master]
   pull_request:
-    branches: [main, master, s2-08]
 
 # Cancel in-progress runs for the same ref when a new commit is pushed.
 concurrency:
@@ -50,14 +49,111 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          # pytest is the test runner but is not a runtime dependency, so it is
-          # not in requirements.txt. Pinned here to the version verified locally
-          # on Python 3.13. hypothesis (used by property tests) is pinned in
-          # requirements.txt and installed above.
-          pip install pytest==9.1.1
+          pip install -r app/api/requirements.txt
+          # pytest and httpx support the test harness but are not runtime
+          # dependencies, so they are kept out of the production manifests.
+          # Pin both to the versions verified locally on Python 3.13.
+          # hypothesis (used by property tests) is installed above.
+          pip install pytest==9.1.1 httpx==0.28.1
 
-      - name: Run S2-09 backend integration gate
-        run: pytest -v tests/backend
+      - name: Run S2-09 backend test gate
+        # The Docker Compose smoke test is intentionally opt-in because hosted
+        # runners cannot reliably complete image builds within its bounded
+        # readiness timeout. It remains runnable with: pytest -m integration.
+        run: pytest -v -m "not integration" tests/backend
 
-      - name: Run remaining unit and integration tests
-        run: pytest -v --ignore=tests/backend
+      - name: Run remaining non-Docker tests
+        run: pytest -v -m "not integration" --ignore=tests/backend
+
+  docker-build:
+    name: Docker Compose build
+    runs-on: ubuntu-latest
+    # Build and boot both images, exercise the same HTTP operations as the
+    # browser, then drive the UI itself with Playwright (S4-09a). A successful
+    # image build alone cannot catch import-time shared-library errors, missing
+    # input data or rejected CORS requests.
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      # Production images only (-f skips docker-compose.override.yml): the dev
+      # override mounts app/web into the container, which leaves a root-owned
+      # node_modules on the runner and breaks the host-side Playwright install.
+      - name: Build Compose images
+        working-directory: app
+        run: docker compose -f docker-compose.yml build
+
+      - name: Start Compose stack
+        working-directory: app
+        run: docker compose -f docker-compose.yml up -d
+
+      - name: Verify browser-facing service operations
+        run: python3 app/smoke_test.py
+
+      # S4-09a: drive the real UI in a browser against the same running stack.
+      - name: Set up Node 20 for the browser E2E
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+
+      - name: Install Playwright
+        working-directory: app/web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run browser end-to-end tests
+        working-directory: app/web
+        env:
+          E2E_BASE_URL: http://localhost:3000
+        run: npm run e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: app/web/playwright-report/
+          retention-days: 14
+
+      - name: Show container logs on failure
+        if: failure()
+        working-directory: app
+        run: docker compose -f docker-compose.yml logs --no-color
+
+      - name: Stop Compose stack
+        if: always()
+        working-directory: app
+        run: docker compose -f docker-compose.yml down
+
+  frontend:
+    name: Frontend (Node 20)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/web
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: app/web/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Test frontend
+        run: npm test -- --runInBand
+
+      - name: Type-check frontend
+        run: npm run typecheck
+
+      - name: Build frontend
+        run: npm run build

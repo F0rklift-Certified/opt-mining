@@ -49,37 +49,55 @@ from pipeline.scoring.weights import Criterion, WeightsConfig, load_weights
 from pipeline.scoring.write import build_scored_table, write_scored_table
 
 
-FROZEN_INTEGRATED_SHA256 = (
-    "b7cd3d261abfdedd613301e0e2fdd07e3381178deb8ce8aff506a066117a1e61"
-)
+# Reviewed snapshot update — statewide-coverage fix (FEAT-003). The S2-02
+# baseline was deliberately re-frozen after the exclusions stage was migrated to
+# statewide NSW coverage (join of the wind + geographic + demand feature tables)
+# and the missing_demand_data rule was added, so every pinned value below moves
+# from the old New-England-window baseline (8b300ca5…c196fd, 1,233 eligible) to
+# the statewide baseline. See .agents/tasks/nsw-wind-coverage/statewide-fix.
+#
+# The integrated .gpkg's SHA-256 is intentionally NOT pinned as a literal: a
+# GeoPackage is a SQLite container whose byte layout is not reproducible across
+# regenerations, so test_frozen_dataset_identity_and_exclusion_population checks
+# the recorded/frozen/on-disk hashes agree with each other instead. The content
+# identity is pinned by the reproducible row/eligibility counts below.
 FROZEN_ROWS = 47_311
-FROZEN_ELIGIBLE_ROWS = 1_233
-FROZEN_EXCLUDED_ROWS = 46_078
+FROZEN_ELIGIBLE_ROWS = 23_266
+FROZEN_EXCLUDED_ROWS = 24_045
 
+# Reviewed snapshot update — outside-NSW exclusion (QA F-01, 2026-10-22).
+# The `outside_nsw_land` rule now excludes every cell whose centroid lies
+# outside the ABS NSW boundary, so the eligible population falls from 32,525
+# to 23,266 (the same count S3-10's independent baseline repair reached).
+# Normalisation bounds are taken over eligible cells only, so every score
+# shifts slightly; the baseline top four are unchanged in order and the
+# Central-West Orana cell S32.436_E149.036 enters at rank 5. The explanation
+# digest also reflects S4-03's reworded eligible headline ("Eligible candidate
+# …"). Previous snapshot: demand-proxy percentile normalisation (b2a4a32).
 EXPECTED_BASELINE_TOP_FIVE = (
-    ("S30.186_E151.636", 0.9324172958364101),
-    ("S30.636_E151.586", 0.9304033540651924),
-    ("S30.086_E151.686", 0.9241267054330178),
-    ("S30.236_E151.586", 0.9237187266324157),
-    ("S30.286_E151.636", 0.9236170726352617),
+    ("S30.586_E151.586", 0.8909680392438263),
+    ("S30.636_E151.586", 0.8897308061917274),
+    ("S30.586_E151.536", 0.8881303560021424),
+    ("S30.536_E151.586", 0.8866570780699919),
+    ("S32.436_E149.036", 0.8856950482216077),
 )
 EXPECTED_WIND_LED_TOP_FIVE = (
-    "S30.086_E151.686",
-    "S30.086_E151.736",
+    "S32.436_E149.086",
+    "S32.436_E149.036",
+    "S32.486_E149.086",
     "S30.186_E151.636",
-    "S30.236_E151.586",
     "S30.286_E151.636",
 )
 EXPECTED_GRID_LED_TOP_FIVE = (
     "S30.636_E151.586",
-    "S30.286_E151.636",
-    "S30.136_E151.686",
-    "S30.236_E151.586",
-    "S30.286_E151.686",
+    "S30.586_E151.586",
+    "S30.586_E151.536",
+    "S32.436_E149.086",
+    "S32.486_E149.086",
 )
-EXPECTED_SCENARIO_RANK_CHANGES = 1_228
+EXPECTED_SCENARIO_RANK_CHANGES = 23_261
 EXPECTED_EXPLANATION_SHA256 = (
-    "36b82695ba4ec1c78e260399891d4050034d8077650cc5fe4de2d71152bdba4b"
+    "a864448a36e37562ab77b2f994ecc970b1636dbf41b70eee25cfb281c648e707"
 )
 TOLERANCE = 1e-12
 
@@ -300,8 +318,22 @@ def test_frozen_dataset_identity_and_exclusion_population(frozen_backend_run):
     manifest_path = Path("DATA/integration/metadata/integration_manifest.json")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))["derived_features"][0]
 
-    assert manifest["sha256_gpkg"] == FROZEN_INTEGRATED_SHA256
-    assert sha256_file(scoring_config.INTEGRATED_PATH) == FROZEN_INTEGRATED_SHA256
+    # Frozen-dataset identity. A GeoPackage is a SQLite container whose byte
+    # layout is NOT reproducible across regenerations (page ordering / internal
+    # bookkeeping differ run-to-run even for identical rows), so pinning a
+    # literal SHA-256 of the .gpkg flakes on every legitimate rebuild. The
+    # meaningful, deterministic identity guarantee is self-consistency: the hash
+    # the integration manifest recorded, the frozen S2-02 baseline reference,
+    # and the actual on-disk file must all agree. The row/eligibility counts
+    # below (which ARE reproducible) pin the dataset's content.
+    on_disk_sha = sha256_file(scoring_config.INTEGRATED_PATH)
+    baseline_manifest = json.loads(
+        Path("DATA/integration/metadata/integrated_baseline_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert manifest["sha256_gpkg"] == on_disk_sha
+    assert baseline_manifest["sha256"] == on_disk_sha
     assert len(run.features) == FROZEN_ROWS
     assert int(run.mask.sum()) == FROZEN_ELIGIBLE_ROWS
     assert int((~run.mask).sum()) == FROZEN_EXCLUDED_ROWS

@@ -77,6 +77,13 @@ _CELL_ID = config.REQUIRED_SCORE_COLUMNS[0]  # "cell_id"
 _CENTROID_LAT = config.REQUIRED_GRID_COLUMNS[1]  # "centroid_lat"
 _CENTROID_LON = config.REQUIRED_GRID_COLUMNS[2]  # "centroid_lon"
 _WIND_SPEED = config.REQUIRED_INTEGRATED_COLUMNS[1]  # "wind_speed"
+# S3-08: the two integrated REZ columns joined onto the eligible frame so Check
+# 4 can populate the REZ reference outcome. ``rez_name`` is the required column
+# (index 6, composed from config so a rename propagates); ``inside_rez`` is an
+# optional guarded join (not in REQUIRED_INTEGRATED_COLUMNS) that degrades
+# honestly when absent.
+_REZ_NAME = config.REQUIRED_INTEGRATED_COLUMNS[6]  # "rez_name"
+_INSIDE_REZ = "inside_rez"
 
 
 def _rel(path: Path | str) -> str:
@@ -101,6 +108,13 @@ def _enrich_eligible(eligible, grid, integrated):
     ``wind_speed`` (from the Integrated_Feature_Table) — this is the join the
     notes left by tasks 5.1 and 6.1 expect the caller to perform.
 
+    Additionally joins the integrated ``rez_name`` and ``inside_rez`` columns so
+    Check 4 can populate the REZ reference outcome (S3-08): ``rez_name`` drives
+    the REZ label list and ``inside_rez`` drives the boolean proportion of top
+    cells inside a REZ. Each is guarded identically to ``wind_speed`` and
+    degrades honestly when absent (the REZ outcome then records "REZ column not
+    joined").
+
     PURE: builds and returns a new frame; never mutates ``eligible``. A LEFT join
     keeps every eligible cell (an unmatched centroid/wind_speed becomes null and
     is handled honestly by the downstream checks — a MISSING spot value, or a
@@ -122,6 +136,17 @@ def _enrich_eligible(eligible, grid, integrated):
     if _WIND_SPEED in integrated.columns and _WIND_SPEED not in enriched.columns:
         wind = integrated[[_CELL_ID, _WIND_SPEED]].drop_duplicates(subset=_CELL_ID)
         enriched = enriched.merge(wind, on=_CELL_ID, how="left")
+
+    # S3-08: integrated rez_name and inside_rez on cell_id (for Check 4's REZ
+    # reference outcome). Each is guarded exactly like the wind_speed join —
+    # joined only when present on the integrated frame and not already on the
+    # eligible frame. rez_name drives the rez_represented label list; inside_rez
+    # drives the boolean proportion. Neither is a fallback for the other; an
+    # absent column degrades the REZ outcome honestly rather than raising.
+    for rez_col in (_REZ_NAME, _INSIDE_REZ):
+        if rez_col in integrated.columns and rez_col not in enriched.columns:
+            rez = integrated[[_CELL_ID, rez_col]].drop_duplicates(subset=_CELL_ID)
+            enriched = enriched.merge(rez, on=_CELL_ID, how="left")
 
     return enriched
 
@@ -263,15 +288,20 @@ def run(
     # out; no filesystem access, no mutation of any input).
     print("  [3/7] Running plausibility checks...")
 
-    # Check 1 — Known Wind Farm Comparison (Requirement 2).
+    # Check 1 — Known Wind Farm Comparison (Requirement 2). The top-ranked band
+    # threshold is threaded from config (S3-08); the ranks are the engine's.
     wind_farms = check_known_wind_farms(
         frames.wind_generators, frames.grid, frames.scored,
         containment_crs, transform_log,
+        top_band_n=config.TOP_RANKED_BAND_N,
     )
     print(f"        Check 1 (Known Wind Farms): "
           f"{wind_farms.n_upper_quartile}/{wind_farms.n_known_farms} in "
           f"Upper_Quartile -> "
-          f"{'PASS' if wind_farms.outcome.passed else 'FAIL'}")
+          f"{'PASS' if wind_farms.outcome.passed else 'FAIL'}; "
+          f"{wind_farms.n_in_top_band}/{wind_farms.n_known_farms} in top-ranked "
+          f"band (rank <= {wind_farms.top_band_n}) -> "
+          f"{'PASS' if wind_farms.top_band_outcome.passed else 'FAIL'}")
 
     # Check 2 — Exclusion Validation (Requirement 3).
     exclusions = check_exclusions(
@@ -388,6 +418,10 @@ def run(
         "n_known_farms": wind_farms.n_known_farms,
         "n_farms_upper_quartile": wind_farms.n_upper_quartile,
         "check1_pass": wind_farms.outcome.passed,
+        # S3-08 additive: Check 1 top-ranked band framing.
+        "n_farms_top_band": wind_farms.n_in_top_band,
+        "top_band_n": wind_farms.top_band_n,
+        "check1_top_band_pass": wind_farms.top_band_outcome.passed,
         # Check 2 — Exclusion Validation.
         "n_exclusion_checks_passed": exclusions.n_passed,
         "n_exclusion_checks_failed": exclusions.n_failed,
@@ -400,6 +434,10 @@ def run(
             distribution.cluster_outcome.passed
             and distribution.correlation_outcome.passed
         ),
+        # S3-08 additive: Check 4 REZ reference outcome.
+        "n_top_inside_rez": distribution.n_top_inside_rez,
+        "top_n_considered": distribution.top_n_considered,
+        "rez_outcome_pass": distribution.rez_outcome.passed,
         # Reproducibility metadata — the single Run_Timestamp / Pipeline_Version.
         "run_timestamp": run_timestamp,
         "pipeline_version": pv,

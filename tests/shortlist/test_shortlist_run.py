@@ -37,6 +37,7 @@ import json
 from pathlib import Path
 
 import geopandas as gpd
+import pandas as pd
 import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
@@ -50,19 +51,31 @@ from pipeline.shortlist.run import run
 # ---------------------------------------------------------------------------
 
 
-def _scored_frame(n: int = 5) -> gpd.GeoDataFrame:
+def _scored_frame(n: int = 5, *, carry_centroids: bool = False) -> gpd.GeoDataFrame:
     """A small, well-formed synthetic Scored_Table (Point geometry, EPSG:4326).
 
     Carries the REQUIRED_SCORE_COLUMNS (cell_id, suitability_score, rank,
     confidence). Ranks are ascending 1..n; scores decrease with rank.
+
+    When ``carry_centroids`` is True the frame also carries
+    centroid_lat/centroid_lon — the REAL S1-10 contract (scoring's
+    CARRIED_COLUMNS), whose values match ``_grid_frame`` for the same cell_id
+    by construction. Both shapes are exercised so the shortlist's coordinate
+    join is regression-tested against a carried-through Scored_Table (which the
+    full chain actually produces) as well as a bare one.
     """
+    data = {
+        "cell_id": [f"C{i:04d}" for i in range(1, n + 1)],
+        "suitability_score": [round(0.95 - 0.1 * i, 4) for i in range(n)],
+        "rank": list(range(1, n + 1)),
+        "confidence": (["high", "low"] * n)[:n],
+    }
+    if carry_centroids:
+        # Identical to _grid_frame's deterministic coordinates for each cell.
+        data["centroid_lat"] = [-30.0 - 0.05 * i for i in range(n)]
+        data["centroid_lon"] = [150.0 + 0.05 * i for i in range(n)]
     return gpd.GeoDataFrame(
-        {
-            "cell_id": [f"C{i:04d}" for i in range(1, n + 1)],
-            "suitability_score": [round(0.95 - 0.1 * i, 4) for i in range(n)],
-            "rank": list(range(1, n + 1)),
-            "confidence": (["high", "low"] * n)[:n],
-        },
+        data,
         geometry=[Point(150.0 + 0.05 * i, -30.0 - 0.05 * i) for i in range(n)],
         crs="EPSG:4326",
     )
@@ -183,6 +196,74 @@ class TestRunContract:
 
         assert str(out_dir) in result["shortlist_csv_path"]
         assert str(out_dir) in result["shortlist_geojson_path"]
+
+
+class TestCarriedCentroidsContract:
+    """
+    Regression guard for the real S1-10 contract: the Scored_Table CARRIES
+    centroid_lat/centroid_lon (scoring/config.py CARRIED_COLUMNS, also read by
+    the S2-08 get_run_cells endpoint). The coordinate join must be idempotent
+    to those carried columns — a bare blind grid re-merge collided (pandas
+    _x/_y suffixes) and crashed the stage end-to-end. These tests pin BOTH
+    shapes: carried-through (the live chain) and bare (grid-rejoined).
+    """
+
+    def test_run_succeeds_when_scored_table_carries_centroids(self, tmp_path, monkeypatch):
+        _redirect_output_dirs(tmp_path, monkeypatch)
+        scored = _scored_frame(5, carry_centroids=True)
+        scored_path = _write_scored(tmp_path, scored)
+        grid_path = _write_grid(tmp_path, _grid_frame(scored["cell_id"]))
+
+        result = run(top_n=3, scored_path=scored_path, grid_path=grid_path)
+
+        assert result["n_shortlisted"] == 3
+        csv_text = Path(result["shortlist_csv_path"]).read_text()
+        # Exactly one pair of coordinate columns, no _x/_y collision artefacts.
+        header = csv_text.splitlines()[0]
+        assert header.count("centroid_lat") == 1
+        assert header.count("centroid_lon") == 1
+        assert "centroid_lat_x" not in csv_text and "centroid_lat_y" not in csv_text
+
+    def test_carried_and_bare_scored_tables_yield_identical_shortlist(self, tmp_path, monkeypatch):
+        """The carried-through path must produce byte-identical coordinates to
+        the grid re-join path — the carried centroids ARE the grid centroids."""
+        # Carried-centroid Scored_Table.
+        out_a = tmp_path / "a"
+        monkeypatch.setattr(config, "SHORTLIST_DIR", out_a)
+        monkeypatch.setattr(config, "SHORTLIST_META_DIR", out_a / "metadata")
+        carried = _scored_frame(5, carry_centroids=True)
+        res_a = run(
+            top_n=3,
+            scored_path=_write_scored(tmp_path, carried, name="carried.gpkg"),
+            grid_path=_write_grid(tmp_path, _grid_frame(carried["cell_id"]), name="grid_a.gpkg"),
+        )
+        csv_a = pd.read_csv(res_a["shortlist_csv_path"])
+
+        # Bare Scored_Table (centroids only from the grid re-join).
+        out_b = tmp_path / "b"
+        monkeypatch.setattr(config, "SHORTLIST_DIR", out_b)
+        monkeypatch.setattr(config, "SHORTLIST_META_DIR", out_b / "metadata")
+        bare = _scored_frame(5, carry_centroids=False)
+        res_b = run(
+            top_n=3,
+            scored_path=_write_scored(tmp_path, bare, name="bare.gpkg"),
+            grid_path=_write_grid(tmp_path, _grid_frame(bare["cell_id"]), name="grid_b.gpkg"),
+        )
+        csv_b = pd.read_csv(res_b["shortlist_csv_path"])
+
+        for col in ("cell_id", "rank", "centroid_lat", "centroid_lon"):
+            assert list(csv_a[col]) == list(csv_b[col]), col
+
+    def test_carried_null_centroid_still_halts(self, tmp_path, monkeypatch):
+        """A null carried centroid must fail-fast, never silently pass (4.5)."""
+        _redirect_output_dirs(tmp_path, monkeypatch)
+        scored = _scored_frame(5, carry_centroids=True)
+        scored.loc[2, "centroid_lat"] = None  # a hole in the carried coordinate
+        scored_path = _write_scored(tmp_path, scored)
+        grid_path = _write_grid(tmp_path, _grid_frame(scored["cell_id"]))
+
+        with pytest.raises(ValueError, match="fabricated or null coordinate"):
+            run(top_n=5, scored_path=scored_path, grid_path=grid_path)
 
 
 # ---------------------------------------------------------------------------

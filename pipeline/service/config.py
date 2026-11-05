@@ -72,6 +72,30 @@ EXCLUSION_REASONS_COLUMN = "exclusion_reasons"
 TRIGGERED_RULES_COLUMN = "triggered_rules"
 EXCLUSION_REASON_COLUMN = "exclusion_reason"
 
+# --- Input: the S2-02 Validation_Result JSON (authoritative upstream: validate.py) ---
+# get_data_quality reads the machine-readable input-contract Validation_Result
+# the S2-02 validate stage wrote and passes its per-check records + overall
+# `all_passed` verdict through VERBATIM as a DataQualityStatus. The path is
+# composed from `pipeline/validate.py` (its `DEFAULT_VALIDATION_RESULT_PATH`,
+# itself derived from `integration/config.INTEGRATION_META_DIR` +
+# `VALIDATION_RESULT_FILENAME`) — never re-typed as a literal here — so an
+# upstream rename of the artefact or its directory breaks loudly at import
+# rather than silently drifting; the service never re-runs validation
+# (CONTRACT.md §1, §5).
+from .. import validate as _validate
+
+VALIDATION_RESULT_PATH = _validate.DEFAULT_VALIDATION_RESULT_PATH
+# The Validation_Result's overall verdict key (`all_passed`) and its per-check
+# record fields (`checks` of `{name, expected, observed, passed}`), read by
+# get_data_quality and mapped onto DataQualityStatus / DataQualityCheck. Named
+# here so the reader never re-types the S2-02 record's own keys as literals.
+VALIDATION_ALL_PASSED_KEY = "all_passed"
+VALIDATION_CHECKS_KEY = "checks"
+VALIDATION_CHECK_NAME_KEY = "name"
+VALIDATION_CHECK_EXPECTED_KEY = "expected"
+VALIDATION_CHECK_OBSERVED_KEY = "observed"
+VALIDATION_CHECK_PASSED_KEY = "passed"
+
 # The delimiter the exclusions stage uses to join multiple reason codes / texts,
 # in rule-config order (authoritative: exclusions/rules.REASON_DELIMITER). Reused
 # here so a served ExcludedRow's reason_text/reason_codes split and join exactly
@@ -104,6 +128,28 @@ def data_quality_result_path() -> Path:
 
     return _validate.DEFAULT_VALIDATION_RESULT_PATH
 
+# --- Input: the S1-12 Results_Sidecar (authoritative upstream: sanity/) ---
+# get_sanity_check reads the machine-readable Results_Sidecar the S1-12 sanity
+# stage (`pipeline/sanity/`) materialised and projects its per-check outcomes +
+# caveat + run_metadata through VERBATIM as a SanityCheck. The path is composed
+# from `pipeline.sanity.config.SIDECAR_PATH` (the producing module's own
+# constant) — never re-typed as a literal here — so an upstream rename of the
+# artefact or its directory breaks loudly rather than silently drifting; the
+# service never re-runs the sanity checks (CONTRACT.md §1, §5). Imported lazily
+# inside the resolver (mirroring `data_quality_result_path`) so the thin service
+# layer does not pull the sanity stage's geospatial dependencies at import time.
+def sanity_result_path() -> Path:
+    """
+    Absolute path to the S1-12 Results_Sidecar JSON.
+
+    Composed from `pipeline.sanity.config.SIDECAR_PATH` (the producing module's
+    authoritative constant), so this path can never drift from where the sanity
+    stage writes it.
+    """
+    from ..sanity import config as _sanity_config
+
+    return _sanity_config.SIDECAR_PATH
+
 # --- Output: the per-Run materialisation store ---
 SERVICE_DIR = PROJECT_ROOT / "DATA" / "service"
 RUNS_DIR = SERVICE_DIR / "runs"
@@ -115,11 +161,26 @@ SCORED_GPKG_FILENAME = _scoring_config.OUTPUT_FILENAME
 SCORED_CSV_FILENAME = _scoring_config.CSV_FILENAME
 SCORED_LAYER = _scoring_config.OUTPUT_LAYER
 RUN_MANIFEST_FILENAME = "run.json"
+# The S2-06 Explanation_Structure generated with THIS Run's weights (S4-03).
+RUN_EXPLANATIONS_FILENAME = "explanations.json"
+
+# Probabilities at which `get_run_cells` reports the eligible population's
+# suitability_score (CONTRACT.md §5 `CellCollection.score_quantiles`, v1.2.2).
+# The map places its continuous colour stops here so the bulk of the
+# distribution is not squeezed into one colour band (S4-02). Display metadata
+# only: changing these changes no score, rank or eligibility.
+MAP_SCORE_QUANTILES = (0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0)
 
 # Length of the hex run id derived from the resolved weights identity. 16 hex
 # chars (64 bits) is collision-safe for the handful of runs a session creates
 # while staying short enough to sit in a URL path segment.
 RUN_ID_LENGTH = 16
+
+# Salt hashed into every run id. The id already binds the weights, the
+# integrated input and the explanation templates, but not the scoring or
+# materialisation code; bump this whenever a code change alters what a Run
+# directory stores, so Runs written by older code are never reused.
+RUN_SCHEMA_VERSION = "1"
 
 STAGE_NAME = "service"
 MODULE_NAME = "service.runs"

@@ -1033,7 +1033,7 @@ class TestValidate:
     and returns ``{"checks": [...], "passed": int, "total": int}`` where each check
     is ``{"name", "expected", "observed", "passed"}``. These tests build a synthetic
     grid (reusing ``_make_grid_gdf`` / ``_write_grid``) and a matching synthetic
-    Feature_Table carrying exactly the eight :data:`SCHEMA_COLUMNS` + geometry, then
+    Feature_Table carrying exactly the ten :data:`SCHEMA_COLUMNS` + geometry, then
     write faulty variants and assert the specific named check fails with non-empty
     ``expected`` / ``observed`` strings.
 
@@ -1046,7 +1046,7 @@ class TestValidate:
 
     def _make_feature_table_gdf(self, cell_ids, *, overrides=None):
         """
-        Build a synthetic Feature_Table GeoDataFrame with exactly the eight
+        Build a synthetic Feature_Table GeoDataFrame with exactly the ten
         :data:`SCHEMA_COLUMNS` + geometry, one row per ``cell_id``.
 
         Geometry mirrors ``_make_grid_gdf`` (distinct 0.05-degree squares) so the
@@ -1070,6 +1070,8 @@ class TestValidate:
             "protected_area": [False] * n,
             "protected_area_name": [""] * n,
             "tri": [10.0 + i for i in range(n)],
+            "urban_area": [False] * n,
+            "on_land": [True] * n,
             "confidence_flag": [CONFIDENCE_HIGH] * n,
         }
         if overrides:
@@ -1161,7 +1163,7 @@ class TestValidate:
 
     def test_wrong_schema_fails_schema_check(self, tmp_path):
         """
-        A table whose columns are not exactly the eight :data:`SCHEMA_COLUMNS`
+        A table whose columns are not exactly the ten :data:`SCHEMA_COLUMNS`
         fails the schema check, reporting the expected and observed column lists
         (Req 11.3).
 
@@ -1255,64 +1257,99 @@ class TestFullGridIntegration:
                 "full-grid integration test"
             )
 
-    def test_run_over_real_grid_matches_cell_count_and_reports_runtime(self):
+    def test_run_over_real_grid_matches_cell_count_and_reports_runtime(
+        self, monkeypatch
+    ):
         """
         Running ``run()`` over the real grid returns one row per grid cell, a
         ``runtime_s`` in the summary dict, and a method-report runtime line that
         equals ``runtime_s`` (Req 13.1, 13.2, 13.3).
+
+        Isolation: ``run()`` writes to the module-level ``OUTPUT_PATH`` /
+        ``REPORT_PATH``, which point at the committed statewide-NSW Feature_Table
+        (``DATA/geographic/features/optmining_geographic-features_2024_nsw.gpkg``,
+        authored out-of-band by ``scripts/fetch_build_geographic_nsw.py`` with the
+        full-NSW SRTM/NLUM clips + urban + land mask). Calling the default
+        ``run()`` here would rebuild from the New-England-window raster defaults
+        and clobber that statewide artefact down to the REZ window — silently
+        breaking the downstream exclusions/integration/validate chain. So we
+        redirect both writes into a throwaway temp directory for the duration of
+        the test; the behaviour under test (one row per grid cell + runtime
+        reporting) is unaffected, and the committed statewide table is untouched.
         """
         self._require_grid()
 
-        # Expected cell count: the grid's own cell_id count via the strict reader
-        # the stage uses internally (Req 8.1) — not a hard-coded constant.
-        expected_n_cells = len(read_grid_cells(GRID_PATH))
+        # Redirect the stage's writes away from the committed statewide artefact.
+        # run() logs its output path via ``.relative_to(PROJECT_ROOT)``, so the
+        # redirected paths must live *under* the project root — use a unique temp
+        # directory inside it (removed in the finally) rather than pytest's
+        # global tmp_path, which is outside the repo and would break that log.
+        import shutil
+        import uuid
 
-        summary = run(verbose=False)
+        from pipeline.geographic import features as _features
 
-        # --- Req 13.1: one row per grid cell -----------------------------------
-        assert isinstance(summary, dict)
-        assert "n_cells" in summary
-        assert summary["n_cells"] == expected_n_cells, (
-            f"run() processed {summary['n_cells']} cells but the grid has "
-            f"{expected_n_cells}"
-        )
+        tmp_out_dir = _features.PROJECT_ROOT / f".tmp-test-geo-{uuid.uuid4().hex}"
+        tmp_out_dir.mkdir(parents=True, exist_ok=True)
+        patched_output = tmp_out_dir / OUTPUT_PATH.name
+        patched_report = tmp_out_dir / REPORT_PATH.name
+        monkeypatch.setattr(_features, "OUTPUT_PATH", patched_output)
+        monkeypatch.setattr(_features, "REPORT_PATH", patched_report)
 
-        # --- Req 13.2 / 13.3: summary dict carries runtime_s -------------------
-        assert "runtime_s" in summary, "summary dict missing 'runtime_s' key"
-        runtime_s = summary["runtime_s"]
-        assert isinstance(runtime_s, (int, float))
-        assert runtime_s >= 0.0
+        try:
+            # Expected cell count: the grid's own cell_id count via the strict
+            # reader the stage uses internally (Req 8.1) — not a hard-coded const.
+            expected_n_cells = len(read_grid_cells(GRID_PATH))
 
-        # Output paths exist on disk after the call returns (Req 10.2).
-        assert summary["feature_table"] == OUTPUT_PATH
-        assert summary["report"] == REPORT_PATH
-        assert OUTPUT_PATH.exists()
-        assert REPORT_PATH.exists()
+            summary = run(verbose=False)
 
-        # The written Feature_Table has one row per grid cell (Req 13.1).
-        table = gpd.read_file(OUTPUT_PATH)
-        assert len(table) == expected_n_cells
+            # --- Req 13.1: one row per grid cell -------------------------------
+            assert isinstance(summary, dict)
+            assert "n_cells" in summary
+            assert summary["n_cells"] == expected_n_cells, (
+                f"run() processed {summary['n_cells']} cells but the grid has "
+                f"{expected_n_cells}"
+            )
 
-        # --- Req 13.3: report runtime line equals runtime_s --------------------
-        # _build_report writes: "- Total wall-clock runtime: {runtime_s:.3f} s".
-        report_text = REPORT_PATH.read_text()
-        expected_line = f"- Total wall-clock runtime: {runtime_s:.3f} s"
-        assert expected_line in report_text, (
-            "method report runtime line does not match the summary runtime_s; "
-            f"expected to find {expected_line!r} in the report"
-        )
+            # --- Req 13.2 / 13.3: summary dict carries runtime_s ---------------
+            assert "runtime_s" in summary, "summary dict missing 'runtime_s' key"
+            runtime_s = summary["runtime_s"]
+            assert isinstance(runtime_s, (int, float))
+            assert runtime_s >= 0.0
 
-        # Also parse the reported number back out and compare within the
-        # formatting tolerance (:.3f rounds to 3 dp), so a mismatch in either the
-        # formatting or the value is caught.
-        match = re.search(
-            r"Total wall-clock runtime:\s*([0-9]+(?:\.[0-9]+)?)\s*s", report_text
-        )
-        assert match is not None, "no runtime line found in the method report"
-        reported_runtime = float(match.group(1))
-        assert reported_runtime == pytest.approx(runtime_s, abs=5e-4), (
-            f"report runtime {reported_runtime} != summary runtime_s {runtime_s}"
-        )
+            # Output paths exist on disk after the call returns (Req 10.2) — the
+            # redirected tmp paths, not the committed statewide artefact.
+            assert summary["feature_table"] == patched_output
+            assert summary["report"] == patched_report
+            assert patched_output.exists()
+            assert patched_report.exists()
+
+            # The written Feature_Table has one row per grid cell (Req 13.1).
+            table = gpd.read_file(patched_output)
+            assert len(table) == expected_n_cells
+
+            # --- Req 13.3: report runtime line equals runtime_s ----------------
+            # _build_report writes: "- Total wall-clock runtime: {runtime_s:.3f} s".
+            report_text = patched_report.read_text()
+            expected_line = f"- Total wall-clock runtime: {runtime_s:.3f} s"
+            assert expected_line in report_text, (
+                "method report runtime line does not match the summary runtime_s; "
+                f"expected to find {expected_line!r} in the report"
+            )
+
+            # Also parse the reported number back out and compare within the
+            # formatting tolerance (:.3f rounds to 3 dp), so a mismatch in either
+            # the formatting or the value is caught.
+            match = re.search(
+                r"Total wall-clock runtime:\s*([0-9]+(?:\.[0-9]+)?)\s*s", report_text
+            )
+            assert match is not None, "no runtime line found in the method report"
+            reported_runtime = float(match.group(1))
+            assert reported_runtime == pytest.approx(runtime_s, abs=5e-4), (
+                f"report runtime {reported_runtime} != summary runtime_s {runtime_s}"
+            )
+        finally:
+            shutil.rmtree(tmp_out_dir, ignore_errors=True)
 
 # ===========================================================================
 # Property-based tests (task 15) — hypothesis, @settings(max_examples=100)
@@ -2059,13 +2096,13 @@ class TestSchemaProperties:
 
     @settings(max_examples=100, deadline=None)
     @given(
-        n=st.integers(min_value=1, max_value=8),
+        n=st.integers(min_value=1, max_value=10),
         col_order=st.permutations(SCHEMA_COLUMNS),
     )
     def test_property_13_feature_table_has_exact_schema(self, n, col_order):
         # Feature: geographic-environmental-features, Property 13: Feature_Table has
         # exactly the required schema — after schema enforcement the non-geometry
-        # columns are exactly SCHEMA_COLUMNS (the eight required columns), in order,
+        # columns are exactly SCHEMA_COLUMNS (the ten required columns), in order,
         # plus a geometry column, regardless of the source column order.
         # Validates: Requirements 7.1
         cell_ids = [f"S{i:03d}" for i in range(n)]
@@ -2080,6 +2117,8 @@ class TestSchemaProperties:
             "protected_area": [False] * n,
             "protected_area_name": [""] * n,
             "tri": [3.0] * n,
+            "urban_area": [False] * n,
+            "on_land": [True] * n,
             "confidence_flag": [CONFIDENCE_HIGH] * n,
             "spurious_extra": [1] * n,
             "another_extra": ["z"] * n,
@@ -2087,7 +2126,7 @@ class TestSchemaProperties:
         gdf = gpd.GeoDataFrame(raw, geometry=geoms, crs=STORAGE_CRS)
 
         # Schema enforcement (as run() does before writing): select exactly the
-        # eight schema columns in canonical order, keep geometry.
+        # ten schema columns in canonical order, keep geometry.
         enforced = gdf[list(col_order)]  # arbitrary order does not matter to the set
         enforced = gpd.GeoDataFrame(
             {col: gdf[col] for col in SCHEMA_COLUMNS},

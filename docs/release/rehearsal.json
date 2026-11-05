@@ -1,0 +1,229 @@
+{
+  "api_base_url": "http://localhost:8000",
+  "web_origin": "http://localhost:3000",
+  "runs": {},
+  "data_quality": {
+    "passed": true,
+    "check_count": 28
+  },
+  "run_ids": {
+    "baseline": "ecb0a6f1443a9908",
+    "wind_led": "97c0a3ecf702b540",
+    "grid_led": "8f7c098158bf8301"
+  },
+  "top_cells": [
+    {
+      "cell_id": "S32.436_E149.086",
+      "suitability_score": 0.8823676167551172,
+      "rank": 1
+    },
+    {
+      "cell_id": "S32.436_E149.036",
+      "suitability_score": 0.8765398455571348,
+      "rank": 2
+    },
+    {
+      "cell_id": "S32.486_E149.086",
+      "suitability_score": 0.8760016994756115,
+      "rank": 3
+    },
+    {
+      "cell_id": "S30.186_E151.636",
+      "suitability_score": 0.873114555693752,
+      "rank": 4
+    },
+    {
+      "cell_id": "S30.286_E151.636",
+      "suitability_score": 0.8725522012573471,
+      "rank": 5
+    },
+    {
+      "cell_id": "S34.586_E149.436",
+      "suitability_score": 0.8711663730274328,
+      "rank": 6
+    },
+    {
+      "cell_id": "S30.286_E151.686",
+      "suitability_score": 0.869901784986874,
+      "rank": 7
+    },
+    {
+      "cell_id": "S30.236_E151.586",
+      "suitability_score": 0.8695158033333864,
+      "rank": 8
+    },
+    {
+      "cell_id": "S30.436_E151.536",
+      "suitability_score": 0.8692395374594474,
+      "rank": 9
+    },
+    {
+      "cell_id": "S30.636_E151.586",
+      "suitability_score": 0.868659958377551,
+      "rank": 10
+    }
+  ],
+  "rank_1_detail": {
+    "cell_id": "S32.436_E149.086",
+    "suitability_score": 0.8823676167551172,
+    "rank": 1,
+    "contributions": {
+      "wind_speed": 0.4732809470100408,
+      "dist_transmission_km": 0.14882268109367927,
+      "demand_proxy": 0.0718345990186697,
+      "dist_substation_km": 0.04964120834644422,
+      "slope_deg": 0.03878818128628317,
+      "inside_rez": 0.09999999999999998
+    }
+  },
+  "excluded_example": {
+    "cell_id": "S28.186_E141.036",
+    "reason_codes": [
+      "outside_nsw_land"
+    ],
+    "reason_text": "Outside NSW (cell centre is not in New South Wales)",
+    "suitability_score": null,
+    "rank": null
+  },
+  "exclusion_count": 24045,
+  "cells": {
+    "total": 47311,
+    "eligible": 23266,
+    "excluded": 24045
+  },
+  "scenario_comparison": {
+    "labels": {
+      "a": "wind_led",
+      "b": "grid_led"
+    },
+    "row_count": 23266,
+    "moved_cell_count": 23261,
+    "moved_example": {
+      "cell_id": "S32.436_E149.086",
+      "rank_a": 1,
+      "rank_b": 4,
+      "rank_delta": -3
+    }
+  },
+  "sanity": {
+    "caveat": "This model is NOT trained or fitted to reproduce known wind-farm or REZ locations. A strong overlap between the top-ranked areas and these references is corroboration that the screening is plausible, not evidence of a fitted target; divergences are expected and are investigated, not tuned away.",
+    "top_band_n": 20,
+    "wind_farms": [
+      {
+        "wind_farm": "Cullerin Range Wind Farm",
+        "cell_id": "S34.786_E149.386",
+        "rank": 500,
+        "percentile": 97.85523940514055,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Blayney Wind Farm",
+        "cell_id": "S33.636_E149.186",
+        "rank": 1702,
+        "percentile": 92.68890226080977,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Woodlawn Wind Farm",
+        "cell_id": "S35.086_E149.586",
+        "rank": 315,
+        "percentile": 98.65039112868564,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Gunning",
+        "cell_id": "S34.686_E149.386",
+        "rank": 361,
+        "percentile": 98.4526777271555,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Capital Hill Wind Farm",
+        "cell_id": "S35.136_E149.536",
+        "rank": 498,
+        "percentile": 97.86383563998969,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Boco Rock",
+        "cell_id": "S36.586_E149.136",
+        "rank": 6184,
+        "percentile": 73.42473996389582,
+        "in_upper_quartile": false,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Bango Wind Farm",
+        "cell_id": "S34.586_E148.836",
+        "rank": 2986,
+        "percentile": 87.17011948766441,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Bodangora Wind Farm",
+        "cell_id": "S32.436_E149.086",
+        "rank": 9,
+        "percentile": 99.96561506060345,
+        "in_upper_quartile": true,
+        "in_top_band": true
+      },
+      {
+        "wind_farm": "Gullen Range Wind Farm",
+        "cell_id": "S34.686_E149.486",
+        "rank": 881,
+        "percentile": 96.21765666638012,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Taralga Wind Farm",
+        "cell_id": "S34.436_E149.886",
+        "rank": null,
+        "percentile": null,
+        "in_upper_quartile": false,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "White Rock Wind Farm",
+        "cell_id": "S29.786_E151.536",
+        "rank": 856,
+        "percentile": 96.32510960199433,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Sapphire Wind Farm",
+        "cell_id": "S29.686_E151.436",
+        "rank": 189,
+        "percentile": 99.1919539241812,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Silverton Wind Farm",
+        "cell_id": "S31.786_E141.286",
+        "rank": 2699,
+        "percentile": 88.40367918851543,
+        "in_upper_quartile": true,
+        "in_top_band": false
+      },
+      {
+        "wind_farm": "Rye Park Wind Farm",
+        "cell_id": "S34.786_E148.986",
+        "rank": null,
+        "percentile": null,
+        "in_upper_quartile": false,
+        "in_top_band": false
+      }
+    ],
+    "contradiction_count": 2
+  },
+  "engine_recompute": "engine importable (reference recompute not run; no baseline change in scope)",
+  "result": "PASS"
+}

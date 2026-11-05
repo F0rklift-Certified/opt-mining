@@ -138,6 +138,14 @@ _ALLOWED_ENGINE_IMPORTS = {
     "WeightsConfig",
     "Criterion",
     "ScoringConfigError",
+    # pipeline.explanation.* — the S2-06 stage's own assembler, templates and
+    # writer, driven by runs.py to materialise each Run's explanations with
+    # that Run's weights (S4-03). Reused, never reimplemented.
+    "assemble_explanation_inputs",
+    "read_extra_columns",
+    "load_templates",
+    "build_explanations",
+    "write_json",
     # config modules imported wholesale for paths/column names (composed, not
     # re-typed) — these carry NO arithmetic.
     "config",
@@ -197,6 +205,19 @@ _ALLOWED_SERVICE_DEFINITIONS = {
     "get_exclusions",
     "_reason_codes_and_text",
     "_run_feature_names",
+    # runs.py — a pure validity PROBE (opens the Scored_Table via the read
+    # loader to decide cache hit/miss); it computes no score/rank/exclusion.
+    "_scored_table_readable",
+    # sanity.py — a pure PROJECTION that composes the exclusion summary item
+    # from the sidecar's existing {n_passed, n_failed, all_passed} fields; the
+    # verdict is the engine's own, the service invents no pass/fail arithmetic
+    # (design §5, NFR1-safe).
+    "_exclusion_summary_item",
+    # results.py — DISPLAY metadata for the map colour scale (S4-02, contract
+    # v1.2.2): numpy quantiles of the eligible cells' SERVED scores. It reads
+    # scores already in the Scored_Table and changes no score, rank or
+    # eligibility; flagged only because its name starts with "score".
+    "_score_quantiles",
     # models.py dataclasses/methods carry no arithmetic.
 }
 

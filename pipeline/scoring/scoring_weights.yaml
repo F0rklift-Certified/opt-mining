@@ -89,11 +89,13 @@ criteria:
     weight: 0.15
     direction: higher_is_better
     rationale: >-
-      Proximity to electrical demand improves offtake prospects and reduces
+      Proximity to existing network load improves offtake prospects and reduces
       transmission losses. Weighted below the physical grid distances because
-      the MVP proxy is a NEM-region annual mean allocated uniformly to every
-      cell (spec 4.2.3), so it discriminates between regions rather than
-      between neighbouring cells.
+      the proxy is a NEM-region annual-mean total distributed WITHIN each region
+      by a weighting surface (ABS UCL urban footprint by default, or real
+      zone-substation maximum demand under load_weighted), so it now varies
+      within a region rather than being one flat per-region value. A proxy, not
+      measured local demand or a guarantee of spare capacity or offtake.
 
   - feature: dist_substation_km
     weight: 0.10

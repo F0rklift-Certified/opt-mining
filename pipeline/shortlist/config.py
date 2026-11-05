@@ -104,8 +104,14 @@ SHORTLIST_COLUMNS = (
 
 # Optional context columns appended WHERE available from an upstream layer;
 # each carries a definition and source recorded in the Summary_Report
-# (Requirement 4.3).
-OPTIONAL_CONTEXT_COLUMNS = ("rez", "nearby_wind_farm")
+# (Requirement 4.3). `demand_coord_confidence` is the integrated/scored table's
+# INFORMATIONAL demand coordinate-confidence tier, carried through from scoring
+# (scoring/config.py CARRIED_COLUMNS) and surfaced here so an analyst can audit
+# whether a shortlisted cell's demand signal rode a low-confidence geocoded
+# substation. It is metadata only — it never affects the score, rank or
+# shortlist membership.
+DEMAND_COORD_CONFIDENCE_COLUMN = _scoring_config.DEMAND_COORD_CONFIDENCE_COLUMN
+OPTIONAL_CONTEXT_COLUMNS = ("rez", "nearby_wind_farm", DEMAND_COORD_CONFIDENCE_COLUMN)
 
 # ---------------------------------------------------------------------------
 # GeoJSON geometry choice (Requirement 5.4)

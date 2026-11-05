@@ -147,6 +147,26 @@ def test_verdict_is_carried_through_not_rederived(quality_sidecar):
     assert status.checks[0].passed is True
 
 
+def test_non_passed_fields_are_stringified_verbatim(quality_sidecar):
+    """
+    The S2-02 non-``passed`` fields are carried through as strings — a faithful
+    pass-through of the validator's own expected/observed forms, even when the
+    record wrote them as numbers (CONTRACT.md §5 `DataQualityCheck` shape).
+    """
+    quality_sidecar(
+        _result(
+            True,
+            [{"name": "cell_count", "expected": 12345, "observed": 12345, "passed": True}],
+        )
+    )
+
+    status = get_data_quality()
+
+    assert status.checks[0].expected == "12345"
+    assert status.checks[0].observed == "12345"
+    assert status.checks[0].passed is True
+
+
 def test_empty_check_battery_is_surfaced(quality_sidecar):
     """
     An empty battery (absent table → validator's all_passed=False) is surfaced

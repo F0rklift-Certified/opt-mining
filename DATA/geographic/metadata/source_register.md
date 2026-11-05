@@ -18,6 +18,7 @@ Every candidate source probed for the geographic/environmental criterion, includ
 | Dataset | Custodian | Access | Status | Format | Native CRS | Licence | Vintage | Size/Count | Notes |
 |---|---|---|---|---|---|---|---|---|---|
 | `abs_asgs2021_ucl` | ABS | ArcGIS REST FeatureServer (f=geojson) | 200 | GeoJSON/EsriJSON, Polygon | EPSG:3857 | CC BY 4.0 | ASGS Ed. 3 (2021) | 1837 features, 15 fields | UCL |
+| `abs_asgs2021_ucl_nsw` | ABS | ArcGIS REST FeatureServer (f=geojson, where `state_code_2021='1'`, outSR=4326, maxAllowableOffset=0.0005) | 200 | GeoJSON, Polygon | EPSG:4326 (requested) | CC BY 4.0 | ASGS Ed. 3 (2021) | 536 features (NSW statewide, bbox-clipped) | NSW statewide extract → `urban/abs_ucl_2021_nsw.geojson`; acquired by `scripts/_acquire_ucl_nsw.py` (see DATA_PROVENANCE §1a) |
 
 ## protected-areas
 

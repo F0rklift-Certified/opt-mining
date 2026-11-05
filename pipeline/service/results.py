@@ -35,12 +35,20 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from ..scoring import config as _scoring_config
 from . import config as _service_config
 from .filters import apply_display_filter
-from .models import ExcludedRow, RankedRow, RunHandle, SiteDetail
+from .models import (
+    CellCollection,
+    CellFeature,
+    ExcludedRow,
+    RankedRow,
+    RunHandle,
+    SiteDetail,
+)
 from .runs import (
     CellNotFoundError,
     EngineOutputError,
@@ -315,13 +323,36 @@ def get_site_detail(run: RunHandle | str, cell_id: str) -> SiteDetail:
     feature_names = _run_feature_names(run_id)
     if not feature_names:
         feature_names = list(contributions.keys())
+    # Then the rest of the cell's integrated row — coordinates, elevation, land
+    # use, protected-area and REZ names, per-domain and overall confidence —
+    # copied verbatim, so the detail view can show the geographic and
+    # data-quality context S4-03 requires without inferring anything (ported
+    # from S3-10 6fe88a3). The scoring criteria stay first; `cell_id` and
+    # `eligible` are already top-level SiteDetail fields, so not repeated here.
+    already_top_level = {cell_col, _service_config.ELIGIBLE_COLUMN}
+    feature_names = list(dict.fromkeys(
+        feature_names
+        + [c for c in feature_row.index if c not in already_top_level]
+    ))
     features = _features_for(feature_row, feature_names)
 
     eligible = bool(feature_row[_service_config.ELIGIBLE_COLUMN]) \
         if _service_config.ELIGIBLE_COLUMN in feature_row.index else False
 
-    # The S2-06 Explanation_Structure, resolved by cell_id and carried verbatim.
-    explanation = load_explanations().get(cell_id, {})
+    # The S2-06 Explanation_Structure THIS Run materialised with its own
+    # weights, resolved by cell_id and carried verbatim (S4-03).
+    explanation = load_explanations(run_id).get(cell_id, {})
+
+    # DISPLAY-ONLY per-cell network-load read-out (MVA): read verbatim from the
+    # integrated table's `load_within_radius_mva` column WHERE present. It is an
+    # ESTIMATE of nearby network load surfaced in the Site Detail panel; it is
+    # never scored or ranked. Absent column / null value -> None.
+    demand_load_mva = None
+    mva_col = _scoring_config.DEMAND_LOAD_MVA_COLUMN
+    if mva_col in feature_row.index:
+        mva_value = feature_row[mva_col]
+        if not pd.isna(mva_value):
+            demand_load_mva = float(mva_value)
 
     return SiteDetail(
         cell_id=cell_id,
@@ -331,6 +362,7 @@ def get_site_detail(run: RunHandle | str, cell_id: str) -> SiteDetail:
         rank=_opt_rank(scored_row[rank_col]),
         eligible=eligible,
         explanation=explanation,
+        demand_load_mva=demand_load_mva,
     )
 
 
@@ -499,3 +531,116 @@ def get_exclusions(run: RunHandle | str) -> list[ExcludedRow]:
             )
         )
     return rows
+
+
+def get_run_cells(run: RunHandle | str) -> CellCollection:
+    """
+    Return a Run's cells as a GeoJSON FeatureCollection of per-cell centroids
+    (CONTRACT.md §4.7, Requirement 1.7).
+
+    Reads the materialised S2-05 Scored_Table for the Run and returns one
+    ``CellFeature`` (a GeoJSON Point) per cell — ELIGIBLE and EXCLUDED alike,
+    so the whole analysis grid can be drawn. Each Feature carries the cell's
+    centroid in EPSG:4326 VERBATIM (the engine's own ``centroid_lat`` /
+    ``centroid_lon``, carried through the scoring stage): the service performs
+    NO reprojection and NO new geometry arithmetic, and it does NOT join the
+    integrated table — the EPSG:4326/EPSG:3577 boundary is handled entirely
+    inside the engine (CONTRACT.md §1).
+
+    NO RECOMPUTE. The `suitability_score` and `rank` are read from the table and
+    carried through unchanged (``None`` for an excluded cell); this function
+    performs no scoring, normalisation or ranking (Requirement 2.4). A cell's
+    `eligible` flag is the IDENTICAL predicate `get_ranked_results` uses — a
+    non-null `suitability_score` AND a non-null `rank` — so the set of
+    ``eligible == True`` cell_ids this operation returns equals the set
+    `get_ranked_results(run_id)` returns unfiltered (CONTRACT.md §7 P1).
+
+    Parameters
+    ----------
+    run :
+        The Run to read, as the ``RunHandle`` returned by ``run_analysis`` or
+        its bare ``run_id`` string.
+
+    Returns
+    -------
+    CellCollection
+        A FeatureCollection with one Point Feature per Scored_Table cell, each
+        carrying its EPSG:4326 centroid, eligibility, and (nullable) score and
+        rank. Empty ``features`` when the Run's table has no cell (an
+        empty-but-valid result, not an error — CONTRACT.md §6).
+
+    Raises
+    ------
+    RunNotFoundError
+        The Run has no materialisation on disk (Requirement 7.1).
+    EngineOutputError
+        The Run's Scored_Table is missing or unreadable, or a required centroid
+        column (``centroid_lat`` / ``centroid_lon``) is absent — the error
+        names the missing input rather than fabricating a result (Requirement
+        7.3).
+    """
+    run_id = _run_id_of(run)
+    table = load_scored_table(run_id)
+
+    cell_col = _scoring_config.CELL_ID_COLUMN
+    score_col = _scoring_config.SCORE_COLUMN
+    rank_col = _scoring_config.RANK_COLUMN
+    lat_col, lon_col = _scoring_config.CARRIED_COLUMNS
+
+    # Project over the attribute columns only (drop the geometry), mirroring the
+    # sibling read ops (design-review NIT-3). The centroids are the carried
+    # scalar columns, not the GeoPackage geometry — read verbatim, never
+    # re-derived from the geometry.
+    frame = pd.DataFrame(table.drop(columns=[table.geometry.name], errors="ignore"))
+
+    for column in (lat_col, lon_col):
+        if column not in frame.columns:
+            raise EngineOutputError(
+                f"Run {run_id!r} Scored_Table has no {column!r} column; the "
+                f"per-cell centroid cannot be served. The engine output is "
+                f"missing a carried grid column; re-run the analysis."
+            )
+
+    features: list[CellFeature] = []
+    eligible_scores: list[float] = []
+    for _, row in frame.iterrows():
+        score = _opt_score(row[score_col])
+        rank = _opt_rank(row[rank_col])
+        # The IDENTICAL eligible rule get_ranked_results applies.
+        eligible = score is not None and rank is not None
+        if eligible:
+            eligible_scores.append(score)
+        features.append(
+            CellFeature(
+                cell_id=str(row[cell_col]),
+                centroid_lon=float(row[lon_col]),
+                centroid_lat=float(row[lat_col]),
+                eligible=eligible,
+                suitability_score=score,
+                rank=rank,
+            )
+        )
+
+    return CellCollection(
+        run_id=run_id,
+        features=features,
+        score_quantiles=_score_quantiles(eligible_scores),
+    )
+
+
+def _score_quantiles(scores: list[float]) -> list[tuple[float, float]]:
+    """
+    The eligible population's served scores at each `MAP_SCORE_QUANTILES`
+    probability (linear interpolation, numpy's default), as
+    ``(quantile, suitability_score)`` pairs. A descriptive statistic of the
+    engine's scores for the map's colour scale — no score, rank or eligibility
+    is changed or derived. Empty when there is no eligible cell.
+    """
+    if not scores:
+        return []
+    probabilities = _service_config.MAP_SCORE_QUANTILES
+    values = np.quantile(np.asarray(scores, dtype=float), probabilities)
+    return [
+        (float(quantile), float(value))
+        for quantile, value in zip(probabilities, values)
+    ]

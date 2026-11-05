@@ -71,6 +71,10 @@ def _integrated_frame() -> gpd.GeoDataFrame:
             "dist_transmission_km": [5.0, 10.0, 15.0],
             "protected_area": [False, False, True],
             "eligible": [True, True, False],
+            # S3-08: rez_name is now a required integrated column (index 6);
+            # inside_rez is an optional guarded join exercised by Check 4.
+            "rez_name": ["REZ A", None, None],
+            "inside_rez": [True, False, False],
         },
         geometry=[Point(150 + i, -30) for i in range(3)],
         crs="EPSG:4326",
@@ -95,7 +99,7 @@ def _grid_frame() -> gpd.GeoDataFrame:
 
 def _wind_generators_frame() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(
-        {"name": ["Farm A", "Farm B"]},
+        {config.REQUIRED_WIND_GENERATOR_ATTR: ["Farm A", "Farm B"]},
         geometry=[Point(150.02, -29.98), Point(151.02, -29.98)],
         crs="EPSG:4326",
     )
@@ -320,7 +324,10 @@ class TestAbsentRequiredColumn:
         shortlist = _write_geojson(tmp_path / "sl.geojson", _shortlist_frame())
         good = _make_inputs(tmp_path, shortlist_path=shortlist)
         bad = tmp_path / "wind_bad.geojson"
-        _write_geojson(bad, _wind_generators_frame().drop(columns=["name"]))
+        _write_geojson(
+            bad,
+            _wind_generators_frame().drop(columns=[config.REQUIRED_WIND_GENERATOR_ATTR]),
+        )
         inputs = SanityInputs(
             scored_path=good.scored_path,
             shortlist_path=good.shortlist_path,
@@ -458,3 +465,27 @@ class TestReadOnlyReuse:
         load_inputs(inputs)
         after = {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
         assert before == after
+
+
+def test_clean_wind_generators_drops_solar_and_repeated_names():
+    """QA F-03: the GA extract's solar mislabel and duplicate farm are removed."""
+    import geopandas as gpd
+    from shapely.geometry import Point
+
+    from pipeline.sanity.load import clean_wind_generators
+
+    raw = gpd.GeoDataFrame(
+        {"feature_name": [
+            "Gullen Range Wind Farm",
+            "Gullen Range Wind Farm",
+            "White Rock Solar Farm",
+            "White Rock Wind Farm",
+        ]},
+        geometry=[Point(149.48, -34.69), Point(149.46, -34.61),
+                  Point(151.55, -29.76), Point(151.54, -29.76)],
+        crs="EPSG:4326",
+    )
+    cleaned = clean_wind_generators(raw)
+    assert cleaned["feature_name"].tolist() == ["Gullen Range Wind Farm", "White Rock Wind Farm"]
+    assert cleaned.geometry.iloc[0].equals(Point(149.48, -34.69))
+    assert len(raw) == 4  # input untouched

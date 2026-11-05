@@ -1,0 +1,21 @@
+# Keep host-built artefacts out of the Docker build context.
+#
+# The web Dockerfile's `builder` stage runs `COPY . .`. Without this file the
+# host's node_modules/ and .next/ are copied into the Linux image, clobbering
+# the clean `npm install` from the `deps` stage. On macOS that pulls in the
+# platform-specific @next/swc-darwin-* native binary, which cannot run inside
+# node:20-slim and fails the build with:
+#   "Mismatching @next/swc version" / "missing field `hashSalt`".
+node_modules
+.next
+.swc
+
+# Local env, tooling and caches that must never enter the image.
+.env
+.env.local
+.env.*.local
+npm-debug.log*
+
+# Tests / dev-only assets are not needed to build or run the app.
+__tests__
+coverage

@@ -224,14 +224,18 @@ def validate_feature_table(feature_path: Path, grid_path: Path, aggregate_path: 
     except Exception as exc:
         return ValidationResult(False, [("Feature_Table readable", False, str(exc))])
 
-    expected_cols = ["cell_id", "demand_proxy", "allocation_method", "source_region", "confidence_flag", "geometry"]
+    expected_cols = ["cell_id", "demand_proxy", config.LOAD_WITHIN_RADIUS_MVA_COLUMN, "allocation_method", "source_region", "confidence_flag", "geometry"]
     feature_crs = feature.crs.to_string() if feature.crs is not None else None
+    load_mva = feature[config.LOAD_WITHIN_RADIUS_MVA_COLUMN].dropna()
     checks = [
         ("Feature row count", len(feature) == len(grid), f"expected={len(grid)}, observed={len(feature)}"),
         ("Feature cell_id set", feature.cell_id.is_unique and set(feature.cell_id) == set(grid.cell_id), f"expected={len(grid)} unique grid IDs, observed={feature.cell_id.nunique()}"),
         ("Feature schema", feature.columns.tolist() == expected_cols, f"expected={expected_cols}, observed={feature.columns.tolist()}"),
         ("Feature CRS", feature_crs == config.STORAGE_CRS, f"expected={config.STORAGE_CRS}, observed={feature_crs or 'missing'}"),
         ("Proxy range", feature.demand_proxy.dropna().between(0, 1).all(), f"out_of_range={int((~feature.demand_proxy.dropna().between(0, 1)).sum())}"),
+        # DISPLAY-ONLY network-load figure: raw non-negative MVA sum (never
+        # normalised, never scored). Non-negativity is the only invariant.
+        ("Load MVA non-negative", bool(load_mva.ge(0).all()), f"negative={int((load_mva < 0).sum())}"),
         ("Source regions", set(feature.source_region.dropna()).issubset(set(aggregate.REGIONID)), f"allowed={sorted(aggregate.REGIONID)}, observed={sorted(feature.source_region.dropna().unique())}"),
         ("Confidence enum", set(feature.confidence_flag.dropna()).issubset(set(config.CONFIDENCE_LEVELS)), f"allowed={config.CONFIDENCE_LEVELS}, observed={sorted(feature.confidence_flag.dropna().unique())}"),
         ("Null proxy confidence", not ((feature.demand_proxy.isna()) & (feature.confidence_flag != "low")).any(), f"violations={int(((feature.demand_proxy.isna()) & (feature.confidence_flag != 'low')).sum())}"),

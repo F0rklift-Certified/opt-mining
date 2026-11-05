@@ -32,57 +32,82 @@ from .run_analysis import run_analysis
 
 
 def compare_scenarios(
-    scenario_a: str,
-    scenario_b: str,
+    scenario_a: str | None,
+    scenario_b: str | None,
     *,
+    weights_a: dict | None = None,
+    weights_b: dict | None = None,
     verbose: bool = False,
 ) -> ScenarioComparison:
     """
-    Compare two named Scenarios, returning a per-cell rank comparison
+    Compare two weighting configurations, returning a per-cell rank comparison
     (CONTRACT.md §4.5, Requirement 1.5, 4.3).
 
-    Each scenario is materialised as its own S2-05 Run via ``run_analysis`` and
-    its ranks are read back via ``get_ranked_results`` — the ENGINE, reused, not
-    a second scorer (Property P5). The two Runs share the same criteria,
-    directions and eligible-population normalisation bounds, so a rank change is
-    attributable purely to the weight difference.
+    Each SIDE is EITHER a named Scenario key (from the packaged
+    ``scenarios.yaml``) OR an explicit, user-edited ``weights`` configuration
+    over the SAME six frozen criteria and directions. Each side is materialised
+    as its own S2-05 Run via ``run_analysis`` — passing ``scenario=`` for a
+    named side or ``weights=`` for a custom side — and its ranks are read back
+    via ``get_ranked_results``. This is the ENGINE, reused, NOT a second scorer
+    (Property P5): there is no scoring, normalisation or ranking here, only the
+    display convenience ``rank_delta = rank_a - rank_b``. Because both sides
+    score the SAME eligible population under the SAME criteria and directions
+    (only the weights differ), a rank change is attributable purely to the
+    weight difference — which is what keeps the comparison valid.
+
+    Exactly one input must be supplied PER SIDE: a side gives either its
+    ``scenario_*`` key or its ``weights_*`` configuration, never both and never
+    neither. The engine's own one-of guard (``resolve_weights`` via
+    ``run_analysis``) enforces this and raises ``ScoringConfigError`` on a
+    fault; no duplicate validator lives here.
 
     Parameters
     ----------
     scenario_a :
-        A named Scenario key from the packaged ``scenarios.yaml`` (e.g.
-        ``"wind_led"``). Its ranks populate ``rank_a``.
+        A named Scenario key for side A (e.g. ``"wind_led"``), or ``None`` when
+        side A is a custom weights configuration.
     scenario_b :
-        A named Scenario key. Its ranks populate ``rank_b``.
+        A named Scenario key for side B, or ``None`` when side B is custom.
+    weights_a :
+        An explicit weights configuration for side A (shaped like the
+        ``scenarios.yaml`` ``criteria`` structure), or ``None`` when side A is a
+        named scenario. Validated by the ENGINE's parser via ``run_analysis``.
+    weights_b :
+        An explicit weights configuration for side B, or ``None`` when side B is
+        a named scenario.
     verbose :
-        Print a one-line note as each scenario's Run materialises.
+        Print a one-line note as each side's Run materialises.
 
     Returns
     -------
     ScenarioComparison
-        ``labels = {"a": scenario_a, "b": scenario_b}`` and one
-        ``ScenarioComparisonRow`` per cell eligible/ranked under at least one of
-        the two Scenarios. Each row carries the cell's rank under each Scenario
-        (``None`` where the cell is not ranked under that Scenario) and
-        ``rank_delta = rank_a - rank_b`` when both are present, ``None``
-        otherwise (CONTRACT.md §5). Rows are ordered by ascending ``rank_a``,
-        with cells ranked only under ``scenario_b`` following in ascending
-        ``rank_b`` order.
+        ``labels`` carrying a readable key per side (the scenario key for a
+        named side, or ``"custom_a"`` / ``"custom_b"`` for a custom side) and
+        one ``ScenarioComparisonRow`` per cell eligible/ranked under at least
+        one side. Each row carries the cell's rank under each side (``None``
+        where not ranked) and ``rank_delta = rank_a - rank_b`` when both are
+        present, ``None`` otherwise (CONTRACT.md §5). Rows are ordered by
+        ascending ``rank_a``, with cells ranked only under side B following in
+        ascending ``rank_b`` order.
 
     Raises
     ------
     ScoringConfigError
-        Either Scenario is unknown — raised by the engine's own parser via
+        A side is unknown, invalid, or supplies neither/both of its scenario
+        key and weights — raised by the engine's own parser via
         ``run_analysis``, naming the fault and creating no Run (Requirement
         4.4). No duplicate validator lives here.
     RunNotFoundError, EngineOutputError
         Propagated from ``get_ranked_results`` if a materialised Run or its
         Scored_Table is missing/unreadable (Requirement 7.1, 7.3).
     """
-    # Materialise each Scenario as its own S2-05 Run (idempotent by content) and
-    # read its ranks back through the fixed-table projection. THE ENGINE, REUSED.
-    handle_a = run_analysis(scenario=scenario_a, verbose=verbose)
-    handle_b = run_analysis(scenario=scenario_b, verbose=verbose)
+    # Materialise each side as its own S2-05 Run (idempotent by content) and
+    # read its ranks back through the fixed-table projection. THE ENGINE,
+    # REUSED. Each side passes EITHER scenario= OR weights= so the engine's
+    # exactly-one-of guard stays satisfied and bad input still raises
+    # ScoringConfigError (-> 422) with no Run created.
+    handle_a = run_analysis(weights=weights_a, scenario=scenario_a, verbose=verbose)
+    handle_b = run_analysis(weights=weights_b, scenario=scenario_b, verbose=verbose)
 
     ranks_a = {row.cell_id: row.rank for row in get_ranked_results(handle_a)}
     ranks_b = {row.cell_id: row.rank for row in get_ranked_results(handle_b)}
@@ -90,7 +115,10 @@ def compare_scenarios(
     rows = _build_comparison_rows(ranks_a, ranks_b)
 
     return ScenarioComparison(
-        labels={"a": scenario_a, "b": scenario_b},
+        labels={
+            "a": scenario_a if scenario_a is not None else "custom_a",
+            "b": scenario_b if scenario_b is not None else "custom_b",
+        },
         rows=rows,
     )
 

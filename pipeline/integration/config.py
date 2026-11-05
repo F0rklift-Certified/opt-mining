@@ -72,6 +72,26 @@ INFRA_LAYER = _infra_config.FEATURE_TABLE_LAYER
 DEMAND_PATH = _demand_config.OUTPUT_DIR / _demand_config.FEATURE_TABLE_NAME
 DEMAND_LAYER = _demand_config.FEATURE_TABLE_LAYER
 
+# Demand coordinate-confidence sidecar (S1-04, surface-only metadata). The
+# demand stage writes the per-cell tier to this CSV ALONGSIDE the feature
+# GeoPackage (so the gpkg bytes never change); the integration stage joins it
+# onto the integrated table as the informational `demand_coord_confidence`
+# column. It never affects demand_proxy, the composite score or the ranking.
+DEMAND_COORD_CONFIDENCE_SIDECAR_PATH = (
+    _demand_config.OUTPUT_DIR / _demand_config.COORD_CONFIDENCE_SIDECAR_NAME
+)
+DEMAND_COORD_CONFIDENCE_COLUMN = _demand_config.DEMAND_COORD_CONFIDENCE_COLUMN
+DEMAND_COORD_CONFIDENCE_LEVELS = _demand_config.DEMAND_COORD_CONFIDENCE_LEVELS
+
+# DISPLAY-ONLY per-cell 'network load within the decay radius' column (MVA),
+# read from the demand feature GeoPackage (a new column alongside demand_proxy)
+# and carried onto the integrated table as INFORMATIONAL context. Like
+# demand_coord_confidence it is NOT a scored feature (excluded from
+# SCORED_FEATURE_COLUMNS), so it never affects demand_proxy, the composite
+# score, the ranking or n_missing_features — it is surfaced only in the Site
+# Detail read-out. Null under uniform/urban_weighted (no load points).
+DEMAND_LOAD_MVA_COLUMN = _demand_config.LOAD_WITHIN_RADIUS_MVA_COLUMN
+
 # Exclusions Eligibility_Table (S1-07). apply.py writes it without a
 # `layer=` argument, so the layer name is whatever GDAL derived from the
 # temporary filename; None means "auto-detect the single layer".
