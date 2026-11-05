@@ -30,6 +30,99 @@ export function cellCenters(collection: CellCollection): [number, number][] {
   return centers;
 }
 
+/**
+ * Spacing of the S1-02 common analysis grid in degrees (cell centres sit
+ * exactly 0.05° apart in both lon and lat). Presentation geometry only.
+ */
+export const CELL_SIZE_DEG = 0.05;
+
+/** O(1) geometric lookups over one run's served cell centres (S4-02). */
+export interface CellGridIndex {
+  /**
+   * The centre of the cell whose square (±{@link CELL_SIZE_DEG}/2 on both axes)
+   * contains `[lng, lat]`, or null when the point is in no cell's square. When
+   * squares overlap (off-grid centres), the nearest centre by Chebyshev
+   * distance wins, so exactly one cell is returned.
+   */
+  containing(lng: number, lat: number): [number, number] | null;
+  /** The centre of the cell with this `cell_id`, or null when absent. */
+  centerOf(cellId: string): [number, number] | null;
+}
+
+/**
+ * Index a cell collection by grid slot and by `cell_id`, so the map's hover
+ * test and selection mirroring are constant-time instead of a scan over every
+ * cell on each `mousemove` (~47k cells statewide). Slots are counted from the
+ * first centre in steps of {@link CELL_SIZE_DEG}; a lookup checks the 3×3
+ * neighbourhood of the cursor's slot, which also covers centres that are not
+ * exactly on the lattice. A pure coordinate read — plain `for` loops, never
+ * `.reduce`/`.sort`.
+ */
+export function cellGridIndex(collection: CellCollection): CellGridIndex {
+  const half = CELL_SIZE_DEG / 2;
+  const bySlot = new Map<string, [number, number][]>();
+  const byId = new Map<string, [number, number]>();
+  let originLng: number | null = null;
+  let originLat: number | null = null;
+
+  const slotOf = (lng: number, lat: number): [number, number] => [
+    Math.round((lng - (originLng ?? 0)) / CELL_SIZE_DEG),
+    Math.round((lat - (originLat ?? 0)) / CELL_SIZE_DEG),
+  ];
+
+  const features = collection.features ?? [];
+  for (let i = 0; i < features.length; i++) {
+    const feature = features[i];
+    const geometry = feature?.geometry;
+    if (!feature || geometry?.type !== "Point") continue;
+    const lng = geometry.coordinates[0];
+    const lat = geometry.coordinates[1];
+    if (lng === undefined || lat === undefined) continue;
+    if (originLng === null || originLat === null) {
+      originLng = lng;
+      originLat = lat;
+    }
+    const center: [number, number] = [lng, lat];
+    const [sx, sy] = slotOf(lng, lat);
+    const key = `${sx}:${sy}`;
+    const bucket = bySlot.get(key);
+    if (bucket) bucket.push(center);
+    else bySlot.set(key, [center]);
+    byId.set(feature.properties.cell_id, center);
+  }
+
+  return {
+    containing(lng, lat) {
+      if (originLng === null) return null;
+      const [sx, sy] = slotOf(lng, lat);
+      let best: [number, number] | null = null;
+      let bestDist = Infinity;
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const bucket = bySlot.get(`${sx + dx}:${sy + dy}`);
+          if (!bucket) continue;
+          for (let k = 0; k < bucket.length; k++) {
+            const center = bucket[k];
+            if (!center) continue;
+            const ex = Math.abs(lng - center[0]);
+            const ey = Math.abs(lat - center[1]);
+            if (ex > half || ey > half) continue; // outside this cell's square
+            const dist = Math.max(ex, ey);
+            if (dist < bestDist) {
+              bestDist = dist;
+              best = center;
+            }
+          }
+        }
+      }
+      return best;
+    },
+    centerOf(cellId) {
+      return byId.get(cellId) ?? null;
+    },
+  };
+}
+
 /** An axis-aligned bounding box in lon/lat degrees (EPSG:4326). */
 export interface Bbox {
   minLng: number;

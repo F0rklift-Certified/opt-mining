@@ -194,6 +194,19 @@ class TestWeightsConfigFaults:
         with pytest.raises(ScoringConfigError, match="negative weight"):
             parse_weights(raw)
 
+    @pytest.mark.parametrize("bad", [1e308, float("inf"), 101])
+    def test_extreme_weight_rejected(self, bad):
+        """QA F-07: a weight above the cap (or infinite) is a config fault."""
+        raw = _default_raw()
+        raw["criteria"][0]["weight"] = bad
+        with pytest.raises(ScoringConfigError, match="at most 100"):
+            parse_weights(raw)
+
+    def test_weight_at_cap_accepted(self):
+        raw = _default_raw()
+        raw["criteria"][0]["weight"] = 100
+        assert parse_weights(raw).criteria[0].weight == 100.0
+
     @pytest.mark.parametrize("bad", ["heavy", None, True, [1]])
     def test_non_numeric_weight_rejected(self, bad):
         raw = _default_raw()

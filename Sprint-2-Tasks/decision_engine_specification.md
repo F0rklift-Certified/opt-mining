@@ -743,6 +743,7 @@ table never goes stale.
 | `offshore_or_marine` | `Offshore or marine (not on land)` | cell centre not on land (Natural Earth land mask) |
 | `missing_slope_data` | `Missing slope data` | no valid slope value for the cell |
 | `missing_demand_data` | `Missing demand data` | no valid demand-proxy value for the cell (maps to no AEMO/NEM region) |
+| `outside_nsw_land` | `Outside NSW (cell centre is not in New South Wales)` | cell centroid not covered by the ABS 2021 NSW state boundary (EPSG:3577, boundary included); added 2026-10-22 for QA F-01, ported from S3-10 55dd987 |
 
 **Pairing contract (what a consumer may rely on).** For any cell:
 

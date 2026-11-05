@@ -347,6 +347,11 @@ export default function AppShell({ service: injectedService }: AppShellProps = {
                     runId={engine?.run.run_id ?? null}
                     service={service}
                     onSelectCell={(sel) => handleSelectSite(sel.cell_id)}
+                    selectedCellId={
+                      selection && selection.runId === engine?.run.run_id
+                        ? selection.cellId
+                        : null
+                    }
                   />
                 )
               : loadingText ?? "No engine output is available."

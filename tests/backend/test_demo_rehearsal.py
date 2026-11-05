@@ -154,14 +154,14 @@ def test_readiness_keys_cover_acs_false_when_one_missing():
 
 
 def test_find_stale_tokens_detects_leak():
-    text = "rank 1 cell with hash 604d051bb2deb7d8 excluded as outside_nsw_land"
+    text = "rank 1 cell with hash 604d051bb2deb7d8 among 32,525 eligible cells"
     found = harness.find_stale_tokens(text)
     assert "604d051bb2deb7d8" in found
-    assert "outside_nsw_land" in found
+    assert "32,525" in found
 
 
 def test_find_stale_tokens_clean_text_returns_empty():
-    text = "32,525 eligible of 47,311; reason offshore_or_marine; SHA 4062224a"
+    text = "23,266 eligible of 47,311; reason outside_nsw_land; offshore_or_marine"
     assert harness.find_stale_tokens(text) == []
 
 

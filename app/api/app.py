@@ -107,7 +107,7 @@ app = FastAPI(
         "`pipeline.service` operations and holds no decision logic "
         "(CONTRACT.md §1, §2)."
     ),
-    version="1.2",
+    version="1.3.1",
 )
 
 # ---------------------------------------------------------------------------

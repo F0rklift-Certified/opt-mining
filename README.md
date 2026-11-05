@@ -14,12 +14,12 @@ and a thin web client.
 > energy-yield estimate or an engineering-grade assessment. Results are produced
 > at the analysis-grid resolution and indicate only *where to look next*.
 
-> ⚠️ **The electricity demand layer is a PROXY.** `demand_proxy` is a normalized
-> proxy *indicator* — each NEM region's annual-mean operational demand figure
-> distributed across its cells by **urban footprint** (ABS UCL 2021), so the
-> proxy now **varies within a region** (urban cells score higher than rural).
-> It is **never** measured or actual local demand, and it remains coarse between
-> regions. See
+> ⚠️ **The electricity demand layer is a PROXY.** `demand_proxy` is a spatial
+> proxy *indicator* — each NEM region's annual-mean operational demand is spread
+> across its cells by distance to real NSW zone substations weighted by their
+> recorded load (`load_weighted`), then expressed as a **percentile within the
+> region** (0–1, a rank position, not a magnitude). It is **never** measured or
+> actual local demand at a cell. See
 > [`DATA/electricity-demand/demand_feature_method.md`](DATA/electricity-demand/demand_feature_method.md).
 
 The architecture follows a strict **data → criteria → scoring → presentation**
@@ -91,18 +91,28 @@ you do **not** need to rebuild the data to run the application.
 From **`app/`**:
 
 ```bash
-docker compose up --build
+docker compose -f docker-compose.yml up --build
 ```
 
-This builds and starts both services:
+This builds and starts both services as production images. (Plain
+`docker compose up --build` also merges `docker-compose.override.yml`, which runs
+the **dev** servers with your source tree mounted — use that only for
+development.)
 
 - Frontend (`web`) on <http://localhost:3000>
 - Backend (`api`) on <http://localhost:8000> (`/docs`, `/openapi.json` there)
 
 Every host port and cross-service URL is driven by environment variables
 (`API_HOST_PORT`, `WEB_HOST_PORT`, `NEXT_PUBLIC_API_BASE_URL`,
-`CORS_ALLOW_ORIGINS`, …) — no address is baked into source. Full table and
-override examples are in [`app/README.md`](app/README.md).
+`CORS_ALLOW_ORIGINS`, `NEXT_PUBLIC_BASEMAP_TILE_URL`, …) — no address is baked
+into source. If `CORS_ALLOW_ORIGINS` is unset the API allows **no** browser
+origin. Full table, override examples and the **non-Docker** start commands
+(uvicorn + `npm run dev`) are in [`app/README.md`](app/README.md).
+
+Each analysis run is stored under `DATA/service/runs/<run_id>/` (not tracked by
+git). The run id hashes the weights, the integrated input and the explanation
+templates, so a rebuilt dataset never reuses an old run; the folder can be
+deleted at any time to reclaim space.
 
 **Verify the running stack** (with both services up, from the repository root):
 
@@ -123,6 +133,7 @@ command**:
 python -m venv .venv
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -r requirements.txt      # engine deps (pandas, geopandas, …)
+pip install -r app/api/requirements.txt pytest==9.1.1   # API + test runner
 
 python -m pipeline                   # the one documented full-run command
 ```
@@ -209,9 +220,11 @@ summing to 1.00 is for readability only.
 Only eligible cells are scored; the exclusion layer rejects ineligible land in a
 separate, auditable stage (rules are data in
 [`pipeline/exclusions/exclusion_rules.yaml`](pipeline/exclusions/exclusion_rules.yaml)).
-The seven frozen reason codes: `protected_area`, `missing_wind_data`,
+The eight reason codes: `protected_area`, `missing_wind_data`,
 `excessive_slope`, `urban_area`, `offshore_or_marine`, `missing_slope_data`,
-`missing_demand_data`. Authoritative source: data specification §4.6.
+`missing_demand_data` and `outside_nsw_land` (cell centre outside the ABS NSW
+boundary, added for QA F-01). On the current baseline 23,266 of 47,311 cells are
+eligible. Authoritative source: decision-engine specification §6.5.
 
 ### Data provenance
 
@@ -235,9 +248,12 @@ distance (continuous penalty, no hard exclusion).
   a "best site" claim, a site approval or an engineering assessment.
 - **Relative scores** — min-max over the eligible population; a score is relative
   to the candidate set, not a portable absolute rating.
-- **Demand is a proxy** — NEM-region demand distributed by urban footprint
-  (ABS UCL 2021); it varies within a region (urban > rural) but stays coarse
-  between regions and is never measured local demand.
+- **Demand is a proxy** — NEM-region demand spread by distance to recorded
+  zone-substation load and ranked within the region; never measured local demand.
+- **Coarse border handling** — a cell is in or out of NSW by its centre point, so
+  border and coastal cells can straddle the boundary. ACT cells are excluded.
+- **Connection-point distance is unavailable** — `dist_connection_km` is null for
+  every cell, so it is context only and never scored.
 - **Linear normalisation**, **no cost/yield/engineering-grade modelling**, at
   **~5 km resolution** (mean-wind aggregation buries sub-cell ridge signals).
 
@@ -254,6 +270,10 @@ Full detail and the authoritative links for all of the above are in
 | [`app/`](app/README.md) | FastAPI `Decision_Service` + Next.js web client + Compose stack |
 | `DATA/` | Input and frozen derived datasets, with provenance per domain |
 | [`docs/`](docs/technical-reference.md) | Consolidated technical reference and ADRs |
-| [`docs/release/`](docs/release/README.md) | S3-10 release-candidate review package (demo script, limitations, AC-evidence matrix, rehearsal & verification) |
+| [`docs/release/`](docs/release/README.md) | Release evidence: demo script, limitations, AC-evidence matrix, rehearsal & verification |
+| [`scripts/`](scripts/README.md) | Data acquisition / rebuild runners and the S4-08 sensitivity analysis (`python -m scripts.sensitivity_analysis`) |
+| `outputs/` | Generated sanity-check (validation) report |
+| `Sprint-*-Tasks/` | Sprint task sheets with completion evidence; Sprint 4 holds the final backlog |
 | `tests/` | Pytest suite, including the end-to-end integration test |
+| `app/web/e2e/` | Playwright browser end-to-end tests (`npm run e2e` against a running stack) |
 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | CI: tests, Docker build + smoke test, frontend |

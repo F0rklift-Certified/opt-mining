@@ -25,6 +25,8 @@
 #                                          (statewide NSW)
 #   demand_proxy           float | null   AEMO regional demand proxy for the cell; null
 #                                          where the cell maps to no NEM region (statewide NSW)
+#   inside_nsw_land        bool           cell centroid covered by the ABS 2021 NSW state
+#                                          boundary (EPSG:3577, boundary included)
 #
 # condition syntax:
 #   "== value" | "!= value" | "> n" | ">= n" | "< n" | "<= n" | "is_null" | "is_not_null"
@@ -84,3 +86,12 @@ exclusions:
     field: demand_proxy
     condition: "is_null"
     reason_template: "Missing demand data"
+
+  # QA F-01 (2026-10-21): the grid's bounding box spills over the state border,
+  # and without this rule ~9.2k QLD/VIC/SA/ACT cells were scored and ranked.
+  # Ported from S3-10 55dd987 (F16 change approved by Xinhao Wang, 5 Oct 2026).
+  - name: outside_nsw_land
+    description: "Cell centroid is outside the ABS NSW state boundary"
+    field: inside_nsw_land
+    condition: "== False"
+    reason_template: "Outside NSW (cell centre is not in New South Wales)"

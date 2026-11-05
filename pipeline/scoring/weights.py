@@ -15,6 +15,8 @@ stale output behind.
 
 from __future__ import annotations
 
+import math
+
 from dataclasses import dataclass
 from numbers import Real
 from pathlib import Path
@@ -119,6 +121,11 @@ def _parse_weight(value: object, feature: str, path: Path) -> float:
             f"{path}: criterion '{feature}' has a negative weight {weight}; "
             f"weights must be non-negative"
         )
+    if not math.isfinite(weight) or weight > config.MAX_CRITERION_WEIGHT:
+        raise ScoringConfigError(
+            f"{path}: criterion '{feature}' has weight {weight}; weights are relative "
+            f"and must be at most {config.MAX_CRITERION_WEIGHT:g}"
+        )
     return weight
 
 
@@ -218,7 +225,7 @@ def parse_weights(
         )
 
     total = sum(c.weight for c in criteria)
-    if total <= 0:
+    if not math.isfinite(total) or total <= 0:
         raise ScoringConfigError(
             f"{where}: configured weights sum to {total}; at least one criterion "
             f"must carry a positive weight or no cell can be scored"

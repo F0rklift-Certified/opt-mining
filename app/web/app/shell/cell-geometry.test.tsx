@@ -11,7 +11,12 @@
  *     re-orders or recomputes anything.
  */
 import type { CellCollection } from "../api/decision-service";
-import { bboxFromCorners, cellCenters, cellIdsInBbox } from "./cell-geometry";
+import {
+  bboxFromCorners,
+  cellCenters,
+  cellGridIndex,
+  cellIdsInBbox,
+} from "./cell-geometry";
 
 function collection(
   cells: { id: string; lng: number; lat: number }[],
@@ -95,5 +100,64 @@ describe("cellIdsInBbox", () => {
 
   it("returns an empty array for an empty collection", () => {
     expect(cellIdsInBbox(collection([]), bbox)).toEqual([]);
+  });
+});
+
+describe("cellGridIndex (S4-02 constant-time hover + selection lookups)", () => {
+  // Three cells on the real 0.05° lattice (centres end in .x3625 like the grid).
+  const grid = collection([
+    { id: "a", lng: 150.03625, lat: -30.03625 },
+    { id: "b", lng: 150.08625, lat: -30.03625 },
+    { id: "c", lng: 150.03625, lat: -30.08625 },
+  ]);
+
+  it("finds the cell whose square holds the point, anywhere in its footprint", () => {
+    const index = cellGridIndex(grid);
+    expect(index.containing(150.03625, -30.03625)).toEqual([150.03625, -30.03625]);
+    // Near a corner of a's square but still inside it (half-width 0.025).
+    expect(index.containing(150.06, -30.015)).toEqual([150.03625, -30.03625]);
+    // Just across the edge into b's square.
+    expect(index.containing(150.0625, -30.03625)).toEqual([150.08625, -30.03625]);
+    expect(index.containing(150.04, -30.09)).toEqual([150.03625, -30.08625]);
+  });
+
+  it("returns null in an empty slot or far from every cell", () => {
+    const index = cellGridIndex(grid);
+    expect(index.containing(150.08625, -30.08625)).toBeNull(); // no cell there
+    expect(index.containing(145, -33)).toBeNull();
+    expect(cellGridIndex(collection([])).containing(150, -30)).toBeNull();
+  });
+
+  it("agrees with a brute-force square scan on random points", () => {
+    const cells = [];
+    for (let i = 0; i < 12; i++) {
+      for (let j = 0; j < 9; j++) {
+        if ((i * 7 + j * 3) % 5 === 0) continue; // leave holes in the grid
+        cells.push({ id: `${i}-${j}`, lng: 148.01 + i * 0.05, lat: -32.02 - j * 0.05 });
+      }
+    }
+    const fc = collection(cells);
+    const index = cellGridIndex(fc);
+    let seed = 7;
+    const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let n = 0; n < 500; n++) {
+      const lng = 147.95 + random() * 0.7;
+      const lat = -32.5 + random() * 0.55;
+      const brute =
+        cells.find(
+          (c) => Math.abs(lng - c.lng) <= 0.025 && Math.abs(lat - c.lat) <= 0.025,
+        ) ?? null;
+      const found = index.containing(lng, lat);
+      expect(found === null).toBe(brute === null);
+      if (brute && found) {
+        expect(Math.max(Math.abs(found[0] - lng), Math.abs(found[1] - lat))).toBeLessThanOrEqual(0.025);
+      }
+    }
+  });
+
+  it("looks up a cell's centre by cell_id", () => {
+    const index = cellGridIndex(grid);
+    expect(index.centerOf("b")).toEqual([150.08625, -30.03625]);
+    expect(index.centerOf("missing")).toBeNull();
   });
 });

@@ -8,11 +8,15 @@
  * so they are asserted directly. The component tests (CellMap.test.tsx /
  * CellPicker.test.tsx) prove both components actually ADD these layers.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { CellCollection, ExcludedRow } from "../api/decision-service";
+import { NSW_BOUNDARY } from "./nsw-boundary";
 import {
+  SCORE_RAMP,
+  scoreColorExpression,
+  scoreColorStops,
   CELLS_SOURCE_ID,
   EXCLUDED_NODATA_LAYER_ID,
   EXCLUDED_ENV_LAYER_ID,
@@ -211,7 +215,7 @@ describe("cell layer builders (shared visual language)", () => {
     expect(excludedNoDataLayer().id).toBe(EXCLUDED_NODATA_LAYER_ID);
   });
 
-  it("drives the eligible colour from a suitability_score ramp with the shared stops", () => {
+  it("drives the eligible colour from a suitability_score ramp spanning 0–1 when no quantiles are served", () => {
     const color = (eligibleLayer().paint as Record<string, unknown>)[
       "circle-color"
     ];
@@ -220,12 +224,172 @@ describe("cell layer builders (shared visual language)", () => {
       ["linear"],
       ["get", "suitability_score"],
       0,
-      "#fee5d9",
-      0.5,
-      "#fb6a4a",
+      "#fcbba1",
       1,
-      "#a50f15",
+      "#67000d",
     ]);
+  });
+
+  it("places the ramp at the served quantiles when given (S4-02)", () => {
+    const quantiles = [
+      { quantile: 0, suitability_score: 0.42 },
+      { quantile: 0.5, suitability_score: 0.72 },
+      { quantile: 1, suitability_score: 0.92 },
+    ];
+    const color = (eligibleLayer(CELLS_SOURCE_ID, quantiles).paint as Record<string, unknown>)[
+      "circle-color"
+    ];
+    // Three stops spread over the 7-colour ramp: first, middle, last colour.
+    expect(color).toEqual([
+      "interpolate",
+      ["linear"],
+      ["get", "suitability_score"],
+      0.42,
+      SCORE_RAMP[0],
+      0.72,
+      SCORE_RAMP[3],
+      0.92,
+      SCORE_RAMP[6],
+    ]);
+  });
+});
+
+describe("score colour stops (S4-02)", () => {
+  it("keeps the ramp one hue, getting darker from low to high suitability", () => {
+    // Lightness falls monotonically along the ramp (sequential encoding).
+    const luminance = (hex: string): number => {
+      const n = Number.parseInt(hex.slice(1), 16);
+      const r = (n >> 16) & 255;
+      const g = (n >> 8) & 255;
+      const b = n & 255;
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    for (let i = 1; i < SCORE_RAMP.length; i++) {
+      expect(luminance(SCORE_RAMP[i] as string)).toBeLessThan(
+        luminance(SCORE_RAMP[i - 1] as string),
+      );
+    }
+  });
+
+  it("skips a quantile that ties the previous one (MapLibre needs ascending stops)", () => {
+    const stops = scoreColorStops([
+      { quantile: 0, suitability_score: 0.5 },
+      { quantile: 0.1, suitability_score: 0.5 },
+      { quantile: 0.25, suitability_score: 0.6 },
+    ]);
+    expect(stops.map(([score]) => score)).toEqual([0.5, 0.6]);
+  });
+
+  it("collapses to a single colour when every eligible cell has the same score", () => {
+    expect(
+      scoreColorExpression([
+        { quantile: 0, suitability_score: 0.7 },
+        { quantile: 1, suitability_score: 0.7 },
+      ]),
+    ).toBe(SCORE_RAMP[0]);
+  });
+});
+
+/**
+ * Reference point-in-NSW by ray-casting every ring for every point — the
+ * original S3-03a algorithm. The fast row-cached clip must agree with it.
+ */
+function referenceInNsw(lng: number, lat: number): boolean {
+  const inRing = (ring: number[][]): boolean => {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i] as [number, number];
+      const [xj, yj] = ring[j] as [number, number];
+      if (yi > lat !== yj > lat && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  };
+  for (const polygon of NSW_BOUNDARY.coordinates) {
+    if (!inRing(polygon[0] as number[][])) continue;
+    if (!polygon.slice(1).some((hole) => inRing(hole as number[][]))) return true;
+  }
+  return false;
+}
+
+function pointCollection(points: [number, number][]): CellCollection {
+  return {
+    type: "FeatureCollection",
+    run_id: "run-clip",
+    features: points.map(([lng, lat], i) => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [lng, lat] },
+      properties: { cell_id: `p${i}`, eligible: true, suitability_score: 0.5, rank: i + 1 },
+    })),
+  } as CellCollection;
+}
+
+describe("clipToNsw performance rewrite (S4-02)", () => {
+  it("keeps exactly the points the reference ray-cast keeps", () => {
+    // A 0.05° lattice over the whole NSW bbox (borders, coast, ACT hole) plus
+    // Lord Howe Island, so every polygon/hole path is exercised.
+    const points: [number, number][] = [];
+    for (let lat = -37.6; lat <= -28.0; lat += 0.13) {
+      for (let lng = 140.9; lng <= 153.7; lng += 0.11) {
+        points.push([lng, lat]);
+      }
+    }
+    points.push([159.08, -31.55], [149.13, -35.28], [149.0, -35.4]);
+    const kept = new Set(
+      (clipToNsw(pointCollection(points)).features ?? []).map((f) => f.properties.cell_id),
+    );
+    const expected = new Set(
+      points.flatMap(([lng, lat], i) => (referenceInNsw(lng, lat) ? [`p${i}`] : [])),
+    );
+    expect(kept).toEqual(expected);
+    expect(expected.size).toBeGreaterThan(1000);
+  });
+
+  const SCORED_CSV = join(
+    __dirname,
+    "../../../../DATA/scoring/optmining_suitability-score_2026_nsw.csv",
+  );
+  const realGrid = existsSync(SCORED_CSV) ? it : it.skip;
+
+  realGrid("clips the full ~47k-cell baseline grid quickly and keeps every top-ranked cell", () => {
+    const lines = readFileSync(SCORED_CSV, "utf8").trim().split("\n");
+    const header = (lines[0] ?? "").split(",");
+    const col = (name: string) => header.indexOf(name);
+    const collection = {
+      type: "FeatureCollection",
+      run_id: "baseline",
+      features: lines.slice(1).map((line) => {
+        const cells = line.split(",");
+        const rank = cells[col("rank")] ? Number(cells[col("rank")]) : null;
+        return {
+          type: "Feature",
+          geometry: {
+            type: "Point",
+            coordinates: [Number(cells[col("centroid_lon")]), Number(cells[col("centroid_lat")])],
+          },
+          properties: { cell_id: cells[col("cell_id")], eligible: rank !== null, suitability_score: null, rank },
+        };
+      }),
+    } as unknown as CellCollection;
+    expect(collection.features?.length).toBeGreaterThan(40000);
+
+    const started = performance.now();
+    const clipped = clipToNsw(collection);
+    const elapsed = performance.now() - started;
+
+    // The S3-03a per-cell ray cast took ~2 s here; the row cache must keep a
+    // statewide redraw well under a second on the main thread.
+    expect(elapsed).toBeLessThan(750);
+    // Map ≡ shortlist (AC6): no cell the shortlist can show is clipped away.
+    const kept = new Set((clipped.features ?? []).map((f) => f.properties.cell_id));
+    const topRanked = (collection.features ?? []).filter(
+      (f) => f.properties.rank !== null && (f.properties.rank ?? Infinity) <= 100,
+    );
+    expect(topRanked).toHaveLength(100);
+    for (const feature of topRanked) {
+      expect(kept.has(feature.properties.cell_id)).toBe(true);
+    }
   });
 });
 

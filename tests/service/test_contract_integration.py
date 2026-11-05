@@ -423,8 +423,9 @@ def test_missing_cell_id_returns_404(client):
 def test_missing_engine_output_returns_503(client, monkeypatch, tmp_path):
     """
     A missing materialised engine output -> 503 naming the input (Requirement
-    7.3). Here the explanation output is pointed at a non-existent file, so the
-    site-detail read fails honestly rather than fabricating a result.
+    7.3). Here the Run's own explanation output (S4-03) is removed after
+    materialisation, so the site-detail read fails honestly rather than
+    fabricating a result or falling back to another Run's explanations.
     """
     # Materialise a real Run so the Scored_Table exists, then break one input.
     if not ENGINE_INPUT_AVAILABLE:
@@ -433,9 +434,7 @@ def test_missing_engine_output_returns_503(client, monkeypatch, tmp_path):
     run_id = client.post("/runs", json={"scenario": SCENARIO_A}).json()["run_id"]
     top_cell = client.get(f"/runs/{run_id}/results").json()[0]["cell_id"]
 
-    monkeypatch.setattr(
-        service_config, "EXPLANATION_PATH", tmp_path / "absent_explanations.json"
-    )
+    (service_config.RUNS_DIR / run_id / service_config.RUN_EXPLANATIONS_FILENAME).unlink()
 
     response = client.get(f"/runs/{run_id}/sites/{top_cell}")
 

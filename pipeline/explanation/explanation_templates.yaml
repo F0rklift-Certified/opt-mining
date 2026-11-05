@@ -27,8 +27,11 @@ version: "1.1"
 # --- Headline ---------------------------------------------------------------
 # The single screening-level headline used for every eligible cell. It states
 # the screening framing explicitly. It must be non-empty and must not claim a
-# "best" or "optimal" site.
-headline: "Higher-ranked candidate under the selected assumptions and criteria"
+# "best" or "optimal" site. Because it is identical for every eligible cell it
+# must not imply a rank position: S4-03 replaced "Higher-ranked candidate",
+# which also headed the lowest-ranked eligible cells. The cell's rank is shown
+# beside it.
+headline: "Eligible candidate under the selected assumptions and criteria"
 
 # --- Qualitative bands ------------------------------------------------------
 # A cell's NORMALISED value for a criterion (in [0, 1], where 1 is most

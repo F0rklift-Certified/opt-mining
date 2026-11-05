@@ -23,11 +23,11 @@ cost, an LCOE, an energy-yield estimate or an engineering-grade assessment.
   population on each run (min-max), so a score is relative to the candidate set
   actually compared, not a portable absolute rating. A score of 0.91 is "near
   the top of this run", not a physical quantity.
-- **Demand is a proxy.** The `demand_proxy` layer distributes each NEM region's
-  annual-mean operational-demand figure across its cells by urban footprint
-  (ABS UCL 2021). It is a proxy indicator; it is **not** measured or actual local
-  demand. It now varies within a region (urban cells score higher than rural)
-  but stays coarse between regions.
+- **Demand is a proxy.** The `demand_proxy` layer spreads each NEM region's
+  annual-mean operational-demand figure across its cells by distance to real NSW
+  zone substations weighted by their recorded load (`load_weighted`), then
+  expresses it as a percentile within the region. It is a proxy indicator; it is
+  **not** measured or actual local demand.
   See [`DATA/electricity-demand/demand_feature_method.md`](../../DATA/electricity-demand/demand_feature_method.md).
 - **Linear normalisation.** A single linear min-max per criterion, with no
   piecewise thresholds, diminishing returns or interaction terms.
@@ -36,6 +36,14 @@ cost, an LCOE, an energy-yield estimate or an engineering-grade assessment.
   performed.
 - **Coarse resolution (~5 km).** The ~5 km (0.05°) analysis grid and mean-wind
   aggregation bury sub-cell ridge and micro-siting signals.
+- **Study area by cell centre.** Cells whose centre lies outside the ABS NSW
+  boundary are excluded (`outside_nsw_land`, QA F-01); border and coastal cells
+  can still straddle the boundary, and ACT cells are excluded.
+- **Connection-point distance unavailable.** `dist_connection_km` is null for
+  every cell; it is shown as context only and never scored.
+- **Confidence barely varies.** On the current baseline 23,265 of 23,266 eligible
+  cells rate "high" data confidence and one rates "medium"; the "low" tier is
+  untested on real data, so confidence does little to separate candidates.
 
 ## Frozen assumptions (seven team decisions)
 
@@ -50,11 +58,11 @@ Documented in the data specification §2 and
 6. Protected-area exclusion — binary.
 7. Infrastructure distance — continuous penalty, no hard exclusion.
 
-The seven frozen exclusion reason codes (`protected_area`, `missing_wind_data`,
+The eight exclusion reason codes (`protected_area`, `missing_wind_data`,
 `excessive_slope`, `urban_area`, `offshore_or_marine`, `missing_slope_data`,
-`missing_demand_data`) are data in
-[`pipeline/exclusions/exclusion_rules.yaml`](../../pipeline/exclusions/exclusion_rules.yaml);
-S3-10 changed none of them.
+`missing_demand_data`, `outside_nsw_land`) are data in
+[`pipeline/exclusions/exclusion_rules.yaml`](../../pipeline/exclusions/exclusion_rules.yaml).
+`outside_nsw_land` was added on 2026-10-22 (QA F-01); the other seven are unchanged.
 
 ## Known gaps and Should / Could items not delivered
 

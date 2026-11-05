@@ -36,6 +36,12 @@ REPORT_FILENAME = "exclusion_summary.md"
 # (it is written inline in that module's run()), so it is repeated here verbatim.
 GRID_PATH = _grid_config.PROJECT_ROOT / "DATA" / "grid" / "nsw_analysis_grid.gpkg"
 
+# ABS ASGS 2021 state boundaries (national). The `outside_nsw_land` rule keeps
+# only cells whose centroid is covered by the single NSW feature
+# (state_code_2021 == "1"); ported from S3-10 55dd987 (Xinhao Wang), F-01.
+NSW_BOUNDARY_PATH = _grid_config.ABS_STE_PATH
+NSW_STATE_CODE = "1"
+
 # --- Feature-table inputs (joined on cell_id) ---
 # The exclusion stage no longer samples raw rasters/vectors; it joins the
 # per-cell feature tables the upstream stages already produce (S1-03 wind,

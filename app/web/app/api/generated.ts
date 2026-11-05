@@ -206,6 +206,8 @@ export interface components {
             features?: components["schemas"]["CellFeature"][];
             /** Run Id */
             run_id: string;
+            /** Score Quantiles */
+            score_quantiles?: components["schemas"]["ScoreQuantile"][];
             /**
              * Type
              * @constant
@@ -390,9 +392,7 @@ export interface components {
             /** Contradictions */
             contradictions?: components["schemas"]["SanityContradiction"][];
             /** Exclusion Assertions */
-            exclusion_assertions?: {
-                [key: string]: unknown;
-            }[];
+            exclusion_assertions?: Record<string, unknown>[];
             /**
              * Preliminary Disclaimer
              * @default
@@ -541,6 +541,19 @@ export interface components {
             rank_delta?: number | null;
         };
         /**
+         * ScoreQuantile
+         * @description One point of the map colour scale (CONTRACT.md §5, §4.7; added v1.2.2).
+         *
+         *     The eligible population's `suitability_score` at probability `quantile`.
+         *     Display metadata only — it changes no score, rank or eligibility.
+         */
+        ScoreQuantile: {
+            /** Quantile */
+            quantile: number;
+            /** Suitability Score */
+            suitability_score: number;
+        };
+        /**
          * SiteDetail
          * @description One cell's full detail for a Run (CONTRACT.md §5).
          *
@@ -563,13 +576,9 @@ export interface components {
              */
             eligible: boolean;
             /** Explanation */
-            explanation?: {
-                [key: string]: unknown;
-            };
+            explanation?: Record<string, unknown>;
             /** Features */
-            features?: {
-                [key: string]: unknown;
-            };
+            features?: Record<string, unknown>;
             /** Rank */
             rank?: number | null;
             /** Suitability Score */

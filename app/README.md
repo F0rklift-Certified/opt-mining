@@ -1,4 +1,4 @@
-# Opt-Mining Web Stack (S3-01b — Decision-Service Integration)
+# Opt-Mining Web Stack (FastAPI decision service + Next.js web app)
 
 > **Screening-level tool.** Opt-Mining performs **preliminary screening** — it
 > surfaces higher-ranked candidate areas for further investigation under the
@@ -242,8 +242,8 @@ explicit:
   host port).
 - **`API_INTERNAL_URL`** (default `http://api:8000`, wired in
   `docker-compose.yml`) is the **in-network** Compose service-name URL reserved
-  for server-side calls. The current integration runs in the browser and uses
-  `NEXT_PUBLIC_API_BASE_URL`.
+  for server-side calls. No code reads it today: the integration runs in the
+  browser and uses `NEXT_PUBLIC_API_BASE_URL`.
 
 To override a default for the whole stack, set the variable in the environment
 (or an `app/.env` file) before `docker compose up --build`, e.g.:

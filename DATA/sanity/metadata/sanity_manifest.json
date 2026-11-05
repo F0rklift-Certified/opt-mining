@@ -5,32 +5,32 @@
       "sidecar_file": "DATA/sanity/optmining_validation-results_2026_nsw.json",
       "stage": "sanity",
       "product_type": "derived",
-      "run_timestamp": "2026-10-12T11:47:44+00:00",
-      "generated_utc": "2026-10-12T11:47:45+00:00",
-      "pipeline_version": "628b0dc0b1f96450e85f32c8ad4b10090993fc0f-dirty",
-      "sha256_report": "0b3695ce7241b16bbfaa1dae1f8ac4cacc2d1fed52bd580a194c115629b7250c",
-      "bytes_report": 12882,
+      "run_timestamp": "2026-10-22T04:19:38+00:00",
+      "generated_utc": "2026-10-22T04:19:39+00:00",
+      "pipeline_version": "9d7280098afbc5f63ad67ca3c4d9497eeae6f66a",
+      "sha256_report": "9e7c9958aed5cfa38e215e1b76d5c4abe9c3319b64b8587773e6957e8626d28b",
+      "bytes_report": 12621,
       "inputs": [
         {
           "name": "shortlist",
-          "path": "DATA/shortlist/sprint1_shortlist_20261007.geojson",
+          "path": "DATA/shortlist/sprint1_shortlist_20261022T041848.geojson",
           "layer": null,
-          "sha256": "0572e0aafa5a003563f6c9d0482eef2ca5836c82d3f402f8ee1a98c9955dd26f",
-          "bytes": 5895
+          "sha256": "e29fadd8dd046d83baffe9d8d3c666ea7743f2244a36eb78c3744ee02f221e62",
+          "bytes": 6485
         },
         {
           "name": "scored_table",
           "path": "DATA/scoring/optmining_suitability-score_2026_nsw.gpkg",
           "layer": "suitability_score",
-          "sha256": "182d0a9a158ff65e223ccaec1355c27fd7cddb67cf3d6b02e1367c5d6d44277d",
-          "bytes": 15712256
+          "sha256": "7f79db687d7c11a73683a7245496458ef7468ba98e1760ad2a6198ea0382f2b6",
+          "bytes": 15495168
         },
         {
           "name": "integrated_feature_table",
           "path": "DATA/integration/optmining_integrated-features_2026_nsw.gpkg",
           "layer": "integrated_features",
-          "sha256": "4062224a2b96adace37f5166feb0fb7b7dbd9251e9433ed5028659347d2a1c80",
-          "bytes": 23347200
+          "sha256": "df7073bd6c0ac9c57baf1273f2dcf2da04d3baf0c697aeeaaab3cea2e60e4da5",
+          "bytes": 27131904
         },
         {
           "name": "wind_generators",
@@ -47,8 +47,8 @@
           "bytes": 13803520
         }
       ],
-      "sha256_sidecar": "a742bebd658703c58043891e356e1b6ef6e4bb1620584dfa69c5060c2f5bc8c5",
-      "bytes_sidecar": 18901
+      "sha256_sidecar": "bdec3530802b9a1f28ce1be70b6479002ef47f1ea710dbd7ee7ad35311859f06",
+      "bytes_sidecar": 18145
     }
   ]
 }

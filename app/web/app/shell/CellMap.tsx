@@ -35,7 +35,7 @@ import {
   type DecisionService,
   type ExcludedRow,
 } from "../api/decision-service";
-import { cellCenters } from "./cell-geometry";
+import { CELL_SIZE_DEG, cellGridIndex, type CellGridIndex } from "./cell-geometry";
 import {
   CELLS_SOURCE_ID as SOURCE_ID,
   EXCLUDED_NODATA_LAYER_ID,
@@ -44,6 +44,8 @@ import {
   NSW_SOURCE_ID,
   NSW_MASK_LAYER_ID,
   NSW_BORDER_LAYER_ID,
+  SCORE_RAMP,
+  type ScoreQuantile,
   clipToNsw,
   withExclusionClasses,
   nswBoundaryData,
@@ -52,6 +54,8 @@ import {
   excludedNoDataLayer,
   excludedEnvLayer,
   eligibleLayer,
+  scoreColorExpression,
+  scoreColorStops,
 } from "./cell-layers";
 
 export interface CellMapProps {
@@ -65,6 +69,14 @@ export interface CellMapProps {
    * and the lifecycle runs unchanged when no handler is wired.
    */
   onSelectCell?: (selection: CellSelection) => void;
+  /**
+   * The app-wide selected cell for THIS run (S4-02), or null for none. When it
+   * changes — a shortlist pick, the automatic rank-1 pick after a run, or a map
+   * click echoed back — the persistent selected box moves to that cell, so the
+   * map and the shortlist always show the same selection. Omitted: the box
+   * only follows map clicks (S3-03b behaviour).
+   */
+  selectedCellId?: string | null;
 }
 
 /**
@@ -86,13 +98,13 @@ const HOVER_SOURCE_ID = "cell-hover";
 const HOVER_LAYER_ID = "cell-hover-outline";
 
 /**
- * Half-width (in degrees) of the highlight square around a cell's point. The
- * analysis grid is ~5 km, i.e. roughly 0.045° of latitude; half of that frames
- * one cell snugly without overlapping its neighbours. A fixed geographic size
- * (not pixel-based) so the square tracks the cell as the map zooms. A geometric
- * presentation value only — no decision math.
+ * Half-width (in degrees) of the highlight square around a cell's point: half
+ * the 0.05° grid spacing, so the square is exactly one cell's footprint and
+ * adjacent squares meet edge to edge. A fixed geographic size (not pixel-based)
+ * so the square tracks the cell as the map zooms. A geometric presentation
+ * value only — no decision math.
  */
-const SELECTION_HALF_DEG = 0.0225;
+const SELECTION_HALF_DEG = CELL_SIZE_DEG / 2;
 
 /**
  * Build a highlight source's data from a cell's point, or an empty
@@ -127,39 +139,6 @@ function selectionSquareData(
       },
     ],
   };
-}
-
-/**
- * Find the cell centre whose highlight square CONTAINS the cursor `[lng, lat]`,
- * or null when the cursor is inside no cell's square. "Inside the square" means
- * within {@link SELECTION_HALF_DEG} of a centre on BOTH axes — the same box the
- * outline draws — so the hover box appears whenever the pointer is anywhere in
- * a cell's footprint, not only over its small circle. When squares of adjacent
- * centres overlap the cursor, the nearest centre (by Chebyshev distance) wins,
- * so exactly one cell is highlighted. A pure geometric read of coordinates
- * already in memory — no decision math; a plain `for` loop (never `.reduce`).
- */
-function cellSquareContaining(
-  lng: number,
-  lat: number,
-  centers: [number, number][],
-): [number, number] | null {
-  const d = SELECTION_HALF_DEG;
-  let best: [number, number] | null = null;
-  let bestDist = Infinity;
-  for (let i = 0; i < centers.length; i++) {
-    const center = centers[i];
-    if (!center) continue;
-    const dx = Math.abs(lng - center[0]);
-    const dy = Math.abs(lat - center[1]);
-    if (dx > d || dy > d) continue; // cursor outside this cell's square
-    const dist = Math.max(dx, dy);
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = center;
-    }
-  }
-  return best;
 }
 
 /**
@@ -241,6 +220,34 @@ const NSW_CENTER: [number, number] = [147.0, -32.5];
 const NSW_ZOOM = 5;
 
 /**
+ * Pan/zoom limits (S4-02): the view can't drift far from NSW (Lord Howe Island
+ * stays reachable) or zoom out past the whole-state overview, and stops at the
+ * zoom where one 0.05° cell is ~150 px wide — closer adds no information.
+ */
+const NSW_MAX_BOUNDS: [[number, number], [number, number]] = [
+  [136.0, -40.5],
+  [162.0, -25.0],
+];
+const MIN_ZOOM = 4.5;
+const MAX_ZOOM = 12;
+
+/**
+ * Hand a run's cells to the map: replace the cell source's data and re-place
+ * the eligible colour stops at this run's served `score_quantiles`. The data is
+ * passed through unmodified; only the styling expression is rebuilt.
+ */
+function paintCells(map: MapLibreMap, collection: CellCollection): void {
+  (map.getSource(SOURCE_ID) as GeoJSONSource | undefined)?.setData(
+    collection as unknown as GeoJSON.FeatureCollection,
+  );
+  map.setPaintProperty(
+    ELIGIBLE_LAYER_ID,
+    "circle-color",
+    scoreColorExpression(collection.score_quantiles),
+  );
+}
+
+/**
  * Minimal inline raster style driven by NEXT_PUBLIC_BASEMAP_TILE_URL (design
  * §5.1). The basemap is context only: when the env var is unset the style has
  * no raster source and the cell layer renders over MapLibre's empty background
@@ -284,7 +291,12 @@ function statusText(runId: string | null, loading: boolean, error: string | null
 }
 
 /** The interactive-map region body: a MapLibre map of the Run's cells. */
-export default function CellMap({ runId, service, onSelectCell }: CellMapProps): JSX.Element {
+export default function CellMap({
+  runId,
+  service,
+  onSelectCell,
+  selectedCellId,
+}: CellMapProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const pendingDataRef = useRef<CellCollection | null>(null);
@@ -306,15 +318,27 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
   const setHoverSquareRef = useRef<(point: [number, number] | null) => void>(
     () => {},
   );
-  // The current run's cell centre points, kept so the map-wide mousemove can
-  // test whether the cursor is INSIDE a cell's square (not just over its
-  // circle) and draw the hover box there. Refreshed whenever cell data is
-  // applied; emptied on run change. A ref so the mount-only handler reads the
-  // latest centres without the effect depending on them.
-  const cellCentersRef = useRef<[number, number][]>([]);
+  // The current run's cells indexed by grid slot and cell_id, so the map-wide
+  // mousemove can find the cell whose SQUARE holds the cursor (not just its
+  // circle) and the selection effect can find a selected cell's centre, both in
+  // constant time. Rebuilt whenever cell data is applied; null on run change. A
+  // ref so the mount-only handler reads the latest index without depending on it.
+  const cellIndexRef = useRef<CellGridIndex | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The applied run's colour-scale points (drive the legend), and a counter
+  // bumped each time cells are applied so the selection effect re-pins the
+  // selected box once the selected cell's coordinates are known.
+  const [scoreQuantiles, setScoreQuantiles] = useState<ScoreQuantile[]>([]);
+  const [cellsVersion, setCellsVersion] = useState(0);
+  // Records what was just applied: the index for lookups, the legend scale,
+  // and the version bump. Only refs and state setters — stable across renders.
+  const cellsAppliedRef = useRef((collection: CellCollection) => {
+    cellIndexRef.current = cellGridIndex(collection);
+    setScoreQuantiles(collection.score_quantiles ?? []);
+    setCellsVersion((version) => version + 1);
+  });
 
   // Mount effect: create the map once; tear it down on unmount.
   useEffect(() => {
@@ -326,6 +350,9 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
       style: basemapStyle(),
       center: NSW_CENTER,
       zoom: NSW_ZOOM,
+      minZoom: MIN_ZOOM,
+      maxZoom: MAX_ZOOM,
+      maxBounds: NSW_MAX_BOUNDS,
       // An options object enables the AttributionControl (which surfaces the
       // required OSM attribution); `true` is not a valid value in maplibre 4.x.
       attributionControl: {},
@@ -406,17 +433,15 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
 
       // The HOVER box follows the pointer based on the SQUARE footprint, not
       // the small circle: a map-wide `mousemove` snaps the cursor to the cell
-      // whose square contains it (via `cellSquareContaining`) and draws the box
-      // there, so the box appears whenever the pointer is anywhere inside a
+      // whose square contains it (a constant-time grid lookup) and draws the
+      // box there, so the box appears whenever the pointer is anywhere inside a
       // cell's square — not only directly over its dot. When the cursor is
       // inside no cell's square the box clears. The pointer cursor mirrors the
       // same test. The pinned selected box is untouched by hover.
       map.on("mousemove", (event: maplibregl.MapMouseEvent) => {
-        const center = cellSquareContaining(
-          event.lngLat.lng,
-          event.lngLat.lat,
-          cellCentersRef.current,
-        );
+        const center =
+          cellIndexRef.current?.containing(event.lngLat.lng, event.lngLat.lat) ??
+          null;
         setHoverSquareRef.current(center);
         map.getCanvas().style.cursor = center ? "pointer" : "";
       });
@@ -428,11 +453,9 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
       setMapReady(true);
       const pending = pendingDataRef.current;
       if (pending) {
-        (map.getSource(SOURCE_ID) as GeoJSONSource | undefined)?.setData(
-          pending as unknown as GeoJSON.FeatureCollection,
-        );
-        // Seed the hover-containment test off the replayed cells.
-        cellCentersRef.current = cellCenters(pending);
+        paintCells(map, pending);
+        // Seed the hover/selection index off the replayed cells.
+        cellsAppliedRef.current(pending);
         pendingDataRef.current = null;
       }
     });
@@ -460,10 +483,10 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
       const map = mapRef.current;
       const source = map?.getSource(SOURCE_ID) as GeoJSONSource | undefined;
       const pending = pendingDataRef.current;
-      if (mapReady && source && pending) {
-        source.setData(pending as unknown as GeoJSON.FeatureCollection);
-        // Seed the hover-containment test off the replayed cells.
-        cellCentersRef.current = cellCenters(pending);
+      if (mapReady && map && source && pending) {
+        paintCells(map, pending);
+        // Seed the hover/selection index off the replayed cells.
+        cellsAppliedRef.current(pending);
         pendingDataRef.current = null;
       }
       return;
@@ -478,7 +501,7 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
     // that belongs to the previous run.
     setSelectedSquareRef.current(null);
     setHoverSquareRef.current(null);
-    cellCentersRef.current = [];
+    cellIndexRef.current = null;
 
     // `requestIdRef` is the single staleness guard (design §5.3): a response is
     // dropped iff a newer run has superseded it. The effect does not use a
@@ -498,6 +521,13 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
     ])
       .then(([cells, exclusions]) => {
         if (myId !== requestIdRef.current) return; // stale run superseded
+        // The map must draw the SAME run the shortlist shows (S4-02 AC6): a
+        // collection for any other run is refused, never drawn.
+        if (cells.run_id !== runId) {
+          throw new Error(
+            `received cells for run ${cells.run_id}, expected ${runId}`,
+          );
+        }
         // Enrich with exclusion classes, then clip the drawn cells to the NSW
         // shape (presentation-only: removes out-of-state features geographically
         // without touching any surviving cell's styling values).
@@ -508,10 +538,10 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
         // creation. If the map is not yet ready, buffer for the load handler.
         const map = mapRef.current;
         const source = map?.getSource(SOURCE_ID) as GeoJSONSource | undefined;
-        if (source) {
-          source.setData(collection as unknown as GeoJSON.FeatureCollection);
-          // Seed the hover-containment test off the just-drawn cells.
-          cellCentersRef.current = cellCenters(collection);
+        if (map && source) {
+          paintCells(map, collection);
+          // Seed the hover/selection index off the just-drawn cells.
+          cellsAppliedRef.current(collection);
           pendingDataRef.current = null;
         } else {
           pendingDataRef.current = collection;
@@ -529,45 +559,121 @@ export default function CellMap({ runId, service, onSelectCell }: CellMapProps):
       });
   }, [runId, service, mapReady]);
 
+  // Selection effect (S4-02): mirror the app-wide selection onto the map. When
+  // the selected cell changes, or this run's cells have just been applied (so
+  // its centre is now known), move the persistent box to that cell, or clear it
+  // when nothing is selected. Skipped when the prop is not wired, so the box
+  // then keeps its click-only behaviour.
+  useEffect(() => {
+    if (selectedCellId === undefined || !mapReady) return;
+    const center =
+      selectedCellId === null
+        ? null
+        : (cellIndexRef.current?.centerOf(selectedCellId) ?? null);
+    setSelectedSquareRef.current(center);
+    // A selection made elsewhere (e.g. a shortlist row) may sit outside the
+    // current view when zoomed in: pan to it, keeping the zoom, so the box is
+    // always visible. A selection already in view never moves the map.
+    const map = mapRef.current;
+    if (center && map && !map.getBounds().contains(center)) {
+      map.easeTo({ center });
+    }
+  }, [selectedCellId, mapReady, cellsVersion]);
+
   return (
     <div>
       <div ref={containerRef} className="om-map" aria-label="Interactive cell map" />
       {statusText(runId, loading, error)}
-      <MapLegend />
+      <MapLegend quantiles={scoreQuantiles} />
     </div>
   );
 }
 
+/** A score for the legend: two decimals, like the shortlist. */
+function formatScore(score: number): string {
+  return score.toFixed(2);
+}
+
 /**
- * A static legend naming the three cell classes the layers paint, so the
- * statewide (NSW-wide) map is read honestly: eligible candidates vs genuine
- * environmental rule-outs vs the few cells left unassessed for want of a
- * critical input value. The swatch colours mirror the layer paint above.
+ * The map legend (S4-02): a continuous colour bar for eligible cells labelled
+ * with this run's lowest, median and highest suitability scores, then the two
+ * excluded classes, the selection/hover outlines and the outside-NSW mask, so
+ * every style on the map is named. The bar is drawn from the SAME stops the
+ * eligible layer uses, so legend and map cannot disagree. Before a run's cells
+ * arrive the bar shows the ramp without numbers.
  */
-function MapLegend(): JSX.Element {
+function MapLegend({
+  quantiles,
+}: {
+  quantiles: readonly ScoreQuantile[];
+}): JSX.Element {
+  const stops = scoreColorStops(quantiles);
+  const gradient =
+    quantiles.length > 0
+      ? `linear-gradient(to right, ${stops.map(([, colour]) => colour).join(", ")})`
+      : `linear-gradient(to right, ${SCORE_RAMP.join(", ")})`;
+  const lowest = quantiles[0];
+  const median = quantiles.find((point) => point.quantile === 0.5);
+  const highest = quantiles[quantiles.length - 1];
   return (
-    <ul className="om-map__legend" aria-label="Map legend">
-      <li>
-        <span
-          className="om-map__swatch om-map__swatch--eligible"
-          aria-hidden="true"
-        />
-        Eligible candidate (shade = suitability score)
-      </li>
-      <li>
-        <span
-          className="om-map__swatch om-map__swatch--env"
-          aria-hidden="true"
-        />
-        Excluded — environmental rule (protected area, slope, urban, offshore)
-      </li>
-      <li>
-        <span
-          className="om-map__swatch om-map__swatch--nodata"
-          aria-hidden="true"
-        />
-        Not assessed — missing input data (e.g. no demand value)
-      </li>
-    </ul>
+    <div className="om-map__legend" aria-label="Map legend" role="group">
+      <p className="om-map__legend-title">
+        Eligible candidate — relative suitability score
+      </p>
+      <div
+        className="om-map__ramp"
+        style={{ backgroundImage: gradient }}
+        aria-hidden="true"
+      />
+      {lowest && highest ? (
+        <p className="om-map__ramp-labels">
+          <span>Lower {formatScore(lowest.suitability_score)}</span>
+          {median ? <span>Median {formatScore(median.suitability_score)}</span> : null}
+          <span>Higher {formatScore(highest.suitability_score)}</span>
+        </p>
+      ) : null}
+      <p className="om-map__legend-note">
+        Darker = higher score among eligible cells (colour steps at the 10th,
+        25th, 50th, 75th and 90th percentiles). Excluded cells are not scored
+        and are never shown on this scale.
+      </p>
+      <ul className="om-map__legend-keys">
+        <li>
+          <span
+            className="om-map__swatch om-map__swatch--env"
+            aria-hidden="true"
+          />
+          Excluded — environmental rule (protected area, slope, urban, offshore)
+        </li>
+        <li>
+          <span
+            className="om-map__swatch om-map__swatch--nodata"
+            aria-hidden="true"
+          />
+          Not assessed — missing input data (e.g. no demand value)
+        </li>
+        <li>
+          <span
+            className="om-map__swatch om-map__swatch--selected"
+            aria-hidden="true"
+          />
+          Selected site (same cell as the shortlist and site detail)
+        </li>
+        <li>
+          <span
+            className="om-map__swatch om-map__swatch--hover"
+            aria-hidden="true"
+          />
+          Cell under the pointer — click to inspect
+        </li>
+        <li>
+          <span
+            className="om-map__swatch om-map__swatch--mask"
+            aria-hidden="true"
+          />
+          Outside NSW (not analysed)
+        </li>
+      </ul>
+    </div>
   );
 }

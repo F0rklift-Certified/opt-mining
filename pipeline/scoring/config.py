@@ -59,6 +59,13 @@ PROVENANCE_FILENAME = "DATA_PROVENANCE.md"
 
 # --- Required columns on the integrated table ---
 CELL_ID_COLUMN = "cell_id"
+
+# Upper bound on any single criterion weight. Weights are relative (they are
+# normalised by their sum), so a cap loses no expressiveness; it exists so a
+# huge value such as 1e308 cannot overflow the sum to inf and silently score
+# every cell 0 while ranks are still shown (QA F-07). Structural guard, not a
+# model parameter.
+MAX_CRITERION_WEIGHT = 100.0
 ELIGIBLE_COLUMN = "eligible"
 
 # The S1-09 composite confidence flag. Composed from integration/config.py so

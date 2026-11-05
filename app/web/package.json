@@ -2,7 +2,7 @@
   "name": "optmining-web",
   "version": "0.1.0",
   "private": true,
-  "description": "Opt-Mining Next.js frontend — typed integration with the FastAPI decision service for the NSW MVP.",
+  "description": "Opt-Mining Next.js frontend \u2014 typed integration with the FastAPI decision service for the NSW MVP.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -12,7 +12,8 @@
     "test:watch": "jest --watch",
     "typecheck": "tsc --noEmit",
     "generate:api-schema": "python3 scripts/export-openapi.py",
-    "generate:api-client": "npm run generate:api-schema && openapi-typescript openapi/decision-service.openapi.json --empty-objects-unknown -o app/api/generated.ts"
+    "generate:api-client": "npm run generate:api-schema && openapi-typescript openapi/decision-service.openapi.json --empty-objects-unknown -o app/api/generated.ts",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "maplibre-gl": "4.7.1",
@@ -22,6 +23,7 @@
     "react-dom": "18.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@testing-library/jest-dom": "6.4.6",
     "@testing-library/react": "16.0.0",
     "@types/jest": "29.5.12",

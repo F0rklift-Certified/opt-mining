@@ -248,7 +248,7 @@ class ErrorResponse(BaseModel):
 
 app = FastAPI(
     title="Opt-Mining Decision_Service",
-    version="1.1",
+    version="1.3.1",
     description=(
         "The thin read-and-serve HTTP layer over the Opt-Mining decision "
         "engine (S2-08). It performs no decision logic: it serves the "

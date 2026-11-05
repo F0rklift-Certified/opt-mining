@@ -148,6 +148,38 @@ def test_422_invalid_weights_names_the_fault(client, app_module, monkeypatch):
     _assert_names_fault(response.json(), "wind_speed")
 
 
+def test_422_extreme_weight_through_the_real_parser(client):
+    """
+    QA F-07: a 1e308 weight used to overflow the weight sum to inf, scoring
+    every cell 0 while ranks were still shown. Unmocked: the real engine
+    parser must reject it as a 422 naming the criterion, before any Run.
+    """
+    response = client.post(
+        "/runs",
+        json={
+            "weights": {
+                "criteria": [
+                    {
+                        "feature": "wind_speed",
+                        "weight": 1e308,
+                        "direction": "higher_is_better",
+                        "rationale": "resource",
+                    },
+                    {
+                        "feature": "slope_deg",
+                        "weight": 1e308,
+                        "direction": "lower_is_better",
+                        "rationale": "constructability",
+                    },
+                ]
+            }
+        },
+    )
+
+    assert response.status_code == 422
+    _assert_names_fault(response.json(), "wind_speed")
+
+
 def test_422_unknown_scenario_names_the_fault(client, app_module, monkeypatch):
     """
     An unknown scenario -> `run_analysis` raises `ScoringConfigError`; mapped to
